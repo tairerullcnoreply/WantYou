@@ -1,12 +1,11 @@
 # WantYou
-WantYou app
-
+WantYou app is a website
 You can login or create an account and look up other users by full name or username
 
 You can mark people as:
-Know you
-Want you
-Both
+* Know you
+* Want you
+* Both
 
 You can chose to make a Want You anonymous and the user you marked that way can chat with you, get to know you, and ask you to reveal who you are by making your Want You public
 
