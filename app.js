@@ -261,10 +261,21 @@ function normalizeConnectionState(state) {
 
 function normalizeThread(thread) {
   if (!thread) return null;
+  const unreadCount = Number.isFinite(thread.unreadCount) && thread.unreadCount > 0 ? Math.floor(thread.unreadCount) : 0;
+  const totalMessages = Number.isFinite(thread.totalMessages) && thread.totalMessages >= 0
+    ? Math.floor(thread.totalMessages)
+    : Array.isArray(thread.messages)
+    ? thread.messages.length
+    : 0;
+  const previousCursor = typeof thread.previousCursor === "string" ? thread.previousCursor : null;
   return {
     ...thread,
     inbound: normalizeConnectionState(thread.inbound),
     outbound: normalizeConnectionState(thread.outbound),
+    unreadCount,
+    totalMessages,
+    hasMore: Boolean(thread.hasMore),
+    previousCursor,
   };
 }
 
@@ -1474,7 +1485,8 @@ async function initLookup() {
   }
 }
 
-function renderThreadView(context, thread) {
+function renderThreadView(context, thread, options = {}) {
+  const { preserveScroll = false, previousScrollHeight = 0 } = options;
   const {
     statusHeader,
     statusLabel,
@@ -1487,6 +1499,7 @@ function renderThreadView(context, thread) {
     messageLog,
     composer,
     placeholder,
+    loadMoreButton,
   } = context;
 
   const inbound = normalizeConnectionState(thread.inbound);
@@ -1496,6 +1509,17 @@ function renderThreadView(context, thread) {
   placeholder.hidden = true;
   statusHeader.hidden = false;
   composer.hidden = false;
+
+  if (loadMoreButton) {
+    const shouldShow = Boolean(thread.hasMore);
+    loadMoreButton.hidden = !shouldShow;
+    if (shouldShow) {
+      loadMoreButton.disabled = Boolean(thread.loadingOlder);
+      loadMoreButton.textContent = thread.loadingOlder
+        ? "Loading earlier messages..."
+        : "Load earlier messages";
+    }
+  }
 
   statusLabel.textContent = STATUS_LABELS[inbound.status] ?? STATUS_LABELS.none;
   title.textContent = thread.displayName;
@@ -1557,7 +1581,9 @@ function renderThreadView(context, thread) {
         timestamp ? ` · ${escapeHtml(timestamp)}` : ""
       }`;
       return `
-        <li class="message message--${direction}">
+        <li class="message message--${direction}" data-message-id="${escapeHtml(
+          message.id ?? ""
+        )}">
           <span class="message__meta">${meta}</span>
           <p>${escapeHtml(message.text ?? "")}</p>
         </li>
@@ -1569,8 +1595,14 @@ function renderThreadView(context, thread) {
     messageLog.innerHTML = "<li class=\"message message--empty\"><p>No messages yet. Say hi!</p></li>";
   }
 
-  if (messageLog.scrollHeight) {
+  if (!preserveScroll && messageLog.scrollHeight) {
     messageLog.scrollTop = messageLog.scrollHeight;
+  }
+  if (preserveScroll && messageLog.scrollHeight) {
+    const delta = messageLog.scrollHeight - previousScrollHeight;
+    if (delta > 0) {
+      messageLog.scrollTop = delta;
+    }
   }
 }
 
@@ -1592,6 +1624,8 @@ async function initMessages() {
   const input = document.getElementById("message-input");
   const placeholder = threadSection.querySelector("[data-thread-placeholder]");
   const newChatButton = document.querySelector('[data-action="new-chat"]');
+  const loadMoreButton = threadSection.querySelector('[data-action="load-more"]');
+  const searchInput = document.querySelector('.app-search input[type="search"]');
   if (!statusHeader || !statusLabel || !title || !messageLog || !composer || !placeholder) {
     return;
   }
@@ -1615,6 +1649,10 @@ async function initMessages() {
   const threadMap = new Map();
   let activeThread = null;
   let loadingThread = false;
+  let loadingOlderMessages = false;
+  let searchTerm = "";
+
+  const MESSAGE_PAGE_SIZE = 50;
 
   const context = {
     statusHeader,
@@ -1628,6 +1666,7 @@ async function initMessages() {
     messageLog,
     composer,
     placeholder,
+    loadMoreButton,
   };
 
   const fetchThreads = async () => {
@@ -1635,8 +1674,14 @@ async function initMessages() {
     return (data?.threads ?? []).map((thread) => normalizeThread(thread));
   };
 
-  const fetchThreadDetail = async (username) => {
-    const data = await apiRequest(`/messages/thread/${encodeURIComponent(username)}`);
+  const fetchThreadDetail = async (username, { cursor } = {}) => {
+    const params = new URLSearchParams();
+    params.set("limit", MESSAGE_PAGE_SIZE);
+    if (cursor) {
+      params.set("cursor", cursor);
+    }
+    const query = params.toString() ? `?${params.toString()}` : "";
+    const data = await apiRequest(`/messages/thread/${encodeURIComponent(username)}${query}`);
     return normalizeThread(data?.thread ?? null);
   };
 
@@ -1658,10 +1703,32 @@ async function initMessages() {
       return;
     }
 
-    threads.sort((a, b) => timestampScore(b.updatedAt) - timestampScore(a.updatedAt));
+    const normalizedTerm = searchTerm.trim().toLowerCase();
+    const isSearching = normalizedTerm.length > 0;
+    const filteredThreads = threads.filter((thread) => {
+      if (!isSearching) return true;
+      const haystacks = [thread.displayName, thread.fullName, thread.lastMessage?.text]
+        .filter(Boolean)
+        .map((value) => value.toLowerCase());
+      return haystacks.some((value) => value.includes(normalizedTerm));
+    });
+
+    if (!filteredThreads.length) {
+      const emptyItem = document.createElement("li");
+      emptyItem.className = "messages-list__empty";
+      emptyItem.textContent = isSearching
+        ? "No conversations match your search."
+        : "No conversations yet.";
+      list.appendChild(emptyItem);
+      return;
+    }
+
+    const sorted = filteredThreads
+      .slice()
+      .sort((a, b) => timestampScore(b.updatedAt) - timestampScore(a.updatedAt));
 
     const fragment = document.createDocumentFragment();
-    threads.forEach((thread) => {
+    sorted.forEach((thread) => {
       const item = document.createElement("li");
       const button = document.createElement("button");
       button.className = "messages-list__item";
@@ -1675,9 +1742,11 @@ async function initMessages() {
       const statusClass = tagClassForStatus(inbound.status ?? "none");
       const statusText = STATUS_LABELS[inbound.status ?? "none"] ?? STATUS_LABELS.none;
       const statusName = STATUS_NAMES[inbound.status ?? "none"] ?? inbound.status ?? "none";
+      const timeText = formatRelativeTime(thread.updatedAt) || "";
       let previewText;
       if (thread.lastMessage?.text) {
-        previewText = `“${escapeHtml(thread.lastMessage.text)}”`;
+        const safeText = escapeHtml(thread.lastMessage.text);
+        previewText = `“${safeText}”`;
       } else if (inbound.status && inbound.status !== "none") {
         previewText = `${escapeHtml(thread.displayName)} marked you as ${escapeHtml(
           statusName
@@ -1686,14 +1755,32 @@ async function initMessages() {
         previewText = "No messages yet.";
       }
 
+      const unreadCount = Math.max(0, thread.unreadCount ?? 0);
+      const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
+      const unreadMarkup = `
+        <span class="messages-list__unread" data-unread${
+          unreadCount ? "" : " hidden"
+        }>${escapeHtml(unreadLabel)}</span>
+      `;
+      const timeMarkup = timeText
+        ? `<span class="messages-list__time">${escapeHtml(timeText)}</span>`
+        : "";
+
       button.innerHTML = `
-        <span class="${statusClass}">${escapeHtml(statusText)}</span>
+        <span class="messages-list__row">
+          <span class="${statusClass}">${escapeHtml(statusText)}</span>
+          ${timeMarkup}
+        </span>
         <span class="messages-list__name-row">
           <span class="messages-list__name">${escapeHtml(thread.displayName)}</span>
           <span class="user-badges user-badges--compact user-badges--inline" data-user-badges hidden></span>
         </span>
-        <span class="messages-list__preview">${previewText}</span>
+        <span class="messages-list__row messages-list__row--bottom">
+          <span class="messages-list__preview">${previewText}</span>
+          ${unreadMarkup}
+        </span>
       `;
+      button.classList.toggle("messages-list__item--unread", unreadCount > 0);
       const badgeContainer = button.querySelector("[data-user-badges]");
       if (connectionIsAnonymous(inbound)) {
         if (badgeContainer) {
@@ -1715,6 +1802,93 @@ async function initMessages() {
     list.appendChild(fragment);
     updateListSelection(activeThread?.username ?? "");
   };
+
+  const markThreadRead = async (thread, force = false) => {
+    if (!thread || (!force && thread.unreadCount <= 0)) {
+      return;
+    }
+    try {
+      const hadUnread = thread.unreadCount > 0;
+      await apiRequest(`/messages/thread/${encodeURIComponent(thread.username)}/read`, {
+        method: "POST",
+      });
+      thread.unreadCount = 0;
+      const summary = threads.find((entry) => entry.username === thread.username);
+      if (summary) {
+        summary.unreadCount = 0;
+      }
+      threadMap.set(thread.username, thread);
+      if (hadUnread) {
+        renderList();
+      }
+    } catch (error) {
+      console.warn("Unable to mark conversation read", error);
+    }
+  };
+
+  const loadOlderMessages = async (thread) => {
+    if (
+      !thread ||
+      !thread.hasMore ||
+      !thread.previousCursor ||
+      loadingOlderMessages
+    ) {
+      return;
+    }
+    loadingOlderMessages = true;
+    thread.loadingOlder = true;
+    if (loadMoreButton) {
+      loadMoreButton.disabled = true;
+      loadMoreButton.textContent = "Loading earlier messages...";
+    }
+    const previousHeight = messageLog.scrollHeight;
+    try {
+      const older = await fetchThreadDetail(thread.username, {
+        cursor: thread.previousCursor,
+      });
+      const newMessages = Array.isArray(older?.messages) ? older.messages : [];
+      if (newMessages.length) {
+        const existingIds = new Set((thread.messages ?? []).map((message) => message.id));
+        const merged = newMessages.filter((message) => !existingIds.has(message.id));
+        thread.messages = [...merged, ...(thread.messages ?? [])];
+      }
+      thread.hasMore = Boolean(older?.hasMore);
+      thread.previousCursor = older?.previousCursor ?? null;
+      thread.totalMessages = Number.isFinite(older?.totalMessages)
+        ? older.totalMessages
+        : thread.totalMessages;
+      const summary = threads.find((entry) => entry.username === thread.username);
+      if (summary && Number.isFinite(thread.totalMessages)) {
+        summary.totalMessages = thread.totalMessages;
+      }
+    } catch (error) {
+      console.error("Unable to load earlier messages", error);
+      window.alert(error?.message || "We couldn't load earlier messages.");
+    } finally {
+      thread.loadingOlder = false;
+      loadingOlderMessages = false;
+      renderThreadView(context, thread, {
+        preserveScroll: true,
+        previousScrollHeight: previousHeight,
+      });
+      attachThreadControls(thread);
+    }
+  };
+
+  if (loadMoreButton) {
+    loadMoreButton.addEventListener("click", () => {
+      if (activeThread) {
+        loadOlderMessages(activeThread);
+      }
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      searchTerm = searchInput.value || "";
+      renderList();
+    });
+  }
 
   const updateOutbound = async (thread, anonymous) => {
     const originalOutbound = normalizeConnectionState(thread.outbound);
@@ -1835,9 +2009,14 @@ async function initMessages() {
         const message = response?.message;
         if (message) {
           thread.messages = thread.messages ?? [];
+          const currentCount = Number.isFinite(thread.totalMessages)
+            ? thread.totalMessages
+            : thread.messages.length;
           thread.messages.push(message);
           thread.lastMessage = message;
           thread.updatedAt = message.createdAt;
+          thread.totalMessages = currentCount + 1;
+          thread.unreadCount = 0;
           threadMap.set(thread.username, thread);
           renderThreadView(context, thread);
           attachThreadControls(thread);
@@ -1851,6 +2030,8 @@ async function initMessages() {
             summary.updatedAt = message.createdAt;
             summary.outbound = thread.outbound;
             summary.inbound = thread.inbound;
+            summary.unreadCount = 0;
+            summary.totalMessages = thread.totalMessages;
           }
           renderList();
         }
@@ -1873,6 +2054,12 @@ async function initMessages() {
           return;
         }
         thread.messages = thread.messages ?? [];
+        thread.updatedAt =
+          thread.messages[thread.messages.length - 1]?.createdAt ??
+          thread.inbound?.updatedAt ??
+          thread.outbound?.updatedAt ??
+          thread.updatedAt ??
+          null;
         threadMap.set(username, thread);
         const summary = threads.find((entry) => entry.username === thread.username);
         if (summary) {
@@ -1880,6 +2067,17 @@ async function initMessages() {
           summary.outbound = thread.outbound;
           summary.displayName = thread.displayName;
           summary.badges = thread.badges;
+          summary.lastMessage = thread.messages[thread.messages.length - 1] ?? summary.lastMessage ?? null;
+          summary.updatedAt =
+            thread.messages[thread.messages.length - 1]?.createdAt ??
+            thread.updatedAt ??
+            summary.updatedAt ??
+            null;
+          summary.unreadCount = thread.unreadCount ?? summary.unreadCount ?? 0;
+          summary.totalMessages =
+            Number.isFinite(thread.totalMessages) && thread.totalMessages >= 0
+              ? thread.totalMessages
+              : thread.messages.length;
         } else {
           threads.push({
             username: thread.username,
@@ -1894,6 +2092,11 @@ async function initMessages() {
               thread.inbound?.updatedAt ??
               thread.outbound?.updatedAt ??
               null,
+            unreadCount: thread.unreadCount ?? 0,
+            totalMessages:
+              Number.isFinite(thread.totalMessages) && thread.totalMessages >= 0
+                ? thread.totalMessages
+                : thread.messages.length,
           });
         }
         renderList();
@@ -1902,6 +2105,15 @@ async function initMessages() {
       updateListSelection(username);
       renderThreadView(context, thread);
       attachThreadControls(thread);
+      if (thread.unreadCount > 0) {
+        thread.unreadCount = 0;
+        const summary = threads.find((entry) => entry.username === thread.username);
+        if (summary) {
+          summary.unreadCount = 0;
+        }
+        renderList();
+      }
+      markThreadRead(thread, true);
     } catch (error) {
       const message =
         error?.status === 404
