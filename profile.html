@@ -15,7 +15,7 @@
   <body data-page="profile">
     <header class="app-header">
       <div class="app-header__inner container">
-        <a href="index.html" class="brand">WantYou</a>
+        <a href="feed.html" class="brand">WantYou</a>
         <nav class="app-nav" aria-label="App navigation">
           <a href="feed.html">Lookup</a>
           <a href="messages.html">Messages</a>
@@ -27,12 +27,12 @@
     <main class="container profile-layout">
       <section class="card profile-summary">
         <header class="profile-summary__header">
-          <img src="https://i.pravatar.cc/96?img=5" alt="Jordan Lee" />
+          <img data-profile-avatar alt="" />
           <div>
-            <h1>Jordan Lee</h1>
-            <p>@jordanlee</p>
-            <p class="profile-summary__tagline">
-              "Here to cheer loudly and keep the connections bright."
+            <h1 data-profile-name>Loading…</h1>
+            <p data-profile-username></p>
+            <p class="profile-summary__tagline" data-profile-tagline>
+              Tell people what you're about.
             </p>
           </div>
           <button class="button button--ghost" data-action="edit-profile">
@@ -43,15 +43,15 @@
         <dl class="profile-summary__stats">
           <div>
             <dt>Know you</dt>
-            <dd id="stat-know">12</dd>
+            <dd id="stat-know">0</dd>
           </div>
           <div>
             <dt>Want you</dt>
-            <dd id="stat-want">7</dd>
+            <dd id="stat-want">0</dd>
           </div>
           <div>
             <dt>Both</dt>
-            <dd id="stat-both">5</dd>
+            <dd id="stat-both">0</dd>
           </div>
         </dl>
       </section>
@@ -62,30 +62,7 @@
           <p>You are currently hidden from these people.</p>
         </header>
         <ul class="profile-list" id="profile-anon-list">
-          <li>
-            <div>
-              <h3>Brandon Ortiz</h3>
-              <p class="profile-list__meta">@brandon.o · Cycling club</p>
-            </div>
-            <div class="profile-list__actions">
-              <button class="chip chip--active" data-action="reveal">Reveal</button>
-              <button class="button button--ghost" data-action="open-chat">
-                Chat
-              </button>
-            </div>
-          </li>
-          <li>
-            <div>
-              <h3>Imani Singh</h3>
-              <p class="profile-list__meta">@imanisingh · Study partner</p>
-            </div>
-            <div class="profile-list__actions">
-              <button class="chip" data-action="keep-anon">Stay hidden</button>
-              <button class="button button--ghost" data-action="open-chat">
-                Chat
-              </button>
-            </div>
-          </li>
+          <li data-empty-anon>No anonymous Want Yous yet.</li>
         </ul>
       </section>
 
@@ -95,27 +72,7 @@
           <p>A quick glance at the latest statuses you've changed.</p>
         </header>
         <ul class="profile-list" id="profile-recent-list">
-          <li>
-            <div>
-              <h3>Carmen Diaz</h3>
-              <p class="profile-list__meta">Marked as “Know you” · 2h ago</p>
-            </div>
-            <span class="tag tag--ghost">Know you</span>
-          </li>
-          <li>
-            <div>
-              <h3>Zahra Patel</h3>
-              <p class="profile-list__meta">Marked as “Want you” · Yesterday</p>
-            </div>
-            <span class="tag">Want you</span>
-          </li>
-          <li>
-            <div>
-              <h3>Avery Chen</h3>
-              <p class="profile-list__meta">Marked as “Both” · 3 days ago</p>
-            </div>
-            <span class="tag tag--accent">Both</span>
-          </li>
+          <li data-empty-recent>No recent updates yet.</li>
         </ul>
       </section>
     </main>
