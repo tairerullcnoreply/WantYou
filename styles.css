@@ -421,7 +421,74 @@ img {
 }
 
 .lookup__filters {
+  display: grid;
+  gap: 1rem;
   margin: 1.5rem 0 1rem;
+}
+
+.lookup__filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.lookup__filter-row--secondary {
+  align-items: flex-start;
+}
+
+.lookup__filter-group {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.lookup__filter-label {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted);
+}
+
+.lookup__filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip--filter {
+  font-size: 0.85rem;
+  padding: 0.35rem 0.95rem;
+}
+
+.lookup__toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.lookup__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.lookup__sort select {
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: #fff;
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.lookup__clear {
+  align-self: center;
+  white-space: nowrap;
 }
 
 .lookup__results {
@@ -644,6 +711,68 @@ img {
 .lookup-sidebar {
   display: grid;
   gap: 1.5rem;
+}
+
+.insight--summary {
+  background: linear-gradient(180deg, #fff3e5, rgba(255, 243, 229, 0.6));
+}
+
+.lookup-summary {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin: 1.25rem 0;
+}
+
+.lookup-summary div {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.lookup-summary dt {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.lookup-summary dd {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+
+.lookup-summary__recent {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.lookup-summary__recent h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.lookup-summary__recent ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.lookup-summary__recent li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.lookup-summary__recent .tag {
+  font-size: 0.75rem;
 }
 
 .insight__note {
@@ -1286,6 +1415,15 @@ img {
 
   .lookup-sidebar {
     order: -1;
+  }
+
+  .lookup__filter-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lookup__clear {
+    align-self: flex-start;
   }
 
   .messages-thread__actions {
