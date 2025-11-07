@@ -15,12 +15,12 @@
   <body data-page="profile">
     <header class="app-header">
       <div class="app-header__inner container">
-        <a href="feed.html" class="brand">WantYou</a>
+        <a href="/lookup/" class="brand">WantYou</a>
         <div class="app-header__actions">
           <nav class="app-nav" aria-label="App navigation">
-            <a href="feed.html">Lookup</a>
-            <a href="messages.html">Messages</a>
-            <a href="profile.html" aria-current="page">Profile</a>
+            <a href="/lookup/">Lookup</a>
+            <a href="/messages/">Messages</a>
+            <a href="/profile/" data-nav-profile aria-current="page">Profile</a>
           </nav>
           <button class="button button--ghost app-header__logout" data-action="logout" type="button">
             Log out
@@ -45,7 +45,19 @@
                 hidden
               ></span>
             </div>
-            <p class="profile-summary__username" data-profile-username></p>
+            <p class="profile-summary__username">
+              <span data-profile-username></span>
+              <button
+                type="button"
+                class="profile-summary__username-history"
+                data-username-history-button
+                hidden
+                aria-label="View previous usernames"
+                title="View previous usernames"
+              >
+                ℹ️
+              </button>
+            </p>
             <p class="profile-summary__tagline" data-profile-tagline>
               Tell people what you're about.
             </p>
@@ -54,10 +66,10 @@
             </p>
           </div>
           <div class="profile-summary__actions" data-profile-actions>
-            <button class="button button--ghost" data-action="edit-profile">
+            <button class="button button--ghost" data-action="edit-profile" data-own-control>
               Edit profile
             </button>
-            <button class="button button--ghost" data-action="change-avatar">
+            <button class="button button--ghost" data-action="change-avatar" data-own-control>
               Change photo
             </button>
             <button class="button button--ghost" data-action="toggle-verified" hidden>
@@ -109,7 +121,9 @@
             <h2>Events</h2>
             <p>Events disappear automatically after 24 hours.</p>
           </div>
-          <button class="button button--ghost" data-action="add-event">New event</button>
+          <button class="button button--ghost" data-action="add-event" data-own-control>
+            New event
+          </button>
         </header>
         <p class="profile-section__empty" data-events-empty>No active events yet.</p>
         <ul class="profile-events" id="profile-events"></ul>
@@ -121,7 +135,9 @@
             <h2>Posts</h2>
             <p>Share updates with text, images, or videos.</p>
           </div>
-          <button class="button button--ghost" data-action="add-post">New post</button>
+          <button class="button button--ghost" data-action="add-post" data-own-control>
+            New post
+          </button>
         </header>
         <p class="profile-section__empty" data-posts-empty>No posts yet.</p>
         <ul class="profile-posts" id="profile-posts"></ul>
@@ -147,6 +163,17 @@
         </header>
         <div class="profile-dialog__body">
           <label>
+            <span>Full name</span>
+            <input type="text" name="fullName" maxlength="120" required />
+          </label>
+          <label>
+            <span>Username</span>
+            <input type="text" name="username" maxlength="50" autocomplete="off" />
+            <p class="profile-dialog__note" data-username-note>
+              You can change your username once every 30 days.
+            </p>
+          </label>
+          <label>
             <span>Tagline</span>
             <input type="text" name="tagline" maxlength="160" />
           </label>
@@ -158,6 +185,26 @@
         <footer class="profile-dialog__footer">
           <button value="cancel" class="button button--ghost">Cancel</button>
           <button value="save" class="button">Save</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="profile-dialog" data-username-history-dialog>
+      <form method="dialog">
+        <header class="profile-dialog__header">
+          <h2>Previous usernames</h2>
+        </header>
+        <div class="profile-dialog__body">
+          <p class="profile-dialog__note" data-username-history-note>
+            Previous usernames they've gone by.
+          </p>
+          <p data-username-history-empty>No previous usernames yet.</p>
+          <ul class="profile-dialog__history" data-username-history-list></ul>
+        </div>
+        <footer class="profile-dialog__footer">
+          <button value="close" class="button button--ghost" data-action="close-username-history">
+            Close
+          </button>
         </footer>
       </form>
     </dialog>
