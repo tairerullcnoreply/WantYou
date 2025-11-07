@@ -16,11 +16,16 @@
     <header class="app-header">
       <div class="app-header__inner container">
         <a href="feed.html" class="brand">WantYou</a>
-        <nav class="app-nav" aria-label="App navigation">
-          <a href="feed.html">Lookup</a>
-          <a href="messages.html">Messages</a>
-          <a href="profile.html" aria-current="page">Profile</a>
-        </nav>
+        <div class="app-header__actions">
+          <nav class="app-nav" aria-label="App navigation">
+            <a href="feed.html">Lookup</a>
+            <a href="messages.html">Messages</a>
+            <a href="profile.html" aria-current="page">Profile</a>
+          </nav>
+          <button class="button button--ghost app-header__logout" data-action="logout" type="button">
+            Log out
+          </button>
+        </div>
       </div>
     </header>
 
@@ -32,9 +37,15 @@
             <img data-profile-avatar alt="" />
           </button>
           <div class="profile-summary__meta">
-            <h1 data-profile-name>Loading…</h1>
-            <p data-profile-username></p>
-            <div class="profile-summary__badges user-badges" data-profile-badges hidden></div>
+            <div class="profile-summary__title-row">
+              <h1 class="profile-summary__name" data-profile-name>Loading…</h1>
+              <span
+                class="profile-summary__badges user-badges user-badges--inline"
+                data-profile-badges
+                hidden
+              ></span>
+            </div>
+            <p class="profile-summary__username" data-profile-username></p>
             <p class="profile-summary__tagline" data-profile-tagline>
               Tell people what you're about.
             </p>

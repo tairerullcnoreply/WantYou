@@ -53,6 +53,7 @@ const HERO_CARDS = [
 
 const API_BASE = "/api";
 const SESSION_TOKEN_KEY = "wantyou_session_token";
+const OWNER_USERNAME = "wantyou";
 
 function buildApiUrl(path) {
   return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
@@ -81,6 +82,30 @@ function setSessionToken(token) {
 
 function clearSessionToken() {
   setSessionToken(null);
+}
+
+function setupGlobalControls() {
+  const logoutButtons = document.querySelectorAll('[data-action="logout"]');
+  logoutButtons.forEach((button) => {
+    const control = button;
+    control.addEventListener("click", async (event) => {
+      event.preventDefault();
+      if (control.disabled) {
+        return;
+      }
+      control.disabled = true;
+      try {
+        await apiRequest("/logout", { method: "POST" });
+      } catch (error) {
+        if (error?.status !== 401) {
+          console.error("Failed to log out", error);
+        }
+      } finally {
+        clearSessionToken();
+        window.location.href = "signup.html";
+      }
+    });
+  });
 }
 
 async function apiRequest(path, options = {}) {
@@ -632,9 +657,11 @@ async function initLookup() {
         <header class="connection__header">
           <img src="${avatarUrl}" alt="${escapeHtml(person.fullName)}" />
           <div class="connection__identity">
-            <h3><a href="${profileHref}">${escapeHtml(person.fullName)}</a></h3>
-            <div class="user-badges" data-user-badges hidden></div>
-            <p>@${escapeHtml(person.username)}</p>
+            <h3 class="connection__name">
+              <a href="${profileHref}">${escapeHtml(person.fullName)}</a>
+              <span class="user-badges user-badges--inline" data-user-badges hidden></span>
+            </h3>
+            <p class="connection__username">@${escapeHtml(person.username)}</p>
           </div>
           <span class="connection__badge" data-badge></span>
         </header>
@@ -1088,7 +1115,7 @@ async function initMessages() {
         <span class="${statusClass}">${escapeHtml(statusText)}</span>
         <span class="messages-list__name-row">
           <span class="messages-list__name">${escapeHtml(thread.displayName)}</span>
-          <span class="user-badges user-badges--compact" data-user-badges hidden></span>
+          <span class="user-badges user-badges--compact user-badges--inline" data-user-badges hidden></span>
         </span>
         <span class="messages-list__preview">${previewText}</span>
       `;
@@ -1670,13 +1697,21 @@ async function initProfile() {
     if (!data) return;
     profileData = {
       ...data,
-      canVerify: Boolean(data.canVerify),
       user: {
         ...(data.user ?? {}),
       },
     };
     const user = profileData.user;
     user.badges = Array.isArray(user.badges) ? user.badges : [];
+    const viewerUsername = sessionUser?.username ?? null;
+    const targetUsername = user.username ?? null;
+    const isOfficial = viewerUsername === OWNER_USERNAME;
+    const canVerify =
+      Boolean(data.canVerify) &&
+      isOfficial &&
+      targetUsername &&
+      targetUsername !== viewerUsername;
+    profileData.canVerify = canVerify;
     if (profileData.canEdit) {
       sessionUser = { ...sessionUser, ...user };
     }
@@ -1705,6 +1740,7 @@ async function initProfile() {
         verifyButton.textContent = isVerified ? "Remove verification" : "Verify user";
       } else {
         verifyButton.hidden = true;
+        verifyButton.disabled = true;
       }
     }
 
@@ -2032,4 +2068,7 @@ function initApp() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", initApp);
+document.addEventListener("DOMContentLoaded", () => {
+  setupGlobalControls();
+  initApp();
+});
