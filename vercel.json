@@ -1,6 +1,10 @@
 {
   "rewrites": [
     { "source": "/api", "destination": "/api/index.js" },
-    { "source": "/api/(.*)", "destination": "/api/index.js" }
+    { "source": "/api/(.*)", "destination": "/api/index.js" },
+    { "source": "/profile", "destination": "/profile/index.html" },
+    { "source": "/profile/", "destination": "/profile/index.html" },
+    { "source": "/profile/@:username", "destination": "/profile/index.html" },
+    { "source": "/profile/@:username/", "destination": "/profile/index.html" }
   ]
 }
