@@ -53,7 +53,7 @@
               Add more about yourself so people can get to know you.
             </p>
           </div>
-          <div class="profile-summary__actions" data-profile-actions>
+          <div class="profile-summary__actions" data-profile-actions hidden>
             <button class="button button--ghost" data-action="edit-profile">
               Edit profile
             </button>
@@ -83,7 +83,7 @@
         </dl>
       </section>
 
-      <section class="card profile-section" data-own-only>
+      <section class="card profile-section" data-own-only hidden>
         <header class="profile-section__header">
           <h2>Anonymous Want Yous</h2>
           <p>You are currently hidden from these people.</p>
@@ -93,7 +93,7 @@
         </ul>
       </section>
 
-      <section class="card profile-section" data-own-only>
+      <section class="card profile-section" data-own-only hidden>
         <header class="profile-section__header">
           <h2>Recently updated</h2>
           <p>A quick glance at the latest statuses you've changed.</p>
@@ -109,7 +109,9 @@
             <h2>Events</h2>
             <p>Events disappear automatically after 24 hours.</p>
           </div>
-          <button class="button button--ghost" data-action="add-event">New event</button>
+          <button class="button button--ghost" data-action="add-event" hidden>
+            New event
+          </button>
         </header>
         <p class="profile-section__empty" data-events-empty>No active events yet.</p>
         <ul class="profile-events" id="profile-events"></ul>
@@ -121,7 +123,9 @@
             <h2>Posts</h2>
             <p>Share updates with text, images, or videos.</p>
           </div>
-          <button class="button button--ghost" data-action="add-post">New post</button>
+          <button class="button button--ghost" data-action="add-post" hidden>
+            New post
+          </button>
         </header>
         <p class="profile-section__empty" data-posts-empty>No posts yet.</p>
         <ul class="profile-posts" id="profile-posts"></ul>

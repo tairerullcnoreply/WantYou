@@ -32,3 +32,4 @@ You can chat with others without being anonymous.
 * [11/11/2025; 8:10 PM UTC] Persisted media uploads through KV streaming, restored avatar updates, added logout controls, and tightened the profile event highlight
 * [11/12/2025; 4:30 PM UTC] Restored Vercel API routing, embedded media when persistent storage is unavailable, and refit the profile event highlight
 * [11/13/2025; 9:45 PM UTC] Enabled real profile avatars in lookup and preview modes, extended session lifetime, and adjusted navigation to land on the right auth tab
+* [11/07/2025; 4:37 AM UTC] Hid profile management controls when viewing another user's profile and defaulted those controls to stay hidden until ownership is confirmed

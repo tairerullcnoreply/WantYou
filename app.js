@@ -53,8 +53,6 @@ const HERO_CARDS = [
 
 const API_BASE = "/api";
 const SESSION_TOKEN_KEY = "wantyou_session_token";
-const OWNER_USERNAME = "wantyou";
-
 function buildApiUrl(path) {
   return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
 }
@@ -1543,6 +1541,11 @@ async function initProfile() {
 
   const toggleOwnVisibility = (canEdit) => {
     const canVerify = Boolean(profileData?.canVerify);
+    const root = document.body;
+    if (root) {
+      root.classList.toggle("profile--owner", canEdit);
+      root.classList.toggle("profile--viewer", !canEdit);
+    }
     ownOnlySections.forEach((section) => {
       section.hidden = !canEdit;
     });
@@ -1561,8 +1564,9 @@ async function initProfile() {
     if (changeAvatarButton) {
       changeAvatarButton.hidden = !canEdit;
     }
-    if (verifyButton?.isConnected) {
+    if (verifyButton) {
       verifyButton.hidden = !canVerify;
+      verifyButton.disabled = !canVerify;
     }
     if (!canEdit && statsContainer) {
       statsContainer.hidden = !profileData?.stats;
@@ -1823,15 +1827,7 @@ async function initProfile() {
     };
     const user = profileData.user;
     user.badges = Array.isArray(user.badges) ? user.badges : [];
-    const viewerUsername = sessionUser?.username ?? null;
-    const targetUsername = user.username ?? null;
-    const isOfficial = viewerUsername === OWNER_USERNAME;
-    const canVerify =
-      Boolean(data.canVerify) &&
-      isOfficial &&
-      targetUsername &&
-      targetUsername !== viewerUsername;
-    profileData.canVerify = canVerify;
+    profileData.canVerify = Boolean(data.canVerify);
     if (profileData.canEdit) {
       sessionUser = { ...sessionUser, ...user };
     }
@@ -1853,19 +1849,13 @@ async function initProfile() {
     renderUserBadges(profileBadges, user.badges);
 
     if (verifyButton) {
-      if (profileData.canVerify) {
+      const canVerify = Boolean(profileData?.canVerify);
+      if (canVerify) {
         const isVerified = getDisplayBadges(user.badges).includes("Verified");
-        verifyButton.hidden = false;
-        verifyButton.disabled = false;
         verifyButton.textContent = isVerified ? "Remove verification" : "Verify user";
-      } else {
-        if (verifyButton.isConnected) {
-          verifyButton.remove();
-        } else {
-          verifyButton.hidden = true;
-        }
-        verifyButton.disabled = true;
       }
+      verifyButton.hidden = !canVerify;
+      verifyButton.disabled = !canVerify;
     }
 
     if (data.stats) {
