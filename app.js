@@ -1517,6 +1517,7 @@ async function initProfile() {
 
   const path = window.location.pathname;
   let requestedUser = null;
+  let requestedFromQuery = false;
   const profilePathMatch = path.match(/^\/profile\/@([^/]+)\/?$/i);
   if (profilePathMatch) {
     try {
@@ -1530,6 +1531,14 @@ async function initProfile() {
     const queryUser = params.get("user");
     if (queryUser) {
       requestedUser = queryUser.toLowerCase();
+      requestedFromQuery = true;
+    }
+  }
+
+  if (requestedFromQuery && requestedUser) {
+    const canonicalGuess = buildProfileUrl(requestedUser);
+    if (canonicalGuess && window.location.pathname !== canonicalGuess) {
+      window.history.replaceState({}, "", canonicalGuess);
     }
   }
 
@@ -1978,7 +1987,7 @@ async function initProfile() {
     }
   });
 
-  const buildProfileUrl = () => {
+  const buildProfileRequestPath = () => {
     if (requestedUser) {
       return `/profile?user=${encodeURIComponent(requestedUser)}`;
     }
@@ -1987,7 +1996,7 @@ async function initProfile() {
 
   try {
     await requireSession();
-    const data = await apiRequest(buildProfileUrl());
+    const data = await apiRequest(buildProfileRequestPath());
     renderProfile(data);
   } catch (error) {
     console.error("Unable to load profile", error);

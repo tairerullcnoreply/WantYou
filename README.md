@@ -35,3 +35,5 @@ You can chat with others without being anonymous.
 * [11/07/2025; 6:45 AM UTC] Removed profile management controls from other users' pages to fully hide unauthorized actions
 * [11/07/2025; 12:32 PM UTC] Corrected static asset paths so shared CSS and JS load on nested routes
 * [11/13/2025; 11:05 AM UTC] Mapped server routing to nested lookup, messages, profile, and signup directories
+* [11/13/2025; 2:55 PM UTC] Added Vercel rewrites so dynamic profile handles resolve to the profile experience
+* [11/13/2025; 4:10 PM UTC] Preserved profile handle URLs by normalizing query-based profile loads to canonical @ paths
