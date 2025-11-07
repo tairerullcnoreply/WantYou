@@ -27,20 +27,32 @@
     <main class="container profile-layout">
       <section class="card profile-summary">
         <header class="profile-summary__header">
-          <img data-profile-avatar alt="" />
-          <div>
+          <button class="profile-summary__avatar" data-action="open-events" aria-label="Open events">
+            <span class="profile-summary__event-ring" data-event-ring></span>
+            <img data-profile-avatar alt="" />
+          </button>
+          <div class="profile-summary__meta">
             <h1 data-profile-name>Loading…</h1>
             <p data-profile-username></p>
             <p class="profile-summary__tagline" data-profile-tagline>
               Tell people what you're about.
             </p>
+            <p class="profile-summary__bio" data-profile-bio>
+              Add more about yourself so people can get to know you.
+            </p>
           </div>
-          <button class="button button--ghost" data-action="edit-profile">
-            Edit profile
-          </button>
+          <div class="profile-summary__actions" data-profile-actions>
+            <button class="button button--ghost" data-action="edit-profile">
+              Edit profile
+            </button>
+            <button class="button button--ghost" data-action="change-avatar">
+              Change photo
+            </button>
+          </div>
+          <input type="file" accept="image/*" data-avatar-input hidden />
         </header>
 
-        <dl class="profile-summary__stats">
+        <dl class="profile-summary__stats" data-profile-stats>
           <div>
             <dt>Know you</dt>
             <dd id="stat-know">0</dd>
@@ -56,7 +68,7 @@
         </dl>
       </section>
 
-      <section class="card profile-section">
+      <section class="card profile-section" data-own-only>
         <header class="profile-section__header">
           <h2>Anonymous Want Yous</h2>
           <p>You are currently hidden from these people.</p>
@@ -66,7 +78,7 @@
         </ul>
       </section>
 
-      <section class="card profile-section">
+      <section class="card profile-section" data-own-only>
         <header class="profile-section__header">
           <h2>Recently updated</h2>
           <p>A quick glance at the latest statuses you've changed.</p>
@@ -75,7 +87,111 @@
           <li data-empty-recent>No recent updates yet.</li>
         </ul>
       </section>
+
+      <section class="card profile-section profile-section--events">
+        <header class="profile-section__header">
+          <div>
+            <h2>Events</h2>
+            <p>Events disappear automatically after 24 hours.</p>
+          </div>
+          <button class="button button--ghost" data-action="add-event">New event</button>
+        </header>
+        <p class="profile-section__empty" data-events-empty>No active events yet.</p>
+        <ul class="profile-events" id="profile-events"></ul>
+      </section>
+
+      <section class="card profile-section profile-section--posts">
+        <header class="profile-section__header">
+          <div>
+            <h2>Posts</h2>
+            <p>Share updates with text, images, or videos.</p>
+          </div>
+          <button class="button button--ghost" data-action="add-post">New post</button>
+        </header>
+        <p class="profile-section__empty" data-posts-empty>No posts yet.</p>
+        <ul class="profile-posts" id="profile-posts"></ul>
+      </section>
     </main>
+
+    <div class="events-modal" data-events-modal hidden>
+      <div class="events-modal__backdrop" data-action="close-events"></div>
+      <div class="events-modal__content" role="dialog" aria-modal="true">
+        <header class="events-modal__header">
+          <h2>Events</h2>
+          <button class="button button--ghost" data-action="close-events">Close</button>
+        </header>
+        <p class="events-modal__empty" data-events-modal-empty>No events to show.</p>
+        <ul class="events-modal__list" data-events-modal-list></ul>
+      </div>
+    </div>
+
+    <dialog class="profile-dialog" data-profile-dialog>
+      <form method="dialog">
+        <header class="profile-dialog__header">
+          <h2>Edit profile</h2>
+        </header>
+        <div class="profile-dialog__body">
+          <label>
+            <span>Tagline</span>
+            <input type="text" name="tagline" maxlength="160" />
+          </label>
+          <label>
+            <span>Bio</span>
+            <textarea name="bio" rows="5" maxlength="500"></textarea>
+          </label>
+        </div>
+        <footer class="profile-dialog__footer">
+          <button value="cancel" class="button button--ghost">Cancel</button>
+          <button value="save" class="button">Save</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="profile-dialog" data-event-dialog>
+      <form method="dialog" enctype="multipart/form-data">
+        <header class="profile-dialog__header">
+          <h2>New event</h2>
+        </header>
+        <div class="profile-dialog__body">
+          <label>
+            <span>Caption</span>
+            <textarea name="text" rows="3" maxlength="300"></textarea>
+          </label>
+          <label>
+            <span>Media</span>
+            <input type="file" name="media" accept="image/*,video/mp4,video/webm" multiple />
+          </label>
+          <p class="profile-dialog__note" data-event-limit></p>
+        </div>
+        <footer class="profile-dialog__footer">
+          <button value="cancel" class="button button--ghost">Cancel</button>
+          <button value="save" class="button">Share</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="profile-dialog" data-post-dialog>
+      <form method="dialog" enctype="multipart/form-data">
+        <header class="profile-dialog__header">
+          <h2>New post</h2>
+        </header>
+        <div class="profile-dialog__body">
+          <label>
+            <span>Message</span>
+            <textarea name="text" rows="4" maxlength="1000"></textarea>
+          </label>
+          <label>
+            <span>Media</span>
+            <input type="file" name="media" accept="image/*,video/mp4,video/webm" multiple />
+          </label>
+          <p class="profile-dialog__note" data-post-limit></p>
+        </div>
+        <footer class="profile-dialog__footer">
+          <button value="cancel" class="button button--ghost">Cancel</button>
+          <button value="save" class="button">Post</button>
+        </footer>
+      </form>
+    </dialog>
 
     <script src="app.js" defer></script>
   </body>
