@@ -39,3 +39,5 @@ You can chat with others without being anonymous.
 * [11/13/2025; 4:10 PM UTC] Preserved profile handle URLs by normalizing query-based profile loads to canonical @ paths
 * [11/14/2025; 9:20 AM UTC] Expanded lookup with advanced filters, sorting controls, and a live status snapshot
 * [11/14/2025; 1:45 PM UTC] Displayed real profile avatars in lookup and fixed all lookup filters to respect active criteria
+* [11/15/2025; 9:55 AM UTC] Supercharged posts and events with visibility controls, moods, highlights, and an immersive event viewer
+* [11/15/2025; 11:40 AM UTC] Polished event viewer accessibility with highlight cues and richer progress summaries
