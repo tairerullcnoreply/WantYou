@@ -38,3 +38,4 @@ You can chat with others without being anonymous.
 * [11/13/2025; 2:55 PM UTC] Added Vercel rewrites so dynamic profile handles resolve to the profile experience
 * [11/13/2025; 4:10 PM UTC] Preserved profile handle URLs by normalizing query-based profile loads to canonical @ paths
 * [11/14/2025; 9:20 AM UTC] Expanded lookup with advanced filters, sorting controls, and a live status snapshot
+* [11/14/2025; 1:45 PM UTC] Displayed real profile avatars in lookup and fixed all lookup filters to respect active criteria
