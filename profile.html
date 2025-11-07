@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WantYou | Profile</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="profile">
+    <header class="app-header">
+      <div class="app-header__inner container">
+        <a href="index.html" class="brand">WantYou</a>
+        <form class="app-search" role="search">
+          <input type="search" placeholder="Search profiles" />
+        </form>
+        <nav class="app-nav" aria-label="App navigation">
+          <a href="feed.html">Feed</a>
+          <a href="messages.html">Messages</a>
+          <a href="profile.html" aria-current="page">Profile</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container profile-layout">
+      <section class="profile-hero card">
+        <div class="profile-hero__banner" role="img" aria-label="Orange gradient banner"></div>
+        <div class="profile-hero__info">
+          <img src="https://i.pravatar.cc/96?img=5" alt="Jordan Lee" />
+          <div>
+            <h1>Jordan Lee</h1>
+            <p>@jordanlee · Austin, TX</p>
+            <div class="profile-hero__stats">
+              <span><strong>18</strong> boosts</span>
+              <span><strong>6</strong> circles</span>
+              <span><strong>124</strong> supporters</span>
+            </div>
+          </div>
+          <div class="profile-hero__actions">
+            <button class="button">Send boost</button>
+            <button class="button button--ghost" data-action="edit-profile">Edit profile</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="profile-columns">
+        <aside class="card">
+          <h2>About</h2>
+          <p>
+            Product designer who loves building delightful experiences and making
+            sure friends feel seen.
+          </p>
+          <ul class="profile-list">
+            <li><span>Work</span><span>WantYou Labs</span></li>
+            <li><span>Alma mater</span><span>UT Austin</span></li>
+            <li><span>Circles</span><span>Product Launch · Climber Crew</span></li>
+            <li><span>Availability</span><span>Evenings + weekends</span></li>
+          </ul>
+        </aside>
+
+        <section class="card profile-highlights">
+          <header>
+            <h2>Highlights</h2>
+            <button class="button button--ghost" data-action="add-highlight">Add highlight</button>
+          </header>
+          <ul id="highlight-list">
+            <li>
+              <h3>Launch day livestream</h3>
+              <p>“Jordan held the team together and made sure we shipped on time.”</p>
+              <span>Boosted by Avery</span>
+            </li>
+            <li>
+              <h3>Weekend Warrior hikes</h3>
+              <p>“Organizes the best sunrise hikes. Brings extra snacks for all.”</p>
+              <span>Boosted by Mia</span>
+            </li>
+          </ul>
+        </section>
+
+        <section class="card profile-activity">
+          <header>
+            <h2>Recent activity</h2>
+            <button class="button button--ghost" data-action="filter-activity">Filter</button>
+          </header>
+          <ul>
+            <li>
+              <span class="tag tag--accent">New circle</span>
+              <div>
+                <p>Started “Design Mentors” circle with 9 supporters.</p>
+                <time datetime="2024-05-02">May 2</time>
+              </div>
+            </li>
+            <li>
+              <span class="tag">Boost</span>
+              <div>
+                <p>Sent a boost to @danikapark for the product launch demo.</p>
+                <time datetime="2024-04-30">Apr 30</time>
+              </div>
+            </li>
+            <li>
+              <span class="tag">Event</span>
+              <div>
+                <p>RSVP’d to Weekend Warrior sunrise climb.</p>
+                <time datetime="2024-04-28">Apr 28</time>
+              </div>
+            </li>
+          </ul>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

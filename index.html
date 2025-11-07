@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WantYou</title>
+    <title>WantYou | Find your circle</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -12,199 +12,151 @@
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body>
-    <header class="hero">
-      <div class="hero__content">
-        <h1>WantYou</h1>
-        <p>
-          Meet the people who know you, the ones who want you, and the matches
-          that are both. Start a conversation, stay anonymous, or reveal
-          yourself when the time is right.
-        </p>
-        <div class="hero__cta">
-          <button class="button button--primary" data-open="auth">
-            Get Started
-          </button>
-          <button class="button button--ghost" data-open="discover">
-            Explore
-          </button>
+  <body data-page="landing">
+    <header class="site-header">
+      <div class="site-header__inner container">
+        <a href="index.html" class="brand">WantYou</a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="#features">Features</a>
+          <a href="#community">Community</a>
+          <a href="#safety">Safety</a>
+        </nav>
+        <div class="site-header__actions">
+          <a class="button button--ghost" href="feed.html">Explore feed</a>
+          <a class="button" href="signup.html">Join now</a>
         </div>
       </div>
-      <div class="hero__card" id="highlight-card" aria-live="polite"></div>
     </header>
 
     <main>
-      <section class="panel" id="auth-panel">
-        <div class="panel__header">
-          <h2>Account access</h2>
-          <nav class="tabs" role="tablist" aria-label="Account access">
-            <button
-              class="tab tab--active"
-              role="tab"
-              aria-selected="true"
-              aria-controls="login-tab"
-              id="login-tab-btn"
-            >
-              Log in
-            </button>
-            <button
-              class="tab"
-              role="tab"
-              aria-selected="false"
-              aria-controls="register-tab"
-              id="register-tab-btn"
-            >
-              Create account
-            </button>
-          </nav>
-        </div>
-        <div class="tab-panels">
-          <form
-            id="login-tab"
-            class="form tab-panel tab-panel--active"
-            role="tabpanel"
-            aria-labelledby="login-tab-btn"
-          >
-            <label class="form__field">
-              <span>Username</span>
-              <input type="text" id="login-username" placeholder="janedoe" />
-            </label>
-            <label class="form__field">
-              <span>Password</span>
-              <input type="password" id="login-password" placeholder="••••••" />
-            </label>
-            <button type="submit" class="button button--primary">
-              Log in
-            </button>
-          </form>
-
-          <form
-            id="register-tab"
-            class="form tab-panel"
-            role="tabpanel"
-            aria-labelledby="register-tab-btn"
-          >
-            <label class="form__field">
-              <span>Full name</span>
-              <input type="text" id="register-fullname" placeholder="Jane Doe" />
-            </label>
-            <label class="form__field">
-              <span>Username</span>
-              <input type="text" id="register-username" placeholder="janedoe" />
-            </label>
-            <label class="form__field">
-              <span>Password</span>
-              <input type="password" id="register-password" placeholder="Create a password" />
-            </label>
-            <button type="submit" class="button button--primary">
-              Create account
-            </button>
-          </form>
-        </div>
-      </section>
-
-      <section class="panel" id="discover-panel">
-        <div class="panel__header">
-          <h2>Discover people</h2>
-          <div class="search">
-            <label class="search__field" aria-label="Search by name or username">
-              <span class="visually-hidden">Search</span>
-              <input
-                type="search"
-                id="search-input"
-                placeholder="Search by full name or username"
-              />
-            </label>
-            <button class="button button--ghost" id="clear-search">Clear</button>
-          </div>
-        </div>
-        <ul class="user-list" id="user-list" aria-live="polite"></ul>
-      </section>
-
-      <section class="panel" id="details-panel" aria-live="polite">
-        <div class="panel__header">
-          <h2 id="details-title">Conversation details</h2>
-          <p id="details-subtitle" class="panel__subtitle">
-            Select someone to see your relationship status and chat history.
-          </p>
-        </div>
-        <div class="relationship" id="relationship" hidden>
-          <div class="relationship__group">
-            <h3>Status</h3>
-            <div class="status-options" role="group" aria-label="Relationship status">
-              <label class="status-option">
-                <input type="radio" name="status" value="none" checked />
-                <span>None</span>
-              </label>
-              <label class="status-option">
-                <input type="radio" name="status" value="know" />
-                <span>Know you</span>
-              </label>
-              <label class="status-option">
-                <input type="radio" name="status" value="want" />
-                <span>Want you</span>
-              </label>
-              <label class="status-option">
-                <input type="radio" name="status" value="both" />
-                <span>Both</span>
-              </label>
+      <section class="hero hero--landing">
+        <div class="container hero__grid">
+          <div class="hero__copy">
+            <h1>Build the social circle that has your back.</h1>
+            <p>
+              WantYou connects you with the people already rooting for you.
+              Share updates, collect anonymous encouragement, and grow the
+              relationships that matter most.
+            </p>
+            <div class="hero__cta">
+              <a class="button" href="signup.html">Create account</a>
+              <a class="button button--ghost" href="feed.html">See the feed</a>
             </div>
           </div>
-          <label class="relationship__anon">
-            <input type="checkbox" id="anonymous-toggle" />
-            <span>Keep my Want You anonymous</span>
-          </label>
+          <div class="hero__card" id="hero-card"></div>
         </div>
-        <div class="conversation" id="conversation" hidden>
-          <header class="conversation__header">
-            <h3 id="conversation-heading">Conversation</h3>
-            <span id="conversation-status" class="conversation__status"></span>
-          </header>
-          <ul class="conversation__messages" id="conversation-messages"></ul>
-          <form class="conversation__form" id="message-form">
-            <label class="visually-hidden" for="message-input">Message</label>
-            <textarea
-              id="message-input"
-              placeholder="Say something nice..."
-              rows="3"
-              required
-            ></textarea>
-            <label class="conversation__anon">
-              <input type="checkbox" id="message-anon" />
-              <span>Send anonymously</span>
+      </section>
+
+      <section class="panel panel--light" id="features">
+        <div class="container panel__grid">
+          <article class="feature">
+            <h2>Private boosts</h2>
+            <p>
+              Friends can send anonymous shout-outs until you are ready to
+              reveal yourselves.
+            </p>
+          </article>
+          <article class="feature">
+            <h2>Shared spaces</h2>
+            <p>
+              Create circles for clubs, events, or friend groups and share what
+              you are up to right now.
+            </p>
+          </article>
+          <article class="feature">
+            <h2>Live reactions</h2>
+            <p>
+              Spark conversations with emoji bursts, quick polls, and threaded
+              replies that keep everyone involved.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="community">
+        <div class="container community">
+          <div class="community__media">
+            <div class="screen screen--feed" aria-hidden="true">
+              <header>
+                <span>Today</span>
+                <span>3 replies</span>
+              </header>
+              <p>“Big presentation went amazing 🔥 thanks for the pep talk!”</p>
+              <footer>
+                <span class="tag tag--accent">Emma</span>
+                <span class="tag">Boosts 5</span>
+              </footer>
+            </div>
+          </div>
+          <div class="community__copy">
+            <h2>Spaces that feel like home</h2>
+            <p>
+              From dorm floors to remote teams, WantYou is built for groups who
+              thrive on positive feedback and honest conversation.
+            </p>
+            <ul class="checklist">
+              <li>Invite-only circles with custom roles</li>
+              <li>Stories and highlights that expire after 24 hours</li>
+              <li>Events calendar that keeps everyone in the loop</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel--light" id="safety">
+        <div class="container safety">
+          <div>
+            <h2>Safety first</h2>
+            <p>
+              Advanced reporting, consent-first reveals, and moderation tools
+              keep your experience supportive.
+            </p>
+          </div>
+          <div class="safety__cards">
+            <article class="safety-card">
+              <h3>Verified circles</h3>
+              <p>Only people with invites can join your group.</p>
+            </article>
+            <article class="safety-card">
+              <h3>Message controls</h3>
+              <p>Silence threads, filter anonymous notes, and manage DMs.</p>
+            </article>
+            <article class="safety-card">
+              <h3>Support team</h3>
+              <p>Get a real human response within 12 hours, any day.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel--cta">
+        <div class="container cta">
+          <div>
+            <h2>Ready to see who wants you?</h2>
+            <p>Sign up in seconds and start your first circle.</p>
+          </div>
+          <form class="cta__form" id="request-access">
+            <label class="form__field">
+              <span class="visually-hidden">Email</span>
+              <input type="email" placeholder="you@example.com" required />
             </label>
-            <button type="submit" class="button button--primary">Send</button>
+            <button type="submit" class="button">Request invite</button>
           </form>
         </div>
       </section>
     </main>
 
-    <footer class="footer">
-      <p>Built with care for genuine connections. © <span id="year"></span></p>
+    <footer class="site-footer">
+      <div class="container site-footer__inner">
+        <p>© <span id="year"></span> WantYou. Built for the friends who cheer loudest.</p>
+        <nav aria-label="Footer navigation">
+          <a href="feed.html">Feed</a>
+          <a href="messages.html">Messages</a>
+          <a href="profile.html">Profile</a>
+        </nav>
+      </div>
     </footer>
 
-    <template id="user-item-template">
-      <li class="user">
-        <button class="user__card" type="button">
-          <div>
-            <h3 class="user__name"></h3>
-            <p class="user__username"></p>
-          </div>
-          <span class="user__status"></span>
-        </button>
-      </li>
-    </template>
-
-    <template id="message-template">
-      <li class="message">
-        <div class="message__meta">
-          <span class="message__author"></span>
-          <span class="message__timestamp"></span>
-        </div>
-        <p class="message__body"></p>
-      </li>
-    </template>
-
-    <script src="app.js" type="module"></script>
+    <script src="app.js" defer></script>
   </body>
 </html>

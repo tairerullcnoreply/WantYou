@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WantYou | Feed</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="feed">
+    <header class="app-header">
+      <div class="app-header__inner container">
+        <a href="index.html" class="brand">WantYou</a>
+        <form class="app-search" role="search">
+          <input type="search" placeholder="Search WantYou" />
+        </form>
+        <nav class="app-nav" aria-label="App navigation">
+          <a href="feed.html" aria-current="page">Feed</a>
+          <a href="messages.html">Messages</a>
+          <a href="profile.html">Profile</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container feed-layout">
+      <aside class="feed-layout__sidebar">
+        <section class="card profile-card">
+          <header>
+            <img src="https://i.pravatar.cc/64?img=5" alt="Your avatar" />
+            <div>
+              <h2>Jordan Lee</h2>
+              <p>@jordanlee</p>
+            </div>
+          </header>
+          <dl>
+            <div>
+              <dt>Boosts</dt>
+              <dd>18</dd>
+            </div>
+            <div>
+              <dt>Circles</dt>
+              <dd>6</dd>
+            </div>
+            <div>
+              <dt>Streak</dt>
+              <dd>9 days</dd>
+            </div>
+          </dl>
+          <a class="button button--ghost" href="profile.html">View profile</a>
+        </section>
+
+        <section class="card menu-card">
+          <h2>Shortcuts</h2>
+          <ul>
+            <li><a href="#composer">Share an update</a></li>
+            <li><a href="#events">Upcoming events</a></li>
+            <li><a href="#suggestions">Suggested circles</a></li>
+          </ul>
+        </section>
+
+        <section class="card events-card" id="events">
+          <header>
+            <h2>Events</h2>
+            <a href="#">View all</a>
+          </header>
+          <ul>
+            <li>
+              <p>Launch team standup</p>
+              <span>Today · 3:30 PM</span>
+            </li>
+            <li>
+              <p>Weekend hike circle</p>
+              <span>Sat · 9:00 AM</span>
+            </li>
+          </ul>
+        </section>
+      </aside>
+
+      <section class="feed-layout__main">
+        <article class="card composer" id="composer">
+          <form id="composer-form">
+            <label class="form__field">
+              <span class="visually-hidden">What's new</span>
+              <textarea
+                id="composer-text"
+                rows="3"
+                placeholder="Share how your circle is hyping you up today"
+                required
+              ></textarea>
+            </label>
+            <div class="composer__actions">
+              <button type="button" class="button button--ghost" data-action="add-media">
+                Add media
+              </button>
+              <button type="submit" class="button">Post</button>
+            </div>
+          </form>
+        </article>
+
+        <section id="feed-posts" class="feed">
+          <article class="card post" data-post>
+            <header class="post__header">
+              <img src="https://i.pravatar.cc/48?img=12" alt="Profile" />
+              <div>
+                <h3>Danika Park</h3>
+                <p>Shared to Product Circle · 10m ago</p>
+              </div>
+              <button class="post__follow">Follow</button>
+            </header>
+            <p>
+              Shoutout to @jordanlee for pulling the live demo together. Launch
+              is looking 🔥🔥🔥
+            </p>
+            <footer class="post__footer">
+              <button class="post__action" data-action="like">
+                <span aria-hidden="true">❤️</span>
+                <span class="post__action-label">24</span>
+              </button>
+              <button class="post__action" data-action="comment">
+                💬 <span class="post__action-label">6</span>
+              </button>
+              <button class="post__action" data-action="share">↗︎ Share</button>
+            </footer>
+          </article>
+
+          <article class="card post" data-post>
+            <header class="post__header">
+              <img src="https://i.pravatar.cc/48?img=32" alt="Profile" />
+              <div>
+                <h3>Anthony Woods</h3>
+                <p>Shared to Climber Crew · 25m ago</p>
+              </div>
+            </header>
+            <p>
+              Weekend hike is a go! Drop your snack requests and let's give Mia
+              some pre-race encouragement 🍊
+            </p>
+            <div class="post__media" role="img" aria-label="Photo of a mountain trail"></div>
+            <footer class="post__footer">
+              <button class="post__action" data-action="like">
+                <span aria-hidden="true">❤️</span>
+                <span class="post__action-label">42</span>
+              </button>
+              <button class="post__action" data-action="comment">
+                💬 <span class="post__action-label">18</span>
+              </button>
+              <button class="post__action" data-action="share">↗︎ Share</button>
+            </footer>
+          </article>
+        </section>
+      </section>
+
+      <aside class="feed-layout__sidebar feed-layout__sidebar--right">
+        <section class="card stories" aria-label="Stories">
+          <header>
+            <h2>Stories</h2>
+            <button class="post__action" data-action="view-stories">See all</button>
+          </header>
+          <ul id="stories-list">
+            <li>
+              <img src="https://i.pravatar.cc/40?img=20" alt="Story thumbnail" />
+              <span>Olivia · 2h left</span>
+            </li>
+            <li>
+              <img src="https://i.pravatar.cc/40?img=45" alt="Story thumbnail" />
+              <span>Leo · 4h left</span>
+            </li>
+            <li>
+              <img src="https://i.pravatar.cc/40?img=8" alt="Story thumbnail" />
+              <span>Team Launch · 6h left</span>
+            </li>
+          </ul>
+        </section>
+
+        <section class="card suggestions" id="suggestions">
+          <header>
+            <h2>Suggested circles</h2>
+          </header>
+          <ul>
+            <li>
+              <div>
+                <h3>UI Study Buddies</h3>
+                <p>12 friends inside</p>
+              </div>
+              <button class="button button--ghost" data-action="join">Join</button>
+            </li>
+            <li>
+              <div>
+                <h3>Weekend Warriors</h3>
+                <p>8 friends inside</p>
+              </div>
+              <button class="button button--ghost" data-action="join">Join</button>
+            </li>
+          </ul>
+        </section>
+      </aside>
+    </main>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

@@ -1,452 +1,396 @@
-const state = {
-  currentUser: null,
-  selectedUserId: null,
-  users: [
-    {
-      id: crypto.randomUUID(),
-      fullName: "Riley Anderson",
-      username: "riley",
-      password: "password",
-      relationship: { status: "both", anonymous: false },
-      conversations: [
-        {
-          id: crypto.randomUUID(),
-          heading: "This user both knows and wants you",
-          messages: [
-            {
-              id: crypto.randomUUID(),
-              author: "You",
-              body: "Loved getting coffee yesterday! Want to plan something this weekend?",
-              timestamp: new Date(Date.now() - 3600 * 1000 * 5),
-              anonymous: false,
-            },
-            {
-              id: crypto.randomUUID(),
-              author: "Riley",
-              body: "Absolutely! How about the new rooftop cinema on Saturday night?",
-              timestamp: new Date(Date.now() - 3600 * 1000 * 4.2),
-              anonymous: false,
-            },
-          ],
-        },
-      ],
-    },
-    {
-      id: crypto.randomUUID(),
-      fullName: "Dominique Smith",
-      username: "nico",
-      password: "password",
-      relationship: { status: "want", anonymous: true },
-      conversations: [
-        {
-          id: crypto.randomUUID(),
-          heading: "This user wants you",
-          messages: [
-            {
-              id: crypto.randomUUID(),
-              author: "You (anonymous)",
-              body: "Hey there! I heard you're into hiking. Want to swap trail recommendations?",
-              timestamp: new Date(Date.now() - 3600 * 1000 * 24),
-              anonymous: true,
-            },
-            {
-              id: crypto.randomUUID(),
-              author: "Dominique",
-              body: "I'd love that! Anonymous trail friend, what's your favorite sunrise spot?",
-              timestamp: new Date(Date.now() - 3600 * 1000 * 22.5),
-              anonymous: false,
-            },
-          ],
-        },
-      ],
-    },
-    {
-      id: crypto.randomUUID(),
-      fullName: "Zara Patel",
-      username: "zara",
-      password: "password",
-      relationship: { status: "know", anonymous: false },
-      conversations: [
-        {
-          id: crypto.randomUUID(),
-          heading: "This user knows you",
-          messages: [
-            {
-              id: crypto.randomUUID(),
-              author: "Zara",
-              body: "Thanks again for the portfolio feedback! Want to grab lunch next week?",
-              timestamp: new Date(Date.now() - 3600 * 1000 * 48),
-              anonymous: false,
-            },
-          ],
-        },
-      ],
-    },
-  ],
+const STATE = {
+  likes: new Map(),
+  conversations: {},
 };
 
-const select = (selector) => document.querySelector(selector);
-const selectAll = (selector) => document.querySelectorAll(selector);
-
-const elements = {
-  highlightCard: select("#highlight-card"),
-  authPanel: select("#auth-panel"),
-  discoverPanel: select("#discover-panel"),
-  detailsTitle: select("#details-title"),
-  detailsSubtitle: select("#details-subtitle"),
-  relationship: select("#relationship"),
-  conversation: select("#conversation"),
-  conversationHeading: select("#conversation-heading"),
-  conversationStatus: select("#conversation-status"),
-  conversationMessages: select("#conversation-messages"),
-  messageForm: select("#message-form"),
-  messageInput: select("#message-input"),
-  messageAnon: select("#message-anon"),
-  anonymousToggle: select("#anonymous-toggle"),
-  searchInput: select("#search-input"),
-  clearSearch: select("#clear-search"),
-  userList: select("#user-list"),
-  year: select("#year"),
-};
-
-const templates = {
-  userItem: select("#user-item-template"),
-  message: select("#message-template"),
-};
-
-const tabButtons = {
-  login: select("#login-tab-btn"),
-  register: select("#register-tab-btn"),
-};
-
-const tabPanels = {
-  login: select("#login-tab"),
-  register: select("#register-tab"),
-};
-
-const forms = {
-  login: select("#login-tab"),
-  register: select("#register-tab"),
-};
-
-const inputs = {
-  loginUsername: select("#login-username"),
-  loginPassword: select("#login-password"),
-  registerFullname: select("#register-fullname"),
-  registerUsername: select("#register-username"),
-  registerPassword: select("#register-password"),
-};
-
-const formatTimestamp = (date) =>
-  new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-    day: "numeric",
-  }).format(date);
-
-const headingByStatus = {
-  none: "Start a conversation",
-  know: "This user knows you",
-  want: "This user wants you",
-  both: "This user both knows and wants you",
-};
-
-const statusBadges = {
-  none: "No status",
-  know: "Knows you",
-  want: "Wants you",
-  both: "Knows & wants you",
-};
-
-const heroHighlights = [
+const heroMessages = [
   {
-    title: "Mutual sparks",
-    copy: "See the people who both know and want you. When both sides opt in, conversations open instantly.",
-    tag: "Both",
+    quote: "“Team Launch hit their milestone — Jordan kept us on track!”",
+    author: "Avery · Product Circle",
   },
   {
-    title: "Anonymous admiration",
-    copy: "Mark someone as a Want You anonymously. Chat safely and reveal yourself when you both feel ready.",
-    tag: "Anonymous",
+    quote: "“Weekend Warrior crew is cheering Mia on for the big race.”",
+    author: "Anthony · Climber Crew",
   },
   {
-    title: "Low pressure intros",
-    copy: "Let friends know you remember them. A simple Know You can be the start of something more.",
-    tag: "Know you",
+    quote: "“Emma just unlocked a new boost streak. Show her some love!”",
+    author: "Community Highlights",
   },
 ];
 
-function cycleHighlights() {
-  let index = 0;
-  const render = () => {
-    const highlight = heroHighlights[index];
-    elements.highlightCard.innerHTML = `
-      <span class="tag">${highlight.tag}</span>
-      <h3>${highlight.title}</h3>
-      <p>${highlight.copy}</p>
-    `;
-    index = (index + 1) % heroHighlights.length;
-  };
-  render();
-  setInterval(render, 6000);
-}
-
-function setYear() {
-  elements.year.textContent = new Date().getFullYear();
-}
-
-function handleTabChange(active) {
-  Object.entries(tabButtons).forEach(([key, button]) => {
-    const isActive = key === active;
-    button.classList.toggle("tab--active", isActive);
-    button.setAttribute("aria-selected", String(isActive));
-  });
-
-  Object.entries(tabPanels).forEach(([key, panel]) => {
-    const isActive = key === active;
-    panel.classList.toggle("tab-panel--active", isActive);
-    panel.hidden = !isActive;
-  });
-}
-
-function renderUsers(list = state.users) {
-  elements.userList.innerHTML = "";
-  list.forEach((user) => {
-    const clone = templates.userItem.content.firstElementChild.cloneNode(true);
-    const button = clone.querySelector(".user__card");
-    const name = clone.querySelector(".user__name");
-    const username = clone.querySelector(".user__username");
-    const status = clone.querySelector(".user__status");
-
-    name.textContent = user.fullName;
-    username.textContent = `@${user.username}`;
-    status.textContent = statusBadges[user.relationship.status];
-
-    button.dataset.userId = user.id;
-    button.addEventListener("click", () => selectUser(user.id));
-    elements.userList.appendChild(clone);
-  });
-}
-
-function selectUser(userId) {
-  state.selectedUserId = userId;
-  const user = state.users.find((item) => item.id === userId);
-  if (!user) return;
-
-  elements.detailsTitle.textContent = user.fullName;
-  elements.detailsSubtitle.textContent = `@${user.username}`;
-  elements.relationship.hidden = false;
-  elements.conversation.hidden = false;
-
-  const statusInputs = selectAll('input[name="status"]');
-  statusInputs.forEach((input) => {
-    input.checked = input.value === user.relationship.status;
-    input.onchange = () => updateRelationship(input.value);
-  });
-
-  elements.anonymousToggle.checked = user.relationship.anonymous;
-  elements.anonymousToggle.onchange = (event) =>
-    updateAnonymous(event.target.checked);
-
-  renderConversation(user);
-}
-
-function updateRelationship(status) {
-  const user = state.users.find((item) => item.id === state.selectedUserId);
-  if (!user) return;
-  user.relationship.status = status;
-  if (user.conversations[0]) {
-    user.conversations[0].heading = headingByStatus[status];
-  }
-  if (status !== "want") {
-    user.relationship.anonymous = false;
-    elements.anonymousToggle.checked = false;
-  }
-  renderConversation(user);
-  renderUsers(filteredUsers());
-}
-
-function updateAnonymous(isAnonymous) {
-  const user = state.users.find((item) => item.id === state.selectedUserId);
-  if (!user) return;
-  if (user.relationship.status === "want") {
-    user.relationship.anonymous = isAnonymous;
-  } else {
-    user.relationship.anonymous = false;
-    elements.anonymousToggle.checked = false;
-  }
-  renderConversation(user);
-  renderUsers(filteredUsers());
-}
-
-function renderConversation(user) {
-  const conversation = user.conversations[0];
-  const status = user.relationship.status;
-  const heading = headingByStatus[status];
-  const isAnonymous = user.relationship.anonymous;
-
-  elements.conversationHeading.textContent = heading;
-  elements.conversationStatus.textContent =
-    status === "want" && isAnonymous
-      ? "Anonymous"
-      : statusBadges[status];
-
-  elements.conversationMessages.innerHTML = "";
-  if (!conversation) {
-    elements.conversationMessages.innerHTML =
-      '<li class="message"><p class="message__body">No messages yet. Say hello!</p></li>';
-    return;
-  }
-
-  conversation.messages
-    .slice()
-    .sort((a, b) => a.timestamp - b.timestamp)
-    .forEach((message) => {
-      const clone = templates.message.content.firstElementChild.cloneNode(true);
-      clone.querySelector(".message__author").textContent = message.author;
-      clone.querySelector(".message__timestamp").textContent = formatTimestamp(
-        message.timestamp,
-      );
-      clone.querySelector(".message__body").textContent = message.body;
-      if (message.anonymous) {
-        clone.classList.add("message--anonymous");
-      }
-      elements.conversationMessages.appendChild(clone);
-    });
-}
-
-function filteredUsers() {
-  const term = elements.searchInput.value.trim().toLowerCase();
-  if (!term) return state.users;
-  return state.users.filter(
-    (user) =>
-      user.fullName.toLowerCase().includes(term) ||
-      user.username.toLowerCase().includes(term),
-  );
-}
-
-function handleSearchInput() {
-  renderUsers(filteredUsers());
-}
-
-function handleClearSearch() {
-  elements.searchInput.value = "";
-  renderUsers(state.users);
-  elements.searchInput.focus();
-}
-
-function handleLogin(event) {
-  event.preventDefault();
-  const username = inputs.loginUsername.value.trim().toLowerCase();
-  const password = inputs.loginPassword.value;
-  const user = state.users.find(
-    (item) => item.username.toLowerCase() === username && item.password === password,
-  );
-  if (!user) {
-    alert("We couldn't find that account. Try again or create a new one.");
-    return;
-  }
-  state.currentUser = user;
-  selectUser(user.id);
-  elements.authPanel.classList.add("panel--collapsed");
-}
-
-function resetRegisterForm() {
-  inputs.registerFullname.value = "";
-  inputs.registerUsername.value = "";
-  inputs.registerPassword.value = "";
-}
-
-function handleRegister(event) {
-  event.preventDefault();
-  const fullName = inputs.registerFullname.value.trim();
-  const username = inputs.registerUsername.value.trim();
-  const password = inputs.registerPassword.value;
-
-  if (!fullName || !username || !password) {
-    alert("Please fill in all fields to create an account.");
-    return;
-  }
-
-  if (state.users.some((user) => user.username === username)) {
-    alert("That username is already taken. Try another one.");
-    return;
-  }
-
-  const newUser = {
-    id: crypto.randomUUID(),
-    fullName,
-    username,
-    password,
-    relationship: { status: "none", anonymous: false },
-    conversations: [
+const messageData = [
+  {
+    id: "launch",
+    title: "Launch Crew",
+    meta: "4 members · Anonymous",
+    anonymous: true,
+    messages: [
       {
-        id: crypto.randomUUID(),
-        heading: headingByStatus.none,
-        messages: [],
+        author: "Anonymous",
+        text: "Demo flow is slick. Proud of this launch team!",
+        time: "9:12 AM",
+      },
+      {
+        author: "You",
+        text: "Schedule dry run at noon?",
+        time: "9:14 AM",
       },
     ],
-  };
+  },
+  {
+    id: "warriors",
+    title: "Weekend Warriors",
+    meta: "8 members",
+    anonymous: false,
+    messages: [
+      {
+        author: "Mia",
+        text: "Anyone bringing the orange slices?",
+        time: "8:02 AM",
+      },
+      {
+        author: "Jordan",
+        text: "Already packed them!",
+        time: "8:05 AM",
+      },
+    ],
+  },
+  {
+    id: "emma",
+    title: "Boosts for Emma",
+    meta: "DM · Anonymous",
+    anonymous: true,
+    messages: [
+      {
+        author: "Anonymous",
+        text: "You’re going to nail the pitch today!",
+        time: "Yesterday",
+      },
+    ],
+  },
+];
 
-  state.users = [newUser, ...state.users];
-  resetRegisterForm();
-  renderUsers(state.users);
-  selectUser(newUser.id);
-  state.currentUser = newUser;
-  elements.authPanel.classList.add("panel--collapsed");
+function initLanding() {
+  const heroCard = document.getElementById("hero-card");
+  const year = document.getElementById("year");
+  const form = document.getElementById("request-access");
+  let heroIndex = 0;
+
+  if (year) {
+    year.textContent = new Date().getFullYear();
+  }
+
+  if (heroCard) {
+    const renderHero = () => {
+      const { quote, author } = heroMessages[heroIndex % heroMessages.length];
+      heroCard.innerHTML = `
+        <div class="hero-card__content">
+          <p>${quote}</p>
+          <span>${author}</span>
+        </div>
+      `;
+      heroIndex += 1;
+    };
+
+    renderHero();
+    setInterval(renderHero, 5000);
+  }
+
+  if (form) {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = form.querySelector("input[type='email']");
+      if (!input?.value) return;
+      form.classList.add("form--submitted");
+      form.innerHTML = `<p class="form__success">Invite requested! Check your inbox soon.</p>`;
+    });
+  }
 }
 
-function handleMessageSubmit(event) {
-  event.preventDefault();
-  const body = elements.messageInput.value.trim();
-  if (!body) return;
-  const user = state.users.find((item) => item.id === state.selectedUserId);
-  if (!user) return;
+function initSignup() {
+  const form = document.getElementById("signup-form");
+  const year = document.getElementById("signup-year");
 
-  const conversation = user.conversations[0];
-  const anonymous = elements.messageAnon.checked;
-  const author = anonymous ? "You (anonymous)" : "You";
+  if (year) {
+    year.textContent = new Date().getFullYear();
+  }
 
-  conversation.messages.push({
-    id: crypto.randomUUID(),
-    author,
-    body,
-    timestamp: new Date(),
-    anonymous,
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    window.alert("Account created! Check your inbox to verify your email.");
+  });
+}
+
+function initFeed() {
+  const composerForm = document.getElementById("composer-form");
+  const composerText = document.getElementById("composer-text");
+  const postsContainer = document.getElementById("feed-posts");
+
+  document.querySelectorAll('[data-action="like"]').forEach((button) => {
+    button.addEventListener("click", () => {
+      const label = button.querySelector(".post__action-label");
+      const post = button.closest("[data-post]");
+      if (!label || !post) return;
+
+      const postId = STATE.likes.get(post) ?? {
+        liked: false,
+        count: Number(label.textContent) || 0,
+      };
+
+      if (postId.liked) {
+        postId.count = Math.max(0, postId.count - 1);
+        button.classList.remove("post__action--active");
+      } else {
+        postId.count += 1;
+        button.classList.add("post__action--active");
+      }
+
+      postId.liked = !postId.liked;
+      label.textContent = String(postId.count);
+      STATE.likes.set(post, postId);
+    });
   });
 
-  elements.messageInput.value = "";
-  elements.messageAnon.checked = false;
-  renderConversation(user);
+  document.querySelectorAll('[data-action="join"]').forEach((button) => {
+    button.addEventListener("click", () => {
+      button.textContent = "Joined";
+      button.disabled = true;
+    });
+  });
+
+  if (composerForm && composerText && postsContainer) {
+    composerForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = composerText.value.trim();
+      if (!text) return;
+
+      const newPost = document.createElement("article");
+      newPost.className = "card post";
+      newPost.dataset.post = "";
+      newPost.innerHTML = `
+        <header class="post__header">
+          <img src="https://i.pravatar.cc/48?img=5" alt="Profile" />
+          <div>
+            <h3>Jordan Lee</h3>
+            <p>Shared to Launch Crew · just now</p>
+          </div>
+        </header>
+        <p>${text}</p>
+        <footer class="post__footer">
+          <button class="post__action" data-action="like">
+            <span aria-hidden="true">❤️</span>
+            <span class="post__action-label">1</span>
+          </button>
+          <button class="post__action" data-action="comment">
+            💬 <span class="post__action-label">0</span>
+          </button>
+          <button class="post__action" data-action="share">↗︎ Share</button>
+        </footer>
+      `;
+
+      postsContainer.prepend(newPost);
+      composerText.value = "";
+
+      const likeButton = newPost.querySelector('[data-action="like"]');
+      if (likeButton) {
+        likeButton.addEventListener("click", () => {
+          const label = likeButton.querySelector(".post__action-label");
+          if (!label) return;
+
+          const status = STATE.likes.get(newPost) ?? { liked: false, count: 1 };
+          if (status.liked) {
+            status.count = Math.max(0, status.count - 1);
+            likeButton.classList.remove("post__action--active");
+          } else {
+            status.count += 1;
+            likeButton.classList.add("post__action--active");
+          }
+          status.liked = !status.liked;
+          label.textContent = String(status.count);
+          STATE.likes.set(newPost, status);
+        });
+      }
+    });
+  }
 }
 
-function initEvents() {
-  tabButtons.login.addEventListener("click", () => handleTabChange("login"));
-  tabButtons.register.addEventListener("click", () => handleTabChange("register"));
+function renderThreadList(listEl) {
+  listEl.innerHTML = "";
+  messageData.forEach((thread) => {
+    const item = document.createElement("li");
+    item.innerHTML = `
+      <button type="button" class="thread" data-thread="${thread.id}">
+        <div>
+          <h3>${thread.title}</h3>
+          <p>${thread.meta}</p>
+        </div>
+        <span aria-hidden="true">›</span>
+      </button>
+    `;
+    const button = item.querySelector(".thread");
+    if (STATE.conversations.active?.id === thread.id) {
+      button?.classList.add("thread--active");
+    }
+    listEl.appendChild(item);
+  });
+}
 
-  forms.login.addEventListener("submit", handleLogin);
-  forms.register.addEventListener("submit", handleRegister);
-  elements.messageForm.addEventListener("submit", handleMessageSubmit);
+function renderConversation(thread, revealNames) {
+  const messageThread = document.getElementById("message-thread");
+  const roomTitle = document.getElementById("room-title");
+  const roomMeta = document.getElementById("room-meta");
+  const toggleAnon = document.getElementById("toggle-anon");
+  const form = document.getElementById("message-form");
 
-  elements.searchInput.addEventListener("input", handleSearchInput);
-  elements.clearSearch.addEventListener("click", handleClearSearch);
+  if (!messageThread || !roomTitle || !roomMeta || !toggleAnon || !form) {
+    return;
+  }
 
-  selectAll("[data-open]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const target = button.dataset.open;
-      const panel = target === "auth" ? elements.authPanel : elements.discoverPanel;
-      panel.scrollIntoView({ behavior: "smooth" });
+  roomTitle.textContent = thread.title;
+  roomMeta.textContent = thread.meta;
+  messageThread.innerHTML = "";
+
+  thread.messages.forEach((message) => {
+    const li = document.createElement("li");
+    li.className = "message";
+    li.innerHTML = `
+      <span class="message__author">${revealNames ? message.author : maskAuthor(message.author, thread.anonymous)}</span>
+      <p>${message.text}</p>
+      <time>${message.time}</time>
+    `;
+    messageThread.appendChild(li);
+  });
+
+  toggleAnon.hidden = !thread.anonymous;
+  toggleAnon.dataset.threadId = thread.id;
+  toggleAnon.textContent = revealNames ? "Hide names" : "Reveal names";
+  form.hidden = false;
+  form.dataset.threadId = thread.id;
+}
+
+function maskAuthor(author, anonymous) {
+  if (!anonymous || author === "You") {
+    return author;
+  }
+  return "Anonymous";
+}
+
+function initMessages() {
+  const listEl = document.getElementById("thread-list");
+  const toggleAnon = document.getElementById("toggle-anon");
+  const form = document.getElementById("message-form");
+  const input = document.getElementById("message-input");
+
+  if (!listEl || !form || !input) {
+    return;
+  }
+
+  renderThreadList(listEl);
+
+  listEl.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-thread]");
+    if (!button) return;
+
+    listEl.querySelectorAll(".thread").forEach((threadButton) => {
+      threadButton.classList.toggle("thread--active", threadButton === button);
     });
+
+    const thread = messageData.find((item) => item.id === button.dataset.thread);
+    if (!thread) return;
+
+    STATE.conversations.active = {
+      id: thread.id,
+      reveal: false,
+    };
+    renderConversation(thread, false);
+  });
+
+  toggleAnon?.addEventListener("click", () => {
+    if (!STATE.conversations.active) return;
+    const thread = messageData.find((item) => item.id === STATE.conversations.active.id);
+    if (!thread) return;
+
+    STATE.conversations.active.reveal = !STATE.conversations.active.reveal;
+    renderConversation(thread, STATE.conversations.active.reveal);
+  });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!STATE.conversations.active) return;
+
+    const thread = messageData.find((item) => item.id === STATE.conversations.active.id);
+    if (!thread) return;
+
+    const value = input.value.trim();
+    if (!value) return;
+
+    const newMessage = {
+      author: "You",
+      text: value,
+      time: "Just now",
+    };
+
+    thread.messages.push(newMessage);
+    renderConversation(thread, STATE.conversations.active.reveal);
+    input.value = "";
+    input.focus();
+  });
+}
+
+function initProfile() {
+  const highlightButton = document.querySelector('[data-action="add-highlight"]');
+  const highlightList = document.getElementById("highlight-list");
+  const editButton = document.querySelector('[data-action="edit-profile"]');
+  const filterButton = document.querySelector('[data-action="filter-activity"]');
+
+  highlightButton?.addEventListener("click", () => {
+    const value = window.prompt("What highlight should we add?");
+    if (!value || !highlightList) return;
+
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <h3>New highlight</h3>
+      <p>${value}</p>
+      <span>Boosted by you</span>
+    `;
+    highlightList.prepend(li);
+  });
+
+  editButton?.addEventListener("click", () => {
+    window.alert("Profile editing coming soon.");
+  });
+
+  filterButton?.addEventListener("click", () => {
+    window.alert("Filter options will let you drill into boosts, events, and more.");
   });
 }
 
 function init() {
-  cycleHighlights();
-  setYear();
-  handleTabChange("login");
-  renderUsers(state.users);
-  initEvents();
+  const page = document.body.dataset.page;
+
+  switch (page) {
+    case "landing":
+      initLanding();
+      break;
+    case "signup":
+      initSignup();
+      break;
+    case "feed":
+      initFeed();
+      break;
+    case "messages":
+      initMessages();
+      break;
+    case "profile":
+      initProfile();
+      break;
+    default:
+      break;
+  }
 }
 
-init();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}

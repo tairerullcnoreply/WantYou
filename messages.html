@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WantYou | Messages</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="messages">
+    <header class="app-header">
+      <div class="app-header__inner container">
+        <a href="index.html" class="brand">WantYou</a>
+        <form class="app-search" role="search">
+          <input type="search" placeholder="Search messages" />
+        </form>
+        <nav class="app-nav" aria-label="App navigation">
+          <a href="feed.html">Feed</a>
+          <a href="messages.html" aria-current="page">Messages</a>
+          <a href="profile.html">Profile</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container message-layout">
+      <aside class="message-layout__sidebar">
+        <header class="message-layout__header">
+          <h1>Conversations</h1>
+          <button class="button button--ghost" data-action="new-thread">New</button>
+        </header>
+        <ul class="thread-list" id="thread-list" aria-label="Conversation list"></ul>
+      </aside>
+
+      <section class="message-layout__content">
+        <header class="message-room" id="message-room">
+          <div>
+            <h2 id="room-title">Select a conversation</h2>
+            <p id="room-meta">Your chats will appear here.</p>
+          </div>
+          <button class="button button--ghost" id="toggle-anon" hidden>
+            Reveal names
+          </button>
+        </header>
+
+        <ul class="message-thread" id="message-thread" aria-live="polite"></ul>
+
+        <form class="message-compose" id="message-form" hidden>
+          <label class="form__field">
+            <span class="visually-hidden">Message</span>
+            <input type="text" id="message-input" placeholder="Send a boost" required />
+          </label>
+          <button type="submit" class="button">Send</button>
+        </form>
+      </section>
+    </main>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
