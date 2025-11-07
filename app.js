@@ -2206,6 +2206,31 @@ async function initProfile() {
   const usernameHistoryNote = document.querySelector("[data-username-history-note]");
   const taglineEl = document.querySelector("[data-profile-tagline]");
   const bioEl = document.querySelector("[data-profile-bio]");
+  const detailsList = document.querySelector("[data-profile-details]");
+  const pronounsContainer = document.querySelector("[data-profile-pronouns-container]");
+  const pronounsEl = document.querySelector("[data-profile-pronouns]");
+  const locationContainer = document.querySelector("[data-profile-location-container]");
+  const locationEl = document.querySelector("[data-profile-location]");
+  const relationshipContainer = document.querySelector("[data-profile-relationship-container]");
+  const relationshipEl = document.querySelector("[data-profile-relationship]");
+  const relationshipPill = document.querySelector("[data-profile-relationship-pill]");
+  const sexualityContainer = document.querySelector("[data-profile-sexuality-container]");
+  const sexualityEl = document.querySelector("[data-profile-sexuality]");
+  const spotlightCard = document.querySelector("[data-profile-spotlight-card]");
+  const spotlightEl = document.querySelector("[data-profile-spotlight]");
+  const journeyCard = document.querySelector("[data-profile-journey-card]");
+  const journeyEl = document.querySelector("[data-profile-journey]");
+  const interestsList = document.querySelector("[data-profile-interests]");
+  const activityList = document.querySelector("[data-profile-activity]");
+  const activityEmpty = document.querySelector("[data-activity-empty]");
+  const activityActiveEl = document.querySelector("[data-activity-active-events]");
+  const activityHighlightedEl = document.querySelector("[data-activity-highlighted-events]");
+  const activityPostsEl = document.querySelector("[data-activity-total-posts]");
+  const activityMediaEl = document.querySelector("[data-activity-total-media]");
+  const activityMoodsEl = document.querySelector("[data-activity-moods-used]");
+  const activityUpdatedEl = document.querySelector("[data-activity-last-updated]");
+  const linksSection = document.querySelector("[data-profile-links-section]");
+  const linksList = document.querySelector("[data-profile-links]");
   const profileBadges = document.querySelector("[data-profile-badges]");
   const avatarImg = document.querySelector("[data-profile-avatar]");
   const avatarButton = document.querySelector(".profile-summary__avatar");
@@ -2333,7 +2358,7 @@ async function initProfile() {
     if (actionsContainer) {
       actionsContainer.hidden = !(canEdit || canVerify);
     }
-    if (verifyButton) {
+    if (verifyButton && verifyButton.isConnected) {
       verifyButton.hidden = !canVerify;
     }
     if (!canEdit && statsContainer) {
@@ -2930,6 +2955,9 @@ async function initProfile() {
     const viewerUsername = sessionUser?.username ?? null;
     const targetUsername = user.username ?? null;
     const isOfficial = viewerUsername === OWNER_USERNAME;
+    if (!isOfficial && verifyButton?.isConnected) {
+      verifyButton.remove();
+    }
     const canVerify =
       Boolean(data.canVerify) &&
       isOfficial &&
@@ -2999,10 +3027,188 @@ async function initProfile() {
     bioEl.textContent = user.bio ? user.bio : bioFallback;
     bioEl.classList.toggle("profile-summary__tagline--empty", !user.bio);
 
+    const detailVisibility = [];
+    const pronouns = typeof user.pronouns === "string" ? user.pronouns.trim() : "";
+    if (pronounsContainer && pronounsEl) {
+      const hasPronouns = Boolean(pronouns);
+      pronounsContainer.hidden = !hasPronouns;
+      if (hasPronouns) {
+        pronounsEl.textContent = pronouns;
+      }
+      detailVisibility.push(hasPronouns);
+    }
+    const location = typeof user.location === "string" ? user.location.trim() : "";
+    if (locationContainer && locationEl) {
+      const hasLocation = Boolean(location);
+      locationContainer.hidden = !hasLocation;
+      if (hasLocation) {
+        locationEl.textContent = location;
+      }
+      detailVisibility.push(hasLocation);
+    }
+    const relationshipLabel = typeof user.relationshipStatusLabel === "string"
+      ? user.relationshipStatusLabel.trim()
+      : typeof user.relationshipStatus === "string"
+      ? user.relationshipStatus
+      : "";
+    if (relationshipContainer && relationshipEl) {
+      const hasRelationship = Boolean(relationshipLabel);
+      relationshipContainer.hidden = !hasRelationship;
+      if (hasRelationship) {
+        relationshipEl.textContent = relationshipLabel;
+      }
+      detailVisibility.push(hasRelationship);
+    }
+    if (relationshipPill) {
+      if (relationshipLabel) {
+        relationshipPill.textContent = relationshipLabel;
+        relationshipPill.hidden = false;
+      } else {
+        relationshipPill.hidden = true;
+      }
+    }
+    const sexuality = typeof user.sexuality === "string" ? user.sexuality.trim() : "";
+    if (sexualityContainer && sexualityEl) {
+      const hasSexuality = Boolean(sexuality);
+      sexualityContainer.hidden = !hasSexuality;
+      if (hasSexuality) {
+        sexualityEl.textContent = sexuality;
+      }
+      detailVisibility.push(hasSexuality);
+    }
+    if (detailsList) {
+      const hasDetails = detailVisibility.some(Boolean);
+      detailsList.hidden = !hasDetails;
+    }
+
+    if (spotlightCard && spotlightEl) {
+      const spotlight = typeof user.spotlight === "string" ? user.spotlight.trim() : "";
+      if (spotlight) {
+        spotlightEl.textContent = spotlight;
+        spotlightCard.classList.remove("profile-about__card--empty");
+      } else {
+        spotlightEl.textContent = data.canEdit
+          ? "Highlight a win, milestone, or mission."
+          : "No spotlight yet.";
+        spotlightCard.classList.add("profile-about__card--empty");
+      }
+    }
+    if (journeyCard && journeyEl) {
+      const journey = typeof user.journey === "string" ? user.journey.trim() : "";
+      if (journey) {
+        journeyEl.textContent = journey;
+        journeyCard.classList.remove("profile-about__card--empty");
+      } else {
+        journeyEl.textContent = data.canEdit
+          ? "Connect the dots on where you've been and where you're headed."
+          : "No journey shared yet.";
+        journeyCard.classList.add("profile-about__card--empty");
+      }
+    }
+
+    if (interestsList) {
+      const interests = Array.isArray(user.interests) ? user.interests.filter(Boolean) : [];
+      if (interests.length) {
+        interestsList.innerHTML = interests
+          .map((interest) => `<li>${escapeHtml(interest)}</li>`)
+          .join("");
+      } else {
+        const emptyMessage = data.canEdit
+          ? "Add interests to show people what lights you up."
+          : "No interests shared yet.";
+        interestsList.innerHTML = `<li data-profile-interests-empty>${escapeHtml(emptyMessage)}</li>`;
+      }
+    }
+
+    const activity = data.activity ?? {};
+    const activityTotals = {
+      activeEvents: Number.isFinite(activity.activeEvents) ? activity.activeEvents : 0,
+      highlightedEvents: Number.isFinite(activity.highlightedEvents)
+        ? activity.highlightedEvents
+        : 0,
+      totalPosts: Number.isFinite(activity.totalPosts) ? activity.totalPosts : 0,
+      totalMedia: Number.isFinite(activity.totalMedia) ? activity.totalMedia : 0,
+      moodsUsed: Number.isFinite(activity.moodsUsed) ? activity.moodsUsed : 0,
+    };
+    const hasActivity =
+      activityTotals.activeEvents > 0 ||
+      activityTotals.highlightedEvents > 0 ||
+      activityTotals.totalPosts > 0 ||
+      activityTotals.totalMedia > 0 ||
+      activityTotals.moodsUsed > 0 ||
+      Boolean(activity.lastUpdatedAt);
+    if (activityActiveEl) {
+      activityActiveEl.textContent = String(activityTotals.activeEvents);
+    }
+    if (activityHighlightedEl) {
+      activityHighlightedEl.textContent = String(activityTotals.highlightedEvents);
+    }
+    if (activityPostsEl) {
+      activityPostsEl.textContent = String(activityTotals.totalPosts);
+    }
+    if (activityMediaEl) {
+      activityMediaEl.textContent = String(activityTotals.totalMedia);
+    }
+    if (activityMoodsEl) {
+      activityMoodsEl.textContent = String(activityTotals.moodsUsed);
+    }
+    if (activityUpdatedEl) {
+      activityUpdatedEl.textContent = activity.lastUpdatedAt
+        ? formatTimestamp(activity.lastUpdatedAt)
+        : "—";
+    }
+    if (activityList) {
+      activityList.hidden = !hasActivity;
+    }
+    if (activityEmpty) {
+      activityEmpty.hidden = hasActivity;
+      if (!hasActivity) {
+        activityEmpty.textContent = data.canEdit
+          ? "Activity insights will unlock as you share events or posts."
+          : "Activity insights will unlock as events and posts go live.";
+      }
+    }
+
+    if (linksList) {
+      const links = Array.isArray(user.links)
+        ? user.links.filter((link) => link && typeof link.url === "string" && link.url)
+        : [];
+      if (links.length) {
+        const items = links
+          .map((link) => {
+            const label = link.label ? String(link.label) : link.url;
+            let subtitle = "";
+            try {
+              const parsed = new URL(link.url);
+              subtitle = parsed.hostname.replace(/^www\./i, "");
+            } catch (error) {
+              subtitle = "";
+            }
+            const subtitleHtml = subtitle && subtitle !== label ? `<span>${escapeHtml(subtitle)}</span>` : "";
+            return `<li class="profile-links__item"><a href="${escapeHtml(
+              link.url
+            )}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>${subtitleHtml}</li>`;
+          })
+          .join("");
+        linksList.innerHTML = items;
+      } else {
+        const emptyMessage = data.canEdit
+          ? "Drop resources, calendars, or work you're proud of."
+          : "No links shared yet.";
+        linksList.innerHTML = `<li data-profile-links-empty>${escapeHtml(emptyMessage)}</li>`;
+      }
+    }
+    if (linksSection) {
+      const hasLinks = Array.isArray(user.links)
+        ? user.links.some((link) => link && link.url)
+        : false;
+      linksSection.hidden = !hasLinks && !data.canEdit;
+    }
+
     applyAvatar(user, profileData.events);
     renderUserBadges(profileBadges, user.badges);
 
-    if (verifyButton) {
+    if (verifyButton && verifyButton.isConnected) {
       if (profileData.canVerify) {
         const isVerified = getDisplayBadges(user.badges).includes("Verified");
         verifyButton.hidden = false;
@@ -3012,6 +3218,9 @@ async function initProfile() {
         verifyButton.hidden = true;
         verifyButton.disabled = true;
       }
+    } else if (verifyButton) {
+      verifyButton.hidden = true;
+      verifyButton.disabled = true;
     }
 
     if (data.stats) {
@@ -3174,6 +3383,43 @@ async function initProfile() {
         const canChangeUsername = !nextChangeAt || Date.now() >= nextChangeAt;
         form.elements.tagline.value = profileData.user.tagline ?? "";
         form.elements.bio.value = profileData.user.bio ?? "";
+        if (form.elements.pronouns) {
+          form.elements.pronouns.value = profileData.user.pronouns ?? "";
+        }
+        if (form.elements.location) {
+          form.elements.location.value = profileData.user.location ?? "";
+        }
+        if (form.elements.relationshipStatus) {
+          form.elements.relationshipStatus.value =
+            profileData.user.relationshipStatus ?? "open";
+        }
+        if (form.elements.sexuality) {
+          form.elements.sexuality.value = profileData.user.sexuality ?? "";
+        }
+        if (form.elements.interests) {
+          form.elements.interests.value = Array.isArray(profileData.user.interests)
+            ? profileData.user.interests.join(", ")
+            : "";
+        }
+        if (form.elements.spotlight) {
+          form.elements.spotlight.value = profileData.user.spotlight ?? "";
+        }
+        if (form.elements.journey) {
+          form.elements.journey.value = profileData.user.journey ?? "";
+        }
+        if (form.elements.links) {
+          const linksValue = Array.isArray(profileData.user.links)
+            ? profileData.user.links
+                .filter((link) => link && link.url)
+                .map((link) =>
+                  link.label && link.label !== link.url
+                    ? `${link.label} - ${link.url}`
+                    : link.url
+                )
+                .join("\n")
+            : "";
+          form.elements.links.value = linksValue;
+        }
         if (usernameChangeNote) {
           if (canChangeUsername) {
             usernameChangeNote.textContent = "You can change your username once every 30 days.";
@@ -3219,6 +3465,30 @@ async function initProfile() {
     }
     if (formData.has("bio")) {
       payload.bio = String(formData.get("bio") ?? "");
+    }
+    if (formData.has("pronouns")) {
+      payload.pronouns = String(formData.get("pronouns") ?? "");
+    }
+    if (formData.has("location")) {
+      payload.location = String(formData.get("location") ?? "");
+    }
+    if (formData.has("relationshipStatus")) {
+      payload.relationshipStatus = String(formData.get("relationshipStatus") ?? "");
+    }
+    if (formData.has("sexuality")) {
+      payload.sexuality = String(formData.get("sexuality") ?? "");
+    }
+    if (formData.has("interests")) {
+      payload.interests = String(formData.get("interests") ?? "");
+    }
+    if (formData.has("spotlight")) {
+      payload.spotlight = String(formData.get("spotlight") ?? "");
+    }
+    if (formData.has("journey")) {
+      payload.journey = String(formData.get("journey") ?? "");
+    }
+    if (formData.has("links")) {
+      payload.links = String(formData.get("links") ?? "");
     }
     try {
       const response = await apiRequest("/profile", {

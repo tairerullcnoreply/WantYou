@@ -47,6 +47,25 @@ const VALID_POST_MOODS = new Set([
 ]);
 const DEFAULT_POST_MOOD = "none";
 
+const RELATIONSHIP_STATUS = Object.freeze({
+  SINGLE: "single",
+  DATING_OPEN: "dating-open",
+  DATING: "dating",
+  NOT_LOOKING: "not-looking",
+  OPEN: "open",
+});
+
+const RELATIONSHIP_STATUS_LABELS = Object.freeze({
+  [RELATIONSHIP_STATUS.SINGLE]: "Single",
+  [RELATIONSHIP_STATUS.DATING_OPEN]: "Dating but Open",
+  [RELATIONSHIP_STATUS.DATING]: "Dating",
+  [RELATIONSHIP_STATUS.NOT_LOOKING]: "Not Looking",
+  [RELATIONSHIP_STATUS.OPEN]: "Open to New Connections",
+});
+
+const RELATIONSHIP_STATUS_OPTIONS = new Set(Object.values(RELATIONSHIP_STATUS));
+const DEFAULT_RELATIONSHIP_STATUS = RELATIONSHIP_STATUS.OPEN;
+
 function resolveUploadRoot() {
   const explicit = process.env.UPLOAD_ROOT?.trim();
   if (explicit) {
@@ -118,6 +137,128 @@ function enforceBadgeRules(username, badges) {
   return list.filter((badge) => badge !== BADGE_TYPES.WANTYOU);
 }
 
+function sanitizeText(input, maxLength) {
+  if (typeof input !== "string") {
+    return "";
+  }
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (!Number.isFinite(maxLength) || maxLength <= 0) {
+    return trimmed;
+  }
+  return trimmed.slice(0, maxLength);
+}
+
+function normalizeRelationshipStatus(value) {
+  if (typeof value !== "string") {
+    return DEFAULT_RELATIONSHIP_STATUS;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (RELATIONSHIP_STATUS_OPTIONS.has(normalized)) {
+    return normalized;
+  }
+  switch (normalized) {
+    case "looking":
+    case "open":
+      return RELATIONSHIP_STATUS.OPEN;
+    case "focused":
+    case "away":
+    case "busy":
+      return RELATIONSHIP_STATUS.NOT_LOOKING;
+    default:
+      return DEFAULT_RELATIONSHIP_STATUS;
+  }
+}
+
+function getRelationshipStatusLabel(value) {
+  const normalized = normalizeRelationshipStatus(value);
+  return (
+    RELATIONSHIP_STATUS_LABELS[normalized] ?? RELATIONSHIP_STATUS_LABELS[DEFAULT_RELATIONSHIP_STATUS]
+  );
+}
+
+function sanitizeWebsite(input) {
+  if (typeof input !== "string") {
+    return "";
+  }
+  let trimmed = input.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (trimmed.length > 200) {
+    trimmed = trimmed.slice(0, 200);
+  }
+  try {
+    let candidate = trimmed;
+    if (!/^https?:\/\//i.test(candidate)) {
+      candidate = `https://${candidate}`;
+    }
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "";
+    }
+    parsed.hash = "";
+    return parsed.toString();
+  } catch (error) {
+    return "";
+  }
+}
+
+function sanitizeInterestList(value) {
+  let rawItems = [];
+  if (Array.isArray(value)) {
+    rawItems = value;
+  } else if (typeof value === "string") {
+    rawItems = value.split(/[\n,]/);
+  }
+  const interests = [];
+  const seen = new Set();
+  rawItems.forEach((item) => {
+    const sanitized = sanitizeText(item, 40);
+    if (!sanitized) return;
+    const key = sanitized.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    interests.push(sanitized);
+  });
+  return interests.slice(0, 8);
+}
+
+function sanitizeLinkEntries(value) {
+  let entries = [];
+  if (Array.isArray(value)) {
+    entries = value;
+  } else if (typeof value === "string") {
+    entries = value
+      .split(/\r?\n/)
+      .map((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return null;
+        const [labelPart, urlPart] = trimmed.split(/\s+-\s+|\s+\|\s+/, 2);
+        if (urlPart) {
+          return { label: labelPart, url: urlPart };
+        }
+        return { label: "", url: trimmed };
+      })
+      .filter(Boolean);
+  }
+  const links = [];
+  const seen = new Set();
+  entries.forEach((entry) => {
+    if (!entry) return;
+    const url = sanitizeWebsite(entry.url ?? "");
+    if (!url || seen.has(url)) {
+      return;
+    }
+    seen.add(url);
+    const label = sanitizeText(entry.label ?? "", 60) || url;
+    links.push({ label, url });
+  });
+  return links.slice(0, 5);
+}
+
 function sanitizeUserRecord(record) {
   if (!record || !record.username) {
     throw new Error("User record must include a username");
@@ -153,6 +294,16 @@ function sanitizeUserRecord(record) {
     badges: enforceBadgeRules(normalizeUsername(record.username), record.badges),
     usernameHistory: history,
     usernameChangedAt: record.usernameChangedAt ?? null,
+    pronouns: sanitizeText(record.pronouns ?? "", 40),
+    location: sanitizeText(record.location ?? "", 120),
+    relationshipStatus: normalizeRelationshipStatus(
+      record.relationshipStatus ?? record.availability ?? DEFAULT_RELATIONSHIP_STATUS
+    ),
+    sexuality: sanitizeText(record.sexuality ?? "", 60),
+    journey: sanitizeText(record.journey ?? "", 600),
+    spotlight: sanitizeText(record.spotlight ?? "", 280),
+    interests: sanitizeInterestList(record.interests ?? []),
+    links: sanitizeLinkEntries(record.links ?? []),
   };
 }
 
@@ -166,6 +317,10 @@ function buildUserSummaryPayload(user) {
     previousUsernames: Array.isArray(user.usernameHistory)
       ? user.usernameHistory.map((entry) => entry.username)
       : [],
+    pronouns: user.pronouns ?? "",
+    location: user.location ?? "",
+    relationshipStatus: user.relationshipStatus ?? DEFAULT_RELATIONSHIP_STATUS,
+    sexuality: user.sexuality ?? "",
   });
 }
 
@@ -832,6 +987,14 @@ async function saveUser({ fullName, username, password }) {
     userId: crypto.randomUUID(),
     usernameHistory: [],
     usernameChangedAt: null,
+    pronouns: "",
+    location: "",
+    relationshipStatus: DEFAULT_RELATIONSHIP_STATUS,
+    sexuality: "",
+    journey: "",
+    spotlight: "",
+    interests: [],
+    links: [],
   };
   return writeUserRecord(record);
 }
@@ -1726,6 +1889,22 @@ function publicUser(user) {
       ? user.usernameHistory.map((entry) => entry.username)
       : [],
     usernameChangedAt: user.usernameChangedAt ?? null,
+    pronouns: user.pronouns ?? "",
+    location: user.location ?? "",
+    relationshipStatus: normalizeRelationshipStatus(user.relationshipStatus),
+    relationshipStatusLabel: getRelationshipStatusLabel(user.relationshipStatus),
+    sexuality: user.sexuality ?? "",
+    journey: user.journey ?? "",
+    spotlight: user.spotlight ?? "",
+    interests: Array.isArray(user.interests) ? user.interests : [],
+    links: Array.isArray(user.links)
+      ? user.links
+          .map((link) => ({
+            label: sanitizeText(link?.label ?? "", 60) || sanitizeWebsite(link?.url ?? ""),
+            url: sanitizeWebsite(link?.url ?? ""),
+          }))
+          .filter((link) => Boolean(link.url))
+      : [],
   };
 }
 
@@ -2226,7 +2405,9 @@ function createApp() {
       }
       const response = {
         user: publicUser({ ...targetUser }),
-        events: events.map((event) => ({
+      };
+
+      const eventPayload = events.map((event) => ({
           id: event.id,
           text: event.text ?? "",
           attachments: normalizeAttachments(event.attachments),
@@ -2235,8 +2416,9 @@ function createApp() {
           durationHours: event.durationHours,
           accent: normalizeEventAccent(event.accent),
           highlighted: Boolean(event.highlighted),
-        })),
-        posts: filteredPosts.map((post) => ({
+        }));
+
+      const postPayload = filteredPosts.map((post) => ({
           id: post.id,
           text: post.text ?? "",
           attachments: normalizeAttachments(post.attachments),
@@ -2244,9 +2426,75 @@ function createApp() {
           visibility: post.visibility ?? "public",
           updatedAt: post.updatedAt,
           mood: post.mood ?? DEFAULT_POST_MOOD,
-        })),
-        canEdit: isSelf,
-        maxUploadSize: MAX_MEDIA_FILE_SIZE,
+        }));
+
+      response.events = eventPayload;
+      response.posts = postPayload;
+      response.canEdit = isSelf;
+      response.maxUploadSize = MAX_MEDIA_FILE_SIZE;
+
+      const nowMs = Date.now();
+      const activeEvents = eventPayload.filter((event) => {
+        if (!event.expiresAt) return true;
+        const expiry = Date.parse(event.expiresAt);
+        if (Number.isNaN(expiry)) return true;
+        return expiry > nowMs;
+      });
+      const highlightedEvents = eventPayload.filter((event) => event.highlighted);
+      const visibilityTotals = postPayload.reduce(
+        (acc, post) => {
+          const visibility = VALID_POST_VISIBILITIES.has(post.visibility)
+            ? post.visibility
+            : DEFAULT_POST_VISIBILITY;
+          acc[visibility] = (acc[visibility] ?? 0) + 1;
+          return acc;
+        },
+        { public: 0, connections: 0, private: 0 }
+      );
+      const moodsUsed = new Set(
+        postPayload
+          .map((post) => post.mood)
+          .filter((mood) => mood && mood !== DEFAULT_POST_MOOD)
+      );
+      const eventMediaCount = eventPayload.reduce(
+        (count, event) => count + (Array.isArray(event.attachments) ? event.attachments.length : 0),
+        0
+      );
+      const postMediaCount = postPayload.reduce(
+        (count, post) => count + (Array.isArray(post.attachments) ? post.attachments.length : 0),
+        0
+      );
+      const lastActivityTimestamps = [];
+      eventPayload.forEach((event) => {
+        if (event.createdAt) {
+          const timestamp = Date.parse(event.createdAt);
+          if (!Number.isNaN(timestamp)) {
+            lastActivityTimestamps.push(timestamp);
+          }
+        }
+      });
+      postPayload.forEach((post) => {
+        const source = post.updatedAt || post.createdAt;
+        if (!source) return;
+        const timestamp = Date.parse(source);
+        if (!Number.isNaN(timestamp)) {
+          lastActivityTimestamps.push(timestamp);
+        }
+      });
+      const lastActivityAt = lastActivityTimestamps.length
+        ? new Date(Math.max(...lastActivityTimestamps)).toISOString()
+        : null;
+
+      response.activity = {
+        activeEvents: activeEvents.length,
+        highlightedEvents: highlightedEvents.length,
+        totalPosts: postPayload.length,
+        publicPosts: visibilityTotals.public ?? 0,
+        connectionsPosts: visibilityTotals.connections ?? 0,
+        privatePosts: visibilityTotals.private ?? 0,
+        totalMedia: eventMediaCount + postMediaCount,
+        moodsUsed: moodsUsed.size,
+        lastUpdatedAt: lastActivityAt,
       };
 
       const canVerify = req.user.username === OWNER_USERNAME && requested !== req.user.username;
@@ -2262,6 +2510,7 @@ function createApp() {
         response.stats = countStatuses(incoming);
         response.anonymous = buildAnonymousList({ incoming, userMap });
         response.recent = buildRecentUpdates({ incoming, outgoing, userMap });
+        response.activity.statusTotals = response.stats;
       }
 
       res.json(response);
@@ -2285,6 +2534,51 @@ function createApp() {
         return res.status(400).json({ message: "Bio must be 500 characters or fewer" });
       }
       updates.bio = bio.trim();
+    }
+    if (typeof req.body?.pronouns === "string") {
+      if (req.body.pronouns.length > 40) {
+        return res.status(400).json({ message: "Pronouns must be 40 characters or fewer" });
+      }
+      updates.pronouns = req.body.pronouns.trim();
+    }
+    if (typeof req.body?.location === "string") {
+      if (req.body.location.length > 120) {
+        return res.status(400).json({ message: "Location must be 120 characters or fewer" });
+      }
+      updates.location = req.body.location.trim();
+    }
+    if (typeof req.body?.relationshipStatus === "string") {
+      updates.relationshipStatus = normalizeRelationshipStatus(req.body.relationshipStatus);
+    } else if (typeof req.body?.availability === "string") {
+      updates.relationshipStatus = normalizeRelationshipStatus(req.body.availability);
+    }
+    if (typeof req.body?.sexuality === "string") {
+      if (req.body.sexuality.length > 60) {
+        return res.status(400).json({ message: "Sexuality must be 60 characters or fewer" });
+      }
+      updates.sexuality = req.body.sexuality.trim();
+    }
+    if (typeof req.body?.journey === "string") {
+      if (req.body.journey.length > 600) {
+        return res.status(400).json({ message: "Journey must be 600 characters or fewer" });
+      }
+      updates.journey = req.body.journey.trim();
+    }
+    if (typeof req.body?.spotlight === "string") {
+      if (req.body.spotlight.length > 280) {
+        return res.status(400).json({ message: "Spotlight must be 280 characters or fewer" });
+      }
+      updates.spotlight = req.body.spotlight.trim();
+    }
+    if (typeof req.body?.interests === "string") {
+      updates.interests = sanitizeInterestList(req.body.interests);
+    } else if (Array.isArray(req.body?.interests)) {
+      updates.interests = sanitizeInterestList(req.body.interests);
+    }
+    if (typeof req.body?.links === "string") {
+      updates.links = sanitizeLinkEntries(req.body.links);
+    } else if (Array.isArray(req.body?.links)) {
+      updates.links = sanitizeLinkEntries(req.body.links);
     }
     if (typeof fullName === "string") {
       const trimmedName = fullName.trim();
