@@ -11,6 +11,7 @@ const UPSTASH_REST_TOKEN = process.env.KV_REST_API_TOKEN;
 const HAS_UPSTASH_CONFIG = Boolean(UPSTASH_REST_URL && UPSTASH_REST_TOKEN);
 
 const OWNER_USERNAME = "wantyou";
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 const BADGE_TYPES = Object.freeze({
   WANTYOU: "WantYou",
@@ -120,6 +121,7 @@ function buildUserSummaryPayload(user) {
   return JSON.stringify({
     fullName: user.fullName,
     tagline: user.tagline ?? "",
+    profilePicturePath: user.profilePicturePath ?? "",
     badges: Array.isArray(user.badges) ? user.badges : [],
   });
 }
@@ -729,10 +731,17 @@ async function listUsers() {
         username,
         fullName: parsed.fullName,
         tagline: parsed.tagline ?? "",
+        profilePicturePath: typeof parsed.profilePicturePath === "string" ? parsed.profilePicturePath : "",
         badges: enforceBadgeRules(username, parsed.badges),
       });
     } else {
-      users.push({ username, fullName: raw, tagline: "", badges: [] });
+      users.push({
+        username,
+        fullName: raw,
+        tagline: "",
+        profilePicturePath: "",
+        badges: [],
+      });
     }
   }
   return users;
@@ -740,7 +749,13 @@ async function listUsers() {
 
 async function createSession(username) {
   const token = crypto.randomUUID();
-  await redisCommand(["SET", sessionKey(token), username, "EX", "86400"]);
+  await redisCommand([
+    "SET",
+    sessionKey(token),
+    username,
+    "EX",
+    String(SESSION_TTL_SECONDS),
+  ]);
   return token;
 }
 
@@ -870,6 +885,9 @@ async function getLookupPeople(currentUsername) {
       username: user.username,
       fullName: user.fullName,
       tagline: user.tagline ?? "",
+      profilePicture: user.profilePicturePath
+        ? resolveMediaUrl(user.profilePicturePath)
+        : "",
       badges: Array.isArray(user.badges) ? user.badges : [],
       inbound: connectionStateFor(user.username, incoming),
       outbound: connectionStateFor(user.username, outgoing),

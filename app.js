@@ -102,7 +102,7 @@ function setupGlobalControls() {
         }
       } finally {
         clearSessionToken();
-        window.location.href = "signup.html";
+        window.location.href = "signup.html?tab=login";
       }
     });
   });
@@ -288,7 +288,7 @@ async function requireSession() {
     return await loadSession();
   } catch (error) {
     if (error.status === 401) {
-      window.location.href = "signup.html";
+      window.location.href = "signup.html?tab=login";
     }
     throw error;
   }
@@ -439,20 +439,40 @@ function initSignup() {
     year.textContent = new Date().getFullYear();
   }
 
+  const activateTab = (target, { updateHistory = false } = {}) => {
+    const requested = typeof target === "string" ? target.toLowerCase() : "";
+    const validTargets = new Set(Array.from(tabs, (tab) => tab.dataset.tab));
+    const nextTab = validTargets.has(requested) ? requested : "create";
+
+    tabs.forEach((tab) => {
+      const isActive = tab.dataset.tab === nextTab;
+      tab.classList.toggle("signup__tab--active", isActive);
+      tab.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
+
+    [signupForm, loginForm].forEach((form) => {
+      if (!form) return;
+      const isTarget = form.dataset.form === nextTab;
+      form.classList.toggle("signup__form--hidden", !isTarget);
+      form.setAttribute("aria-hidden", isTarget ? "false" : "true");
+    });
+
+    if (updateHistory) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", nextTab);
+      window.history.replaceState(null, "", url);
+    }
+  };
+
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
       const target = tab.dataset.tab;
-      if (!target) return;
-
-      tabs.forEach((button) => button.classList.toggle("signup__tab--active", button === tab));
-
-      [signupForm, loginForm].forEach((form) => {
-        if (!form) return;
-        const isTarget = form.dataset.form === target;
-        form.classList.toggle("signup__form--hidden", !isTarget);
-      });
+      activateTab(target, { updateHistory: true });
     });
   });
+
+  const params = new URLSearchParams(window.location.search);
+  activateTab(params.get("tab"));
 
   signupForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -613,6 +633,8 @@ async function initLookup() {
   const searchForm = document.getElementById("lookup-form");
   const searchInput = document.getElementById("lookup-input");
   const filterAnon = document.getElementById("lookup-anon-filter");
+  const params = new URLSearchParams(window.location.search);
+  const readOnlyLookup = params.get("preview") === "1";
   const cards = [];
   const state = new Map();
   let emptyState = null;
@@ -629,7 +651,10 @@ async function initLookup() {
 
   container.innerHTML = '<p class="lookup__empty">Loading your people…</p>';
 
-  const renderPeople = (people) => {
+  const renderPeople = (people, options = {}) => {
+    const effectiveReadOnly = readOnlyLookup || Boolean(options.readOnly);
+    const introMessage =
+      typeof options.introMessage === "string" ? options.introMessage.trim() : "";
     cards.length = 0;
     state.clear();
     container.innerHTML = "";
@@ -640,6 +665,13 @@ async function initLookup() {
 
     const fragment = document.createDocumentFragment();
 
+    if (introMessage) {
+      const intro = document.createElement("p");
+      intro.className = "lookup__empty lookup__intro";
+      intro.textContent = introMessage;
+      fragment.appendChild(intro);
+    }
+
     people.forEach((person) => {
       const inbound = normalizeConnectionState(person.inbound);
       const outbound = normalizeConnectionState(person.outbound);
@@ -649,13 +681,20 @@ async function initLookup() {
       card.dataset.username = person.username;
       card.dataset.name = person.fullName;
 
-      const avatarUrl = `https://api.dicebear.com/6.x/initials/svg?seed=${encodeURIComponent(
+      const fallbackAvatar = `https://api.dicebear.com/6.x/initials/svg?seed=${encodeURIComponent(
         person.username
       )}`;
+      const avatarSource =
+        typeof person.profilePicture === "string" && person.profilePicture
+          ? person.profilePicture
+          : fallbackAvatar;
+      const avatarAlt = person.fullName
+        ? `${person.fullName}'s avatar`
+        : "Profile avatar";
       const profileHref = `profile.html?user=${encodeURIComponent(person.username)}`;
       card.innerHTML = `
         <header class="connection__header">
-          <img src="${avatarUrl}" alt="${escapeHtml(person.fullName)}" />
+          <img src="${escapeHtml(avatarSource)}" alt="${escapeHtml(avatarAlt)}" loading="lazy" />
           <div class="connection__identity">
             <h3 class="connection__name">
               <a href="${profileHref}">${escapeHtml(person.fullName)}</a>
@@ -683,13 +722,31 @@ async function initLookup() {
         </button>
       `;
 
+      if (effectiveReadOnly) {
+        card.classList.add("connection--readonly");
+      }
+
       renderUserBadges(card.querySelector("[data-user-badges]"), person.badges);
       renderCardState(card, inbound, outbound);
 
+      if (effectiveReadOnly) {
+        const note = card.querySelector("[data-outbound-note]");
+        if (note) {
+          note.textContent = "Create an account to set how you feel.";
+        }
+      }
+
       const usernameKey = person.username;
-      state.set(usernameKey, { inbound, outbound, element: card });
+      if (!effectiveReadOnly) {
+        state.set(usernameKey, { inbound, outbound, element: card });
+      }
 
       card.querySelectorAll("[data-status-button]").forEach((button) => {
+        if (effectiveReadOnly) {
+          button.setAttribute("disabled", "true");
+          button.setAttribute("aria-disabled", "true");
+          return;
+        }
         button.addEventListener("click", async () => {
           const newStatus = button.dataset.statusButton || "none";
           const entry =
@@ -759,12 +816,16 @@ async function initLookup() {
       });
 
       const anonToggle = card.querySelector("[data-anonymous-toggle]");
-      anonToggle?.addEventListener("change", async () => {
-        const entry = state.get(usernameKey);
-        if (!entry) return;
-        const currentInbound = normalizeConnectionState(entry.inbound);
-        const currentOutbound = normalizeConnectionState(entry.outbound);
-        const canAnonymous =
+      if (anonToggle) {
+        if (effectiveReadOnly) {
+          anonToggle.disabled = true;
+        } else {
+          anonToggle.addEventListener("change", async () => {
+            const entry = state.get(usernameKey);
+            if (!entry) return;
+            const currentInbound = normalizeConnectionState(entry.inbound);
+            const currentOutbound = normalizeConnectionState(entry.outbound);
+            const canAnonymous =
           currentOutbound.status === "want" || currentOutbound.status === "both";
         const wantsAnonymous = canAnonymous && anonToggle.checked;
         let aliasValue = currentOutbound.alias;
@@ -829,17 +890,24 @@ async function initLookup() {
             error?.status === 401
               ? "Log in to save your Want You updates."
               : error?.message || "We couldn't update anonymity right now.";
-          window.alert(message);
+            window.alert(message);
+          }
+          });
         }
-      });
+      }
 
       const chatButton = card.querySelector("[data-chat-button]");
-      chatButton?.addEventListener("click", async () => {
-        try {
-          await requireSession();
-        } catch {
-          return;
-        }
+      if (chatButton) {
+        if (effectiveReadOnly) {
+          chatButton.setAttribute("disabled", "true");
+          chatButton.setAttribute("aria-disabled", "true");
+        } else {
+          chatButton.addEventListener("click", async () => {
+            try {
+              await requireSession();
+            } catch {
+              return;
+            }
         const entry = state.get(usernameKey);
         if (!entry || entry.outbound.status === "none") {
           window.alert("Choose Know you, Want you, or Both before starting a chat.");
@@ -863,8 +931,10 @@ async function initLookup() {
               : error?.message || "We couldn't remember that chat selection.";
           window.alert(message);
         }
-        window.location.href = "messages.html";
-      });
+            window.location.href = "messages.html";
+          });
+        }
+      }
 
       fragment.appendChild(card);
       cards.push(card);
@@ -879,6 +949,56 @@ async function initLookup() {
   if (searchForm) {
     searchForm.addEventListener("submit", (event) => event.preventDefault());
   }
+
+  if (readOnlyLookup) {
+    if (searchInput) {
+      searchInput.value = "";
+      searchInput.setAttribute("disabled", "true");
+      searchInput.setAttribute("aria-disabled", "true");
+      searchInput.placeholder = "Log in to search the directory";
+    }
+    if (filterAnon) {
+      filterAnon.disabled = true;
+      filterAnon.setAttribute("aria-disabled", "true");
+      filterAnon.closest(".toggle")?.classList.add("toggle--disabled");
+    }
+
+    const previewPeople = [
+      {
+        username: "alex",
+        fullName: "Alex Rivera",
+        tagline: "Student council · Senior",
+        profilePicture: "",
+        badges: ["Verified"],
+        inbound: { status: "know" },
+        outbound: { status: "none" },
+      },
+      {
+        username: "jamie",
+        fullName: "Jamie Patel",
+        tagline: "Robotics captain",
+        profilePicture: "",
+        badges: [],
+        inbound: { status: "want", anonymous: true },
+        outbound: { status: "none" },
+      },
+      {
+        username: "sasha",
+        fullName: "Sasha Lin",
+        tagline: "Choir · Theater",
+        profilePicture: "",
+        badges: [],
+        inbound: { status: "both" },
+        outbound: { status: "none" },
+      },
+    ];
+
+    renderPeople(previewPeople, {
+      introMessage: "Preview the WantYou lookup. Create an account or log in to interact.",
+    });
+    return;
+  }
+
   searchInput?.addEventListener("input", refreshFilters);
   filterAnon?.addEventListener("change", refreshFilters);
 
@@ -1441,7 +1561,7 @@ async function initProfile() {
     if (changeAvatarButton) {
       changeAvatarButton.hidden = !canEdit;
     }
-    if (verifyButton) {
+    if (verifyButton?.isConnected) {
       verifyButton.hidden = !canVerify;
     }
     if (!canEdit && statsContainer) {
@@ -1739,7 +1859,11 @@ async function initProfile() {
         verifyButton.disabled = false;
         verifyButton.textContent = isVerified ? "Remove verification" : "Verify user";
       } else {
-        verifyButton.hidden = true;
+        if (verifyButton.isConnected) {
+          verifyButton.remove();
+        } else {
+          verifyButton.hidden = true;
+        }
         verifyButton.disabled = true;
       }
     }

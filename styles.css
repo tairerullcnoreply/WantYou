@@ -434,6 +434,12 @@ img {
   color: var(--color-muted);
 }
 
+.lookup__intro {
+  margin: 0;
+  color: var(--color-muted);
+  font-style: italic;
+}
+
 .connection {
   display: grid;
   gap: 1rem;
@@ -450,6 +456,22 @@ img {
   height: 56px;
   border-radius: 50%;
   object-fit: cover;
+}
+
+.connection--readonly {
+  opacity: 0.85;
+}
+
+.connection--readonly .chip,
+.connection--readonly [data-chat-button],
+.connection--readonly .toggle {
+  cursor: not-allowed;
+}
+
+.connection--readonly .chip,
+.connection--readonly [data-chat-button],
+.connection--readonly .toggle {
+  opacity: 0.7;
 }
 
 .connection__header h3 a {
