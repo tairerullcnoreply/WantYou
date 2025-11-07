@@ -33,3 +33,4 @@ You can chat with others without being anonymous.
 * [11/12/2025; 4:30 PM UTC] Restored Vercel API routing, embedded media when persistent storage is unavailable, and refit the profile event highlight
 * [11/07/2025; 5:24 AM UTC] Added persistent user IDs, username history management with edit limits, modernized page routing, and filtered conversations to active chats
 * [11/07/2025; 6:45 AM UTC] Removed profile management controls from other users' pages to fully hide unauthorized actions
+* [11/07/2025; 12:32 PM UTC] Corrected static asset paths so shared CSS and JS load on nested routes
