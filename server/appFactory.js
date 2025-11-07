@@ -9,8 +9,11 @@ const HAS_UPSTASH_CONFIG = Boolean(UPSTASH_REST_URL && UPSTASH_REST_TOKEN);
 const DEFAULT_CONNECTION_STATE = Object.freeze({
   status: "none",
   anonymous: false,
+  alias: "",
   updatedAt: null,
 });
+
+let upstashUnavailable = false;
 
 const memoryStore = {
   strings: new Map(),
@@ -224,35 +227,49 @@ async function memoryPipeline(commands) {
   return results;
 }
 
+function buildUpstashUrl(pathname) {
+  const base = new URL(UPSTASH_REST_URL);
+  const normalizedPath = `${base.pathname.replace(/\/+$/, "")}/${pathname.replace(/^\/+/, "")}`;
+  base.pathname = normalizedPath;
+  return base.toString();
+}
+
 async function redisPipeline(commands) {
   if (!commands.length) {
     return [];
   }
-  if (!HAS_UPSTASH_CONFIG) {
+  if (!HAS_UPSTASH_CONFIG || upstashUnavailable) {
     return memoryPipeline(commands);
   }
 
-  const response = await fetch(`${UPSTASH_REST_URL}/pipeline`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${UPSTASH_REST_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(commands),
-  });
+  try {
+    const pipelineUrl = buildUpstashUrl("pipeline");
+    const response = await fetch(pipelineUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${UPSTASH_REST_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(commands),
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Upstash request failed: ${text}`);
-  }
-
-  const payload = await response.json();
-  return payload.map((entry) => {
-    if (entry.error) {
-      throw new Error(entry.error);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Upstash request failed: ${text}`);
     }
-    return entry.result ?? null;
-  });
+
+    const payload = await response.json();
+    return payload.map((entry) => {
+      if (entry.error) {
+        throw new Error(entry.error);
+      }
+      return entry.result ?? null;
+    });
+  } catch (error) {
+    console.warn("Upstash unavailable, falling back to in-memory store", error);
+    upstashUnavailable = true;
+    return memoryPipeline(commands);
+  }
 }
 
 async function redisCommand(command) {
@@ -405,6 +422,7 @@ function parseConnectionRecord(raw) {
   return {
     status: parsed.status ?? "none",
     anonymous: Boolean(parsed.anonymous),
+    alias: typeof parsed.alias === "string" ? parsed.alias : "",
     updatedAt: parsed.updatedAt ?? null,
   };
 }
@@ -439,6 +457,7 @@ function buildConnectionState(state) {
   return {
     status: state.status ?? "none",
     anonymous: Boolean(state.anonymous),
+    alias: typeof state.alias === "string" ? state.alias : "",
     updatedAt: state.updatedAt ?? null,
   };
 }
@@ -453,6 +472,7 @@ async function saveConnection(actorUsername, targetUsername, state) {
   const safeState = {
     status: state.status ?? "none",
     anonymous: Boolean(state.anonymous),
+    alias: typeof state.alias === "string" ? state.alias.trim() : "",
     updatedAt: new Date().toISOString(),
   };
 
@@ -461,7 +481,12 @@ async function saveConnection(actorUsername, targetUsername, state) {
       ["HDEL", outgoingConnectionsKey(actor), target],
       ["HDEL", incomingConnectionsKey(target), actor],
     ]);
-    return buildConnectionState({ status: "none", anonymous: false, updatedAt: safeState.updatedAt });
+    return buildConnectionState({
+      status: "none",
+      anonymous: false,
+      alias: "",
+      updatedAt: safeState.updatedAt,
+    });
   }
 
   const payload = JSON.stringify(safeState);
@@ -541,9 +566,11 @@ function buildAnonymousList({ incoming, userMap }) {
     .filter(([, state]) => (state.status === "want" || state.status === "both") && state.anonymous)
     .map(([username, state]) => {
       const user = userMap.get(username);
+      const alias = state.alias?.trim();
       return {
         username,
-        fullName: user?.fullName ?? username,
+        fullName: alias || user?.fullName || "Anonymous admirer",
+        alias: alias || "Anonymous admirer",
         status: state.status,
         updatedAt: state.updatedAt,
       };
@@ -555,9 +582,14 @@ function buildRecentUpdates({ incoming, outgoing, userMap, limit = 5 }) {
   Object.entries(incoming).forEach(([username, state]) => {
     if (!state.updatedAt || state.status === "none") return;
     const user = userMap.get(username);
+    const alias = state.alias?.trim();
     updates.push({
       username,
-      fullName: user?.fullName ?? username,
+      fullName:
+        (state.anonymous && (state.status === "want" || state.status === "both") && alias) ||
+        user?.fullName ||
+        (state.anonymous ? "Anonymous admirer" : username),
+      alias: alias || "",
       status: state.status,
       direction: "inbound",
       updatedAt: state.updatedAt,
@@ -570,6 +602,7 @@ function buildRecentUpdates({ incoming, outgoing, userMap, limit = 5 }) {
     updates.push({
       username,
       fullName: user?.fullName ?? username,
+      alias: state.alias?.trim() || "",
       status: state.status,
       direction: "outbound",
       updatedAt: state.updatedAt,
@@ -583,13 +616,19 @@ function buildRecentUpdates({ incoming, outgoing, userMap, limit = 5 }) {
 function formatDisplayName(person, inbound) {
   const wantsPrivacy =
     (inbound.status === "want" || inbound.status === "both") && inbound.anonymous;
-  return wantsPrivacy ? "Anonymous user" : person.fullName;
+  if (wantsPrivacy) {
+    return inbound.alias?.trim() || "Anonymous user";
+  }
+  return person.fullName;
 }
 
 function formatAliasForCurrentUser(currentUser, outbound) {
   const wantsPrivacy =
     (outbound.status === "want" || outbound.status === "both") && outbound.anonymous;
-  return wantsPrivacy ? "Anonymous" : currentUser.fullName;
+  if (wantsPrivacy) {
+    return outbound.alias?.trim() || "Anonymous";
+  }
+  return currentUser.fullName;
 }
 
 async function getConversationMessages(usernameA, usernameB) {
@@ -757,20 +796,37 @@ function createApp() {
   });
 
   app.post("/api/status", authenticate, async (req, res) => {
-    const { targetUsername, status, anonymous } = req.body ?? {};
+    const { targetUsername, status, anonymous, alias } = req.body ?? {};
     const normalizedTarget = normalizeUsername(targetUsername);
     const validStatuses = new Set(["none", "know", "want", "both"]);
     if (!normalizedTarget || !validStatuses.has(status)) {
       return res.status(400).json({ message: "A valid target and status are required" });
     }
     try {
-      const targetUser = await getUser(normalizedTarget);
+      const [targetUser, existingOutgoing] = await Promise.all([
+        getUser(normalizedTarget),
+        getOutgoingConnections(req.user.username),
+      ]);
       if (!targetUser) {
         return res.status(404).json({ message: "User not found" });
+      }
+      const previousState = buildConnectionState(existingOutgoing[normalizedTarget]);
+      const wantsPrivacy = (status === "want" || status === "both") && Boolean(anonymous);
+      let nextAlias = "";
+      if (wantsPrivacy) {
+        const providedAlias = typeof alias === "string" ? alias.trim() : "";
+        nextAlias = providedAlias || previousState.alias || "";
+        if (!nextAlias) {
+          return res.status(400).json({ message: "Choose a nickname to stay anonymous" });
+        }
+        if (nextAlias.length > 40) {
+          return res.status(400).json({ message: "Nickname must be 40 characters or fewer" });
+        }
       }
       await saveConnection(req.user.username, normalizedTarget, {
         status,
         anonymous: Boolean(anonymous),
+        alias: wantsPrivacy ? nextAlias : "",
       });
       const [incoming, outgoing] = await Promise.all([
         getIncomingConnections(req.user.username),
