@@ -1,74 +1,107 @@
-const STATE = {
-  likes: new Map(),
-  conversations: {},
+const STATUS_LABELS = {
+  none: "Set a status",
+  know: "This user knows you",
+  want: "This user wants you",
+  both: "This user both knows and wants you",
 };
 
-const heroMessages = [
+const HERO_CARDS = [
   {
-    quote: "“Team Launch hit their milestone — Jordan kept us on track!”",
-    author: "Avery · Product Circle",
+    heading: "Know you",
+    description:
+      "Mark friends and classmates you recognize so chats open with \"This user knows you\".",
   },
   {
-    quote: "“Weekend Warrior crew is cheering Mia on for the big race.”",
-    author: "Anthony · Climber Crew",
+    heading: "Want you",
+    description:
+      "Let someone know you're interested while staying private until you decide to reveal.",
   },
   {
-    quote: "“Emma just unlocked a new boost streak. Show her some love!”",
-    author: "Community Highlights",
+    heading: "Both",
+    description:
+      "When you both mark Want You the chat celebrates with \"This user both knows and wants you\".",
   },
 ];
 
-const messageData = [
-  {
-    id: "launch",
-    title: "Launch Crew",
-    meta: "4 members · Anonymous",
-    anonymous: true,
+const THREADS = {
+  brandon: {
+    id: "brandon",
+    person: "brandon.o",
+    displayName: "Brandon Ortiz",
+    alias: "Anonymous cyclist",
+    status: "want",
+    isAnonymous: true,
     messages: [
       {
-        author: "Anonymous",
-        text: "Demo flow is slick. Proud of this launch team!",
-        time: "9:12 AM",
+        direction: "incoming",
+        author: "Anonymous cyclist",
+        time: "8:21 PM",
+        text: "Hey! I love your route picks. Want to plan next Sunday's ride?",
       },
       {
+        direction: "outgoing",
         author: "You",
-        text: "Schedule dry run at noon?",
-        time: "9:14 AM",
+        time: "8:24 PM",
+        text: "Yes! I know a trail with the best sunrise. Want me to drop the map?",
+      },
+      {
+        direction: "incoming",
+        author: "Anonymous cyclist",
+        time: "8:25 PM",
+        text: "Absolutely. Also… I'd love to know who you are when you're ready.",
       },
     ],
   },
-  {
-    id: "warriors",
-    title: "Weekend Warriors",
-    meta: "8 members",
-    anonymous: false,
+  imani: {
+    id: "imani",
+    person: "imanisingh",
+    displayName: "Imani Singh",
+    alias: null,
+    status: "both",
+    isAnonymous: false,
     messages: [
       {
-        author: "Mia",
-        text: "Anyone bringing the orange slices?",
-        time: "8:02 AM",
+        direction: "incoming",
+        author: "Imani",
+        time: "6:04 PM",
+        text: "Study break later? I saved us a corner booth.",
       },
       {
-        author: "Jordan",
-        text: "Already packed them!",
-        time: "8:05 AM",
+        direction: "outgoing",
+        author: "You",
+        time: "6:06 PM",
+        text: "Yes! I'll bring the flashcards and the orange seltzers.",
       },
     ],
   },
-  {
-    id: "emma",
-    title: "Boosts for Emma",
-    meta: "DM · Anonymous",
-    anonymous: true,
+  avery: {
+    id: "avery",
+    person: "averyc",
+    displayName: "Avery Chen",
+    alias: null,
+    status: "know",
+    isAnonymous: false,
     messages: [
       {
-        author: "Anonymous",
-        text: "You’re going to nail the pitch today!",
-        time: "Yesterday",
+        direction: "incoming",
+        author: "Avery",
+        time: "2:17 PM",
+        text: "Send me the deck? We can polish the final slide tonight.",
+      },
+      {
+        direction: "outgoing",
+        author: "You",
+        time: "2:20 PM",
+        text: "On it! Check your inbox — I added the latest metrics.",
       },
     ],
   },
-];
+};
+
+const PERSON_THREAD_MAP = Object.values(THREADS).reduce((acc, thread) => {
+  acc[thread.person] = thread.id;
+  return acc;
+}, {});
 
 function initLanding() {
   const heroCard = document.getElementById("hero-card");
@@ -82,18 +115,18 @@ function initLanding() {
 
   if (heroCard) {
     const renderHero = () => {
-      const { quote, author } = heroMessages[heroIndex % heroMessages.length];
+      const { heading, description } = HERO_CARDS[heroIndex % HERO_CARDS.length];
       heroCard.innerHTML = `
         <div class="hero-card__content">
-          <p>${quote}</p>
-          <span>${author}</span>
+          <span class="tag">${heading}</span>
+          <p>${description}</p>
         </div>
       `;
       heroIndex += 1;
     };
 
     renderHero();
-    setInterval(renderHero, 5000);
+    setInterval(renderHero, 6000);
   }
 
   if (form) {
@@ -102,272 +135,361 @@ function initLanding() {
       const input = form.querySelector("input[type='email']");
       if (!input?.value) return;
       form.classList.add("form--submitted");
-      form.innerHTML = `<p class="form__success">Invite requested! Check your inbox soon.</p>`;
+      form.innerHTML = `<p class="form__success">Invite requested! We'll email you shortly.</p>`;
     });
   }
 }
 
 function initSignup() {
-  const form = document.getElementById("signup-form");
+  const signupForm = document.getElementById("signup-form");
+  const loginForm = document.getElementById("login-form");
+  const tabs = document.querySelectorAll(".signup__tab");
   const year = document.getElementById("signup-year");
 
   if (year) {
     year.textContent = new Date().getFullYear();
   }
 
-  form?.addEventListener("submit", (event) => {
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const target = tab.dataset.tab;
+      if (!target) return;
+
+      tabs.forEach((button) => button.classList.toggle("signup__tab--active", button === tab));
+
+      [signupForm, loginForm].forEach((form) => {
+        if (!form) return;
+        const isTarget = form.dataset.form === target;
+        form.classList.toggle("signup__form--hidden", !isTarget);
+      });
+    });
+  });
+
+  signupForm?.addEventListener("submit", (event) => {
     event.preventDefault();
-    window.alert("Account created! Check your inbox to verify your email.");
+    window.alert("Account created! Check your inbox to verify.");
+  });
+
+  loginForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    window.alert("Logged in! Redirecting you to your lookup.");
+    window.location.href = "feed.html";
   });
 }
 
-function initFeed() {
-  const composerForm = document.getElementById("composer-form");
-  const composerText = document.getElementById("composer-text");
-  const postsContainer = document.getElementById("feed-posts");
+function updateBadge(card, status, anonymous) {
+  const badge = card.querySelector("[data-badge]");
+  if (!badge) return;
 
-  document.querySelectorAll('[data-action="like"]').forEach((button) => {
-    button.addEventListener("click", () => {
-      const label = button.querySelector(".post__action-label");
-      const post = button.closest("[data-post]");
-      if (!label || !post) return;
+  const label = STATUS_LABELS[status] ?? STATUS_LABELS.none;
+  badge.textContent = label;
+  badge.className = "connection__badge";
+  badge.classList.add(`connection__badge--${status}`);
 
-      const postId = STATE.likes.get(post) ?? {
-        liked: false,
-        count: Number(label.textContent) || 0,
-      };
-
-      if (postId.liked) {
-        postId.count = Math.max(0, postId.count - 1);
-        button.classList.remove("post__action--active");
-      } else {
-        postId.count += 1;
-        button.classList.add("post__action--active");
-      }
-
-      postId.liked = !postId.liked;
-      label.textContent = String(postId.count);
-      STATE.likes.set(post, postId);
-    });
-  });
-
-  document.querySelectorAll('[data-action="join"]').forEach((button) => {
-    button.addEventListener("click", () => {
-      button.textContent = "Joined";
-      button.disabled = true;
-    });
-  });
-
-  if (composerForm && composerText && postsContainer) {
-    composerForm.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const text = composerText.value.trim();
-      if (!text) return;
-
-      const newPost = document.createElement("article");
-      newPost.className = "card post";
-      newPost.dataset.post = "";
-      newPost.innerHTML = `
-        <header class="post__header">
-          <img src="https://i.pravatar.cc/48?img=5" alt="Profile" />
-          <div>
-            <h3>Jordan Lee</h3>
-            <p>Shared to Launch Crew · just now</p>
-          </div>
-        </header>
-        <p>${text}</p>
-        <footer class="post__footer">
-          <button class="post__action" data-action="like">
-            <span aria-hidden="true">❤️</span>
-            <span class="post__action-label">1</span>
-          </button>
-          <button class="post__action" data-action="comment">
-            💬 <span class="post__action-label">0</span>
-          </button>
-          <button class="post__action" data-action="share">↗︎ Share</button>
-        </footer>
-      `;
-
-      postsContainer.prepend(newPost);
-      composerText.value = "";
-
-      const likeButton = newPost.querySelector('[data-action="like"]');
-      if (likeButton) {
-        likeButton.addEventListener("click", () => {
-          const label = likeButton.querySelector(".post__action-label");
-          if (!label) return;
-
-          const status = STATE.likes.get(newPost) ?? { liked: false, count: 1 };
-          if (status.liked) {
-            status.count = Math.max(0, status.count - 1);
-            likeButton.classList.remove("post__action--active");
-          } else {
-            status.count += 1;
-            likeButton.classList.add("post__action--active");
-          }
-          status.liked = !status.liked;
-          label.textContent = String(status.count);
-          STATE.likes.set(newPost, status);
-        });
-      }
-    });
+  if ((status === "want" || status === "both") && anonymous) {
+    badge.classList.add("connection__badge--anonymous");
   }
 }
 
-function renderThreadList(listEl) {
-  listEl.innerHTML = "";
-  messageData.forEach((thread) => {
-    const item = document.createElement("li");
-    item.innerHTML = `
-      <button type="button" class="thread" data-thread="${thread.id}">
-        <div>
-          <h3>${thread.title}</h3>
-          <p>${thread.meta}</p>
-        </div>
-        <span aria-hidden="true">›</span>
-      </button>
-    `;
-    const button = item.querySelector(".thread");
-    if (STATE.conversations.active?.id === thread.id) {
-      button?.classList.add("thread--active");
+function updateChips(card, status) {
+  card.querySelectorAll("[data-status-button]").forEach((chip) => {
+    const value = chip.dataset.statusButton;
+    chip.classList.toggle("chip--active", value === status);
+  });
+}
+
+function updateAnonToggle(card, status, anonymous) {
+  const toggle = card.querySelector("[data-anonymous-toggle]");
+  if (!toggle) return;
+  const canAnonymous = status === "want" || status === "both";
+  toggle.checked = canAnonymous && anonymous;
+  toggle.disabled = !canAnonymous;
+  toggle.closest(".toggle")?.classList.toggle("toggle--disabled", !canAnonymous);
+}
+
+function applyLookupFilters({ cards, input, filterAnon, emptyState }) {
+  const query = input?.value.trim().toLowerCase() ?? "";
+  const anonOnly = Boolean(filterAnon?.checked);
+  let anyVisible = false;
+
+  cards.forEach((card) => {
+    const name = card.dataset.name?.toLowerCase() ?? "";
+    const username = card.dataset.username?.toLowerCase() ?? "";
+    const isAnonymous = card.dataset.anonymous === "true";
+    const matchesQuery = !query || name.includes(query) || username.includes(query);
+    const matchesAnon = !anonOnly || isAnonymous;
+
+    if (matchesQuery && matchesAnon) {
+      card.hidden = false;
+      anyVisible = true;
+    } else {
+      card.hidden = true;
     }
-    listEl.appendChild(item);
-  });
-}
-
-function renderConversation(thread, revealNames) {
-  const messageThread = document.getElementById("message-thread");
-  const roomTitle = document.getElementById("room-title");
-  const roomMeta = document.getElementById("room-meta");
-  const toggleAnon = document.getElementById("toggle-anon");
-  const form = document.getElementById("message-form");
-
-  if (!messageThread || !roomTitle || !roomMeta || !toggleAnon || !form) {
-    return;
-  }
-
-  roomTitle.textContent = thread.title;
-  roomMeta.textContent = thread.meta;
-  messageThread.innerHTML = "";
-
-  thread.messages.forEach((message) => {
-    const li = document.createElement("li");
-    li.className = "message";
-    li.innerHTML = `
-      <span class="message__author">${revealNames ? message.author : maskAuthor(message.author, thread.anonymous)}</span>
-      <p>${message.text}</p>
-      <time>${message.time}</time>
-    `;
-    messageThread.appendChild(li);
   });
 
-  toggleAnon.hidden = !thread.anonymous;
-  toggleAnon.dataset.threadId = thread.id;
-  toggleAnon.textContent = revealNames ? "Hide names" : "Reveal names";
-  form.hidden = false;
-  form.dataset.threadId = thread.id;
+  if (emptyState) {
+    if (anyVisible) {
+      emptyState.hidden = true;
+    } else {
+      emptyState.textContent = query
+        ? `No matches for "${query}" yet.`
+        : "No people match those filters yet.";
+      emptyState.hidden = false;
+    }
+  }
 }
 
-function maskAuthor(author, anonymous) {
-  if (!anonymous || author === "You") {
-    return author;
+function initLookup() {
+  const cards = Array.from(document.querySelectorAll(".connection"));
+  if (!cards.length) return;
+
+  const searchForm = document.getElementById("lookup-form");
+  const searchInput = document.getElementById("lookup-input");
+  const filterAnon = document.getElementById("lookup-anon-filter");
+  const emptyState = document.querySelector("[data-empty]");
+  const state = new Map();
+
+  cards.forEach((card) => {
+    const status = card.dataset.status || "none";
+    const anonymous = card.dataset.anonymous === "true";
+    state.set(card, { status, anonymous });
+    updateBadge(card, status, anonymous);
+    updateChips(card, status);
+    updateAnonToggle(card, status, anonymous);
+
+    card.querySelectorAll("[data-status-button]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const newStatus = button.dataset.statusButton || "none";
+        const prev = state.get(card) ?? { status: "none", anonymous: false };
+        const anonymousState =
+          newStatus === "want" || newStatus === "both" ? prev.anonymous : false;
+
+        state.set(card, { status: newStatus, anonymous: anonymousState });
+        card.dataset.status = newStatus;
+        card.dataset.anonymous = String(anonymousState);
+        updateBadge(card, newStatus, anonymousState);
+        updateChips(card, newStatus);
+        updateAnonToggle(card, newStatus, anonymousState);
+        applyLookupFilters({ cards, input: searchInput, filterAnon, emptyState });
+      });
+    });
+
+    const anonToggle = card.querySelector("[data-anonymous-toggle]");
+    anonToggle?.addEventListener("change", () => {
+      const current = state.get(card) ?? { status: "none", anonymous: false };
+      const canAnonymous = current.status === "want" || current.status === "both";
+      const anonymousState = canAnonymous && anonToggle.checked;
+      state.set(card, { ...current, anonymous: anonymousState });
+      card.dataset.anonymous = String(anonymousState);
+      updateBadge(card, current.status, anonymousState);
+      applyLookupFilters({ cards, input: searchInput, filterAnon, emptyState });
+    });
+
+    const chatButton = card.querySelector("[data-chat-button]");
+    chatButton?.addEventListener("click", () => {
+      const current = state.get(card) ?? { status: card.dataset.status || "none", anonymous: card.dataset.anonymous === "true" };
+      if (current.status === "none") {
+        window.alert("Choose Know you, Want you, or Both before starting a chat.");
+        return;
+      }
+      const payload = {
+        person: card.dataset.username,
+        name: card.dataset.name,
+        status: current.status,
+        anonymous: current.anonymous,
+      };
+      try {
+        window.localStorage.setItem("wantyou_selectedThread", JSON.stringify(payload));
+      } catch (error) {
+        console.warn("Unable to persist selected thread", error);
+      }
+      window.location.href = "messages.html";
+    });
+  });
+
+  if (searchForm) {
+    searchForm.addEventListener("submit", (event) => event.preventDefault());
   }
-  return "Anonymous";
+
+  searchInput?.addEventListener("input", () =>
+    applyLookupFilters({ cards, input: searchInput, filterAnon, emptyState })
+  );
+  filterAnon?.addEventListener("change", () =>
+    applyLookupFilters({ cards, input: searchInput, filterAnon, emptyState })
+  );
+
+  if (emptyState) {
+    emptyState.hidden = true;
+  }
+
+  applyLookupFilters({ cards, input: searchInput, filterAnon, emptyState });
+}
+
+function renderMessages(thread) {
+  const statusBar = document.querySelector(".messages-thread__status");
+  const title = document.querySelector(".messages-thread__title");
+  const aliasNote = document.querySelector("[data-alias]");
+  const revealToggle = document.getElementById("reveal-toggle");
+  const switchAnon = document.querySelector('[data-action="switch-anon"]');
+  const requestReveal = document.querySelector('[data-action="request-reveal"]');
+  const messageLog = document.getElementById("message-log");
+
+  if (!statusBar || !title || !messageLog) return;
+
+  statusBar.textContent = STATUS_LABELS[thread.status] ?? STATUS_LABELS.none;
+  title.textContent = thread.displayName;
+
+  if (aliasNote) {
+    if (thread.isAnonymous) {
+      aliasNote.innerHTML = `You appear as <strong>${thread.alias ?? "Anonymous"}</strong>`;
+      aliasNote.hidden = false;
+    } else {
+      aliasNote.hidden = true;
+    }
+  }
+
+  if (revealToggle) {
+    const canReveal = thread.status === "want" || thread.status === "both";
+    revealToggle.disabled = !canReveal;
+    revealToggle.checked = canReveal && !thread.isAnonymous;
+    revealToggle.parentElement?.classList.toggle("toggle--disabled", !canReveal);
+    revealToggle.onchange = () => {
+      thread.isAnonymous = !revealToggle.checked;
+      renderMessages(thread);
+    };
+  }
+
+  if (switchAnon) {
+    const canAnonymous = thread.status === "want" || thread.status === "both";
+    switchAnon.disabled = !canAnonymous;
+    switchAnon.textContent = thread.isAnonymous
+      ? "Stay anonymous"
+      : canAnonymous
+      ? "Go anonymous"
+      : "Anonymity not available";
+    if (canAnonymous) {
+      switchAnon.onclick = () => {
+        thread.isAnonymous = true;
+        renderMessages(thread);
+      };
+    } else {
+      switchAnon.onclick = null;
+    }
+  }
+
+  if (requestReveal) {
+    requestReveal.disabled = !thread.isAnonymous;
+    requestReveal.onclick = () => {
+      window.alert("Request to reveal sent. They'll decide when to make it public.");
+    };
+  }
+
+  messageLog.innerHTML = thread.messages
+    .map(
+      (message) => `
+        <li class="message message--${message.direction}">
+          <span class="message__meta">${message.author} · ${message.time}</span>
+          <p>${message.text}</p>
+        </li>
+      `
+    )
+    .join("");
 }
 
 function initMessages() {
-  const listEl = document.getElementById("thread-list");
-  const toggleAnon = document.getElementById("toggle-anon");
-  const form = document.getElementById("message-form");
-  const input = document.getElementById("message-input");
+  const listItems = Array.from(document.querySelectorAll(".messages-list__item"));
+  if (!listItems.length) return;
 
-  if (!listEl || !form || !input) {
-    return;
+  const composer = document.getElementById("message-composer");
+  const input = document.getElementById("message-input");
+  let activeThread = THREADS[listItems[0].dataset.thread ?? ""];
+
+  const storedThread = (() => {
+    try {
+      const raw = window.localStorage.getItem("wantyou_selectedThread");
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (error) {
+      console.warn("Unable to parse stored thread", error);
+      return null;
+    }
+  })();
+
+  if (storedThread) {
+    const mappedId = PERSON_THREAD_MAP[storedThread.person ?? ""];
+    if (mappedId && THREADS[mappedId]) {
+      activeThread = THREADS[mappedId];
+    } else {
+      activeThread = {
+        id: storedThread.person ?? "custom",
+        person: storedThread.person ?? "custom",
+        displayName: storedThread.name ?? "Unknown user",
+        alias: storedThread.anonymous ? "Anonymous" : null,
+        status: storedThread.status ?? "none",
+        isAnonymous: Boolean(storedThread.anonymous),
+        messages: [
+          {
+            direction: "incoming",
+            author: storedThread.anonymous ? "Anonymous" : storedThread.name ?? "Friend",
+            time: "Just now",
+            text: "Say hi to keep the chat going!",
+          },
+        ],
+      };
+    }
+    try {
+      window.localStorage.removeItem("wantyou_selectedThread");
+    } catch (error) {
+      console.warn("Unable to clear stored thread", error);
+    }
   }
 
-  renderThreadList(listEl);
-
-  listEl.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-thread]");
-    if (!button) return;
-
-    listEl.querySelectorAll(".thread").forEach((threadButton) => {
-      threadButton.classList.toggle("thread--active", threadButton === button);
+  const activateListItem = (threadId) => {
+    listItems.forEach((item) => {
+      const isActive = item.dataset.thread === threadId;
+      item.setAttribute("aria-current", String(isActive));
+      item.classList.toggle("messages-list__item--active", isActive);
     });
+  };
 
-    const thread = messageData.find((item) => item.id === button.dataset.thread);
-    if (!thread) return;
-
-    STATE.conversations.active = {
-      id: thread.id,
-      reveal: false,
-    };
-    renderConversation(thread, false);
+  listItems.forEach((item) => {
+    item.addEventListener("click", () => {
+      const threadId = item.dataset.thread;
+      if (!threadId) return;
+      const nextThread = THREADS[threadId];
+      if (!nextThread) return;
+      activeThread = nextThread;
+      activateListItem(threadId);
+      renderMessages(activeThread);
+    });
   });
 
-  toggleAnon?.addEventListener("click", () => {
-    if (!STATE.conversations.active) return;
-    const thread = messageData.find((item) => item.id === STATE.conversations.active.id);
-    if (!thread) return;
+  activateListItem(activeThread?.id ?? "");
+  if (activeThread) {
+    renderMessages(activeThread);
+  }
 
-    STATE.conversations.active.reveal = !STATE.conversations.active.reveal;
-    renderConversation(thread, STATE.conversations.active.reveal);
-  });
-
-  form.addEventListener("submit", (event) => {
+  composer?.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (!STATE.conversations.active) return;
+    const text = input?.value.trim();
+    if (!text || !activeThread) return;
 
-    const thread = messageData.find((item) => item.id === STATE.conversations.active.id);
-    if (!thread) return;
-
-    const value = input.value.trim();
-    if (!value) return;
-
-    const newMessage = {
+    activeThread.messages.push({
+      direction: "outgoing",
       author: "You",
-      text: value,
-      time: "Just now",
-    };
-
-    thread.messages.push(newMessage);
-    renderConversation(thread, STATE.conversations.active.reveal);
-    input.value = "";
-    input.focus();
+      time: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+      text,
+    });
+    renderMessages(activeThread);
+    if (input) {
+      input.value = "";
+      input.focus();
+    }
   });
 }
 
-function initProfile() {
-  const highlightButton = document.querySelector('[data-action="add-highlight"]');
-  const highlightList = document.getElementById("highlight-list");
-  const editButton = document.querySelector('[data-action="edit-profile"]');
-  const filterButton = document.querySelector('[data-action="filter-activity"]');
-
-  highlightButton?.addEventListener("click", () => {
-    const value = window.prompt("What highlight should we add?");
-    if (!value || !highlightList) return;
-
-    const li = document.createElement("li");
-    li.innerHTML = `
-      <h3>New highlight</h3>
-      <p>${value}</p>
-      <span>Boosted by you</span>
-    `;
-    highlightList.prepend(li);
-  });
-
-  editButton?.addEventListener("click", () => {
-    window.alert("Profile editing coming soon.");
-  });
-
-  filterButton?.addEventListener("click", () => {
-    window.alert("Filter options will let you drill into boosts, events, and more.");
-  });
-}
-
-function init() {
+function initApp() {
   const page = document.body.dataset.page;
-
   switch (page) {
     case "landing":
       initLanding();
@@ -375,22 +497,18 @@ function init() {
     case "signup":
       initSignup();
       break;
-    case "feed":
-      initFeed();
+    case "lookup":
+      initLookup();
       break;
     case "messages":
       initMessages();
       break;
     case "profile":
-      initProfile();
+      // Profile currently uses static data only.
       break;
     default:
       break;
   }
 }
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init);
-} else {
-  init();
-}
+document.addEventListener("DOMContentLoaded", initApp);

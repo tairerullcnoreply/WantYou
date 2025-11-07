@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WantYou | Feed</title>
+    <title>WantYou | Lookup</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -12,191 +12,263 @@
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body data-page="feed">
+  <body data-page="lookup">
     <header class="app-header">
       <div class="app-header__inner container">
         <a href="index.html" class="brand">WantYou</a>
-        <form class="app-search" role="search">
-          <input type="search" placeholder="Search WantYou" />
+        <form class="app-search" role="search" id="lookup-form">
+          <input
+            type="search"
+            id="lookup-input"
+            placeholder="Search by name or username"
+            autocomplete="off"
+          />
         </form>
         <nav class="app-nav" aria-label="App navigation">
-          <a href="feed.html" aria-current="page">Feed</a>
+          <a href="feed.html" aria-current="page">Lookup</a>
           <a href="messages.html">Messages</a>
           <a href="profile.html">Profile</a>
         </nav>
       </div>
     </header>
 
-    <main class="container feed-layout">
-      <aside class="feed-layout__sidebar">
-        <section class="card profile-card">
-          <header>
-            <img src="https://i.pravatar.cc/64?img=5" alt="Your avatar" />
-            <div>
-              <h2>Jordan Lee</h2>
-              <p>@jordanlee</p>
-            </div>
-          </header>
-          <dl>
-            <div>
-              <dt>Boosts</dt>
-              <dd>18</dd>
-            </div>
-            <div>
-              <dt>Circles</dt>
-              <dd>6</dd>
-            </div>
-            <div>
-              <dt>Streak</dt>
-              <dd>9 days</dd>
-            </div>
-          </dl>
-          <a class="button button--ghost" href="profile.html">View profile</a>
-        </section>
+    <main class="container lookup-layout">
+      <section class="lookup">
+        <header class="lookup__header">
+          <h1>Look up someone</h1>
+          <p>
+            See how people have marked you and choose whether they know you,
+            want you, or both. Updates are private until you change them.
+          </p>
+        </header>
 
-        <section class="card menu-card">
-          <h2>Shortcuts</h2>
-          <ul>
-            <li><a href="#composer">Share an update</a></li>
-            <li><a href="#events">Upcoming events</a></li>
-            <li><a href="#suggestions">Suggested circles</a></li>
-          </ul>
-        </section>
+        <div class="lookup__filters">
+          <label class="toggle">
+            <input type="checkbox" id="lookup-anon-filter" />
+            <span>Show only anonymous Want Yous</span>
+          </label>
+        </div>
 
-        <section class="card events-card" id="events">
-          <header>
-            <h2>Events</h2>
-            <a href="#">View all</a>
-          </header>
-          <ul>
-            <li>
-              <p>Launch team standup</p>
-              <span>Today · 3:30 PM</span>
-            </li>
-            <li>
-              <p>Weekend hike circle</p>
-              <span>Sat · 9:00 AM</span>
-            </li>
-          </ul>
-        </section>
-      </aside>
+        <div class="lookup__results" id="lookup-results" aria-live="polite">
+          <p class="lookup__empty" data-empty>Start typing to search your people.</p>
 
-      <section class="feed-layout__main">
-        <article class="card composer" id="composer">
-          <form id="composer-form">
-            <label class="form__field">
-              <span class="visually-hidden">What's new</span>
-              <textarea
-                id="composer-text"
-                rows="3"
-                placeholder="Share how your circle is hyping you up today"
-                required
-              ></textarea>
+          <article
+            class="card connection"
+            data-name="Avery Chen"
+            data-username="averyc"
+            data-status="both"
+            data-anonymous="false"
+          >
+            <header class="connection__header">
+              <img src="https://i.pravatar.cc/64?img=12" alt="Avery" />
+              <div>
+                <h3>Avery Chen</h3>
+                <p>@averyc</p>
+              </div>
+              <span class="connection__badge" data-badge></span>
+            </header>
+            <p class="connection__bio">
+              Product designer who helped you launch senior project. Loves all
+              things orange.
+            </p>
+            <div class="connection__actions">
+              <button class="chip" data-status-button="know">Know you</button>
+              <button class="chip" data-status-button="want">Want you</button>
+              <button class="chip" data-status-button="both">Both</button>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" data-anonymous-toggle />
+              <span>Keep Want You anonymous</span>
             </label>
-            <div class="composer__actions">
-              <button type="button" class="button button--ghost" data-action="add-media">
-                Add media
-              </button>
-              <button type="submit" class="button">Post</button>
+            <button class="button button--ghost" data-chat-button>
+              Open chat
+            </button>
+          </article>
+
+          <article
+            class="card connection"
+            data-name="Brandon Ortiz"
+            data-username="brandon.o"
+            data-status="want"
+            data-anonymous="true"
+          >
+            <header class="connection__header">
+              <img src="https://i.pravatar.cc/64?img=31" alt="Brandon" />
+              <div>
+                <h3>Brandon Ortiz</h3>
+                <p>@brandon.o</p>
+              </div>
+              <span class="connection__badge" data-badge></span>
+            </header>
+            <p class="connection__bio">
+              Met at the city cycling meetup. Sends voice notes after every
+              weekend ride.
+            </p>
+            <div class="connection__actions">
+              <button class="chip" data-status-button="know">Know you</button>
+              <button class="chip" data-status-button="want">Want you</button>
+              <button class="chip" data-status-button="both">Both</button>
             </div>
-          </form>
-        </article>
-
-        <section id="feed-posts" class="feed">
-          <article class="card post" data-post>
-            <header class="post__header">
-              <img src="https://i.pravatar.cc/48?img=12" alt="Profile" />
-              <div>
-                <h3>Danika Park</h3>
-                <p>Shared to Product Circle · 10m ago</p>
-              </div>
-              <button class="post__follow">Follow</button>
-            </header>
-            <p>
-              Shoutout to @jordanlee for pulling the live demo together. Launch
-              is looking 🔥🔥🔥
-            </p>
-            <footer class="post__footer">
-              <button class="post__action" data-action="like">
-                <span aria-hidden="true">❤️</span>
-                <span class="post__action-label">24</span>
-              </button>
-              <button class="post__action" data-action="comment">
-                💬 <span class="post__action-label">6</span>
-              </button>
-              <button class="post__action" data-action="share">↗︎ Share</button>
-            </footer>
+            <label class="toggle">
+              <input type="checkbox" data-anonymous-toggle checked />
+              <span>Keep Want You anonymous</span>
+            </label>
+            <button class="button button--ghost" data-chat-button>
+              Open chat
+            </button>
           </article>
 
-          <article class="card post" data-post>
-            <header class="post__header">
-              <img src="https://i.pravatar.cc/48?img=32" alt="Profile" />
+          <article
+            class="card connection"
+            data-name="Carmen Diaz"
+            data-username="c.diaz"
+            data-status="know"
+            data-anonymous="false"
+          >
+            <header class="connection__header">
+              <img src="https://i.pravatar.cc/64?img=45" alt="Carmen" />
               <div>
-                <h3>Anthony Woods</h3>
-                <p>Shared to Climber Crew · 25m ago</p>
+                <h3>Carmen Diaz</h3>
+                <p>@c.diaz</p>
               </div>
+              <span class="connection__badge" data-badge></span>
             </header>
-            <p>
-              Weekend hike is a go! Drop your snack requests and let's give Mia
-              some pre-race encouragement 🍊
+            <p class="connection__bio">
+              Works in your coworking space. You collaborated on the spring
+              showcase.
             </p>
-            <div class="post__media" role="img" aria-label="Photo of a mountain trail"></div>
-            <footer class="post__footer">
-              <button class="post__action" data-action="like">
-                <span aria-hidden="true">❤️</span>
-                <span class="post__action-label">42</span>
-              </button>
-              <button class="post__action" data-action="comment">
-                💬 <span class="post__action-label">18</span>
-              </button>
-              <button class="post__action" data-action="share">↗︎ Share</button>
-            </footer>
+            <div class="connection__actions">
+              <button class="chip" data-status-button="know">Know you</button>
+              <button class="chip" data-status-button="want">Want you</button>
+              <button class="chip" data-status-button="both">Both</button>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" data-anonymous-toggle />
+              <span>Keep Want You anonymous</span>
+            </label>
+            <button class="button button--ghost" data-chat-button>
+              Open chat
+            </button>
           </article>
-        </section>
+
+          <article
+            class="card connection"
+            data-name="Devon Marshall"
+            data-username="devonmarsh"
+            data-status="none"
+            data-anonymous="false"
+          >
+            <header class="connection__header">
+              <img src="https://i.pravatar.cc/64?img=8" alt="Devon" />
+              <div>
+                <h3>Devon Marshall</h3>
+                <p>@devonmarsh</p>
+              </div>
+              <span class="connection__badge" data-badge></span>
+            </header>
+            <p class="connection__bio">
+              Classmate from first-year studio. You sat together for critique.
+            </p>
+            <div class="connection__actions">
+              <button class="chip" data-status-button="know">Know you</button>
+              <button class="chip" data-status-button="want">Want you</button>
+              <button class="chip" data-status-button="both">Both</button>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" data-anonymous-toggle />
+              <span>Keep Want You anonymous</span>
+            </label>
+            <button class="button button--ghost" data-chat-button>
+              Open chat
+            </button>
+          </article>
+
+          <article
+            class="card connection"
+            data-name="Imani Singh"
+            data-username="imanisingh"
+            data-status="both"
+            data-anonymous="true"
+          >
+            <header class="connection__header">
+              <img src="https://i.pravatar.cc/64?img=56" alt="Imani" />
+              <div>
+                <h3>Imani Singh</h3>
+                <p>@imanisingh</p>
+              </div>
+              <span class="connection__badge" data-badge></span>
+            </header>
+            <p class="connection__bio">
+              Your favorite study partner. Already marked you as Want You and is
+              hoping you say the same.
+            </p>
+            <div class="connection__actions">
+              <button class="chip" data-status-button="know">Know you</button>
+              <button class="chip" data-status-button="want">Want you</button>
+              <button class="chip" data-status-button="both">Both</button>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" data-anonymous-toggle checked />
+              <span>Keep Want You anonymous</span>
+            </label>
+            <button class="button button--ghost" data-chat-button>
+              Open chat
+            </button>
+          </article>
+
+          <article
+            class="card connection"
+            data-name="Zahra Patel"
+            data-username="zahra.codes"
+            data-status="want"
+            data-anonymous="false"
+          >
+            <header class="connection__header">
+              <img src="https://i.pravatar.cc/64?img=16" alt="Zahra" />
+              <div>
+                <h3>Zahra Patel</h3>
+                <p>@zahra.codes</p>
+              </div>
+              <span class="connection__badge" data-badge></span>
+            </header>
+            <p class="connection__bio">
+              Teammate from hackathon finals. Already revealed that they want you
+              to join next season.
+            </p>
+            <div class="connection__actions">
+              <button class="chip" data-status-button="know">Know you</button>
+              <button class="chip" data-status-button="want">Want you</button>
+              <button class="chip" data-status-button="both">Both</button>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" data-anonymous-toggle />
+              <span>Keep Want You anonymous</span>
+            </label>
+            <button class="button button--ghost" data-chat-button>
+              Open chat
+            </button>
+          </article>
+        </div>
       </section>
 
-      <aside class="feed-layout__sidebar feed-layout__sidebar--right">
-        <section class="card stories" aria-label="Stories">
-          <header>
-            <h2>Stories</h2>
-            <button class="post__action" data-action="view-stories">See all</button>
-          </header>
-          <ul id="stories-list">
-            <li>
-              <img src="https://i.pravatar.cc/40?img=20" alt="Story thumbnail" />
-              <span>Olivia · 2h left</span>
-            </li>
-            <li>
-              <img src="https://i.pravatar.cc/40?img=45" alt="Story thumbnail" />
-              <span>Leo · 4h left</span>
-            </li>
-            <li>
-              <img src="https://i.pravatar.cc/40?img=8" alt="Story thumbnail" />
-              <span>Team Launch · 6h left</span>
-            </li>
+      <aside class="lookup-sidebar">
+        <section class="card insight">
+          <h2>Need a hint?</h2>
+          <p>
+            Only you can see the statuses you set. When both of you mark “Want
+            you”, the chat becomes public by default.
+          </p>
+          <ul class="checklist">
+            <li>Tap a chip to update their status instantly.</li>
+            <li>Anonymous Want Yous can still send and receive messages.</li>
+            <li>Reveal when you are ready—no notifications go out until you do.</li>
           </ul>
         </section>
 
-        <section class="card suggestions" id="suggestions">
-          <header>
-            <h2>Suggested circles</h2>
-          </header>
-          <ul>
-            <li>
-              <div>
-                <h3>UI Study Buddies</h3>
-                <p>12 friends inside</p>
-              </div>
-              <button class="button button--ghost" data-action="join">Join</button>
-            </li>
-            <li>
-              <div>
-                <h3>Weekend Warriors</h3>
-                <p>8 friends inside</p>
-              </div>
-              <button class="button button--ghost" data-action="join">Join</button>
-            </li>
-          </ul>
+        <section class="card insight">
+          <h2>Quick filters</h2>
+          <p>Use the toggle above to zero in on the people you are hiding.</p>
+          <p class="insight__note">Tip: combine with search to find them fast.</p>
         </section>
       </aside>
     </main>

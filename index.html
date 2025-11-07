@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WantYou | Find your circle</title>
+    <title>WantYou | Know who wants you</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -17,114 +17,131 @@
       <div class="site-header__inner container">
         <a href="index.html" class="brand">WantYou</a>
         <nav class="site-nav" aria-label="Primary navigation">
-          <a href="#features">Features</a>
-          <a href="#community">Community</a>
-          <a href="#safety">Safety</a>
+          <a href="#how-it-works">How it works</a>
+          <a href="#statuses">Statuses</a>
+          <a href="#privacy">Privacy</a>
         </nav>
         <div class="site-header__actions">
-          <a class="button button--ghost" href="feed.html">Explore feed</a>
-          <a class="button" href="signup.html">Join now</a>
+          <a class="button button--ghost" href="signup.html">Log in</a>
+          <a class="button" href="signup.html">Create account</a>
         </div>
       </div>
     </header>
 
     <main>
       <section class="hero hero--landing">
-        <div class="container hero__grid">
+        <div class="container hero__grid hero__grid--landing">
           <div class="hero__copy">
-            <h1>Build the social circle that has your back.</h1>
+            <h1>Find out who knows you, who wants you, and who is both.</h1>
             <p>
-              WantYou connects you with the people already rooting for you.
-              Share updates, collect anonymous encouragement, and grow the
-              relationships that matter most.
+              WantYou is a private lookup for the people already in your orbit.
+              Search anyone by full name or username, mark how you feel, and let
+              the connection grow at your pace.
             </p>
             <div class="hero__cta">
-              <a class="button" href="signup.html">Create account</a>
-              <a class="button button--ghost" href="feed.html">See the feed</a>
+              <a class="button" href="feed.html">Look up someone</a>
+              <a class="button button--ghost" href="messages.html"
+                >Continue a chat</a
+              >
             </div>
           </div>
-          <div class="hero__card" id="hero-card"></div>
+          <div class="hero__card hero-card" id="hero-card"></div>
         </div>
       </section>
 
-      <section class="panel panel--light" id="features">
-        <div class="container panel__grid">
-          <article class="feature">
-            <h2>Private boosts</h2>
+      <section class="panel panel--light" id="how-it-works">
+        <div class="container steps">
+          <article class="step">
+            <span class="step__number">1</span>
+            <h2>Create your account</h2>
             <p>
-              Friends can send anonymous shout-outs until you are ready to
-              reveal yourselves.
+              Securely sign up with your email, then import your contacts or add
+              them one by one.
             </p>
           </article>
-          <article class="feature">
-            <h2>Shared spaces</h2>
+          <article class="step">
+            <span class="step__number">2</span>
+            <h2>Look them up</h2>
             <p>
-              Create circles for clubs, events, or friend groups and share what
-              you are up to right now.
+              Use the WantYou directory to search by full name or username and
+              see how they have marked you.
             </p>
           </article>
-          <article class="feature">
-            <h2>Live reactions</h2>
+          <article class="step">
+            <span class="step__number">3</span>
+            <h2>Choose your status</h2>
             <p>
-              Spark conversations with emoji bursts, quick polls, and threaded
-              replies that keep everyone involved.
+              Set whether they know you, want you, or both. You can keep your
+              Want You private until you are ready to reveal it.
             </p>
           </article>
         </div>
       </section>
 
-      <section class="panel" id="community">
-        <div class="container community">
-          <div class="community__media">
-            <div class="screen screen--feed" aria-hidden="true">
-              <header>
-                <span>Today</span>
-                <span>3 replies</span>
-              </header>
-              <p>“Big presentation went amazing 🔥 thanks for the pep talk!”</p>
-              <footer>
-                <span class="tag tag--accent">Emma</span>
-                <span class="tag">Boosts 5</span>
-              </footer>
-            </div>
-          </div>
-          <div class="community__copy">
-            <h2>Spaces that feel like home</h2>
+      <section class="panel" id="statuses">
+        <div class="container statuses">
+          <header class="section-header">
+            <h2>Three simple statuses</h2>
             <p>
-              From dorm floors to remote teams, WantYou is built for groups who
-              thrive on positive feedback and honest conversation.
+              Every interaction in WantYou starts with a clear headline so both
+              people know where they stand.
+            </p>
+          </header>
+          <div class="status-grid">
+            <article class="status-card">
+              <h3>Know you</h3>
+              <p>
+                Let someone know you recognize them. Chats that begin here read
+                “This user knows you”.
+              </p>
+            </article>
+            <article class="status-card">
+              <h3>Want you</h3>
+              <p>
+                Share your interest silently. Until you reveal yourself, their
+                chat shows “This user wants you”.
+              </p>
+            </article>
+            <article class="status-card">
+              <h3>Both</h3>
+              <p>
+                Confirm the spark goes both ways. Conversations open with “This
+                user both knows and wants you”.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel--light" id="privacy">
+        <div class="container privacy">
+          <div class="privacy__copy">
+            <h2>Your interest, your rules</h2>
+            <p>
+              Keep a Want You anonymous for as long as you like. They can chat,
+              get to know you, and request a reveal. You decide when to make it
+              public.
             </p>
             <ul class="checklist">
-              <li>Invite-only circles with custom roles</li>
-              <li>Stories and highlights that expire after 24 hours</li>
-              <li>Events calendar that keeps everyone in the loop</li>
+              <li>Anonymous chats use private profiles and safe display names.</li>
+              <li>
+                Revealing is a one-tap action—no pressure and no accidental
+                reveals.
+              </li>
+              <li>
+                Switch to a regular chat at any time if you feel comfortable
+                being known.
+              </li>
             </ul>
           </div>
-        </div>
-      </section>
-
-      <section class="panel panel--light" id="safety">
-        <div class="container safety">
-          <div>
-            <h2>Safety first</h2>
-            <p>
-              Advanced reporting, consent-first reveals, and moderation tools
-              keep your experience supportive.
-            </p>
-          </div>
-          <div class="safety__cards">
-            <article class="safety-card">
-              <h3>Verified circles</h3>
-              <p>Only people with invites can join your group.</p>
-            </article>
-            <article class="safety-card">
-              <h3>Message controls</h3>
-              <p>Silence threads, filter anonymous notes, and manage DMs.</p>
-            </article>
-            <article class="safety-card">
-              <h3>Support team</h3>
-              <p>Get a real human response within 12 hours, any day.</p>
-            </article>
+          <div class="privacy__card">
+            <h3>Anonymous preview</h3>
+            <p class="privacy__note">Seen by the person you marked:</p>
+            <div class="privacy__message">
+              <span class="tag tag--accent">Private</span>
+              <p>“This user wants you”</p>
+              <p class="privacy__sub">Ask them to reveal when you are ready.</p>
+            </div>
           </div>
         </div>
       </section>
@@ -132,8 +149,8 @@
       <section class="panel panel--cta">
         <div class="container cta">
           <div>
-            <h2>Ready to see who wants you?</h2>
-            <p>Sign up in seconds and start your first circle.</p>
+            <h2>Ready to say Want You?</h2>
+            <p>Join WantYou today and see who is already cheering you on.</p>
           </div>
           <form class="cta__form" id="request-access">
             <label class="form__field">
@@ -148,9 +165,9 @@
 
     <footer class="site-footer">
       <div class="container site-footer__inner">
-        <p>© <span id="year"></span> WantYou. Built for the friends who cheer loudest.</p>
+        <p>© <span id="year"></span> WantYou. Built for mutual connections.</p>
         <nav aria-label="Footer navigation">
-          <a href="feed.html">Feed</a>
+          <a href="feed.html">Lookup</a>
           <a href="messages.html">Messages</a>
           <a href="profile.html">Profile</a>
         </nav>
