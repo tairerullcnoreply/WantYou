@@ -21,5 +21,7 @@ You can chat with others without being anonymous.
 * [11/07/2025; 10:15 AM] Implemented WantYou landing experience with interactive discovery and messaging demo
 * [11/07/2025; 1:11 AM UTC] Rebuilt WantYou as a multi-page social platform with an orange and white theme
 * [11/07/2025; 3:25 PM UTC] Refocused WantYou on lookup statuses, anonymous reveals, and conversation headers
+* [11/07/2025; 1:55 AM UTC] Added Vercel-compatible API handler and improved auth form autofill hints
 * [11/08/2025; 2:45 PM UTC] Added Upstash-backed API with username/password auth and removed email flows
 * [11/08/2025; 3:40 PM UTC] Removed dotenv dependency to rely on runtime environment variables
+* [11/08/2025; 4:55 PM UTC] Finished dynamic lookup, messaging, and profile experiences with real user data flows
