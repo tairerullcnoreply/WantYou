@@ -3,8 +3,8 @@ const crypto = require("crypto");
 const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 3000;
-const UPSTASH_REST_URL = process.env.UPSTASH_REST_URL;
-const UPSTASH_REST_TOKEN = process.env.UPSTASH_REST_TOKEN;
+const UPSTASH_REST_URL = process.env.KV_REST_API_URL;
+const UPSTASH_REST_TOKEN = process.env.KV_REST_API_TOKEN;
 const HAS_UPSTASH_CONFIG = Boolean(UPSTASH_REST_URL && UPSTASH_REST_TOKEN);
 
 app.use(express.json());
