@@ -146,6 +146,7 @@ function buildUserSummaryPayload(user) {
     tagline: user.tagline ?? "",
     badges: Array.isArray(user.badges) ? user.badges : [],
     userId: user.userId,
+    profilePicturePath: user.profilePicturePath ?? "",
     previousUsernames: Array.isArray(user.usernameHistory)
       ? user.usernameHistory.map((entry) => entry.username)
       : [],
@@ -962,12 +963,19 @@ async function listUsers() {
     if (!username) continue;
     const parsed = parseJsonSafe(raw, null);
     if (parsed) {
+      let profilePicturePath =
+        typeof parsed.profilePicturePath === "string" ? parsed.profilePicturePath : "";
+      if (!profilePicturePath) {
+        const fullRecord = await getUser(username);
+        profilePicturePath = fullRecord?.profilePicturePath ?? "";
+      }
       users.push({
         username,
         fullName: parsed.fullName,
         tagline: parsed.tagline ?? "",
         badges: enforceBadgeRules(username, parsed.badges),
         userId: parsed.userId ?? null,
+        profilePicturePath,
         previousUsernames: Array.isArray(parsed.previousUsernames)
           ? parsed.previousUsernames.filter(Boolean)
           : [],
@@ -979,6 +987,7 @@ async function listUsers() {
         tagline: "",
         badges: [],
         userId: null,
+        profilePicturePath: "",
         previousUsernames: [],
       });
     }
@@ -1129,6 +1138,9 @@ async function getLookupPeople(currentUsername) {
       tagline: user.tagline ?? "",
       badges: Array.isArray(user.badges) ? user.badges : [],
       userId: user.userId ?? null,
+      profilePicture: user.profilePicturePath
+        ? resolveMediaUrl(user.profilePicturePath)
+        : "",
       previousUsernames: Array.isArray(user.previousUsernames)
         ? user.previousUsernames.filter(Boolean)
         : [],

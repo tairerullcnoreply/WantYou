@@ -671,6 +671,7 @@ function applyLookupFilters({
   statusFilters,
   mutualOnly,
   hideOutboundNone,
+  state,
   emptyState,
   emptyTextWhenNoCards,
 }) {
@@ -683,13 +684,22 @@ function applyLookupFilters({
   cards.forEach((card) => {
     const name = card.dataset.name?.toLowerCase() ?? "";
     const username = card.dataset.username?.toLowerCase() ?? "";
-    const inboundStatus = card.dataset.actualInboundStatus ?? "none";
-    const inboundAnonymous = card.dataset.actualInboundAnonymous === "true";
-    const outboundStatus = card.dataset.outboundStatus ?? "none";
+    const usernameKey = card.dataset.username ?? "";
+    const entry = state?.get(usernameKey);
+    const inboundState = entry ? normalizeConnectionState(entry.inbound) : null;
+    const outboundState = entry ? normalizeConnectionState(entry.outbound) : null;
+    const inboundStatus = inboundState?.status ?? card.dataset.actualInboundStatus ?? "none";
+    const inboundAnonymous = inboundState
+      ? Boolean(inboundState.anonymous)
+      : card.dataset.actualInboundAnonymous === "true";
+    const outboundStatus = outboundState?.status ?? card.dataset.outboundStatus ?? "none";
+    const mutualWant = entry
+      ? isWantStatus(inboundStatus) && isWantStatus(outboundStatus)
+      : card.dataset.mutualWant === "true";
     const matchesQuery = !query || name.includes(query) || username.includes(query);
     const matchesAnon = !anonOnly || (isWantStatus(inboundStatus) && inboundAnonymous);
     const matchesStatus = !hasCustomStatusFilter || statusSet.has(inboundStatus);
-    const matchesMutual = !mutualOnly || card.dataset.mutualWant === "true";
+    const matchesMutual = !mutualOnly || mutualWant;
     const matchesOutbound = !hideOutboundNone || outboundStatus !== "none";
 
     if (matchesQuery && matchesAnon && matchesStatus && matchesMutual && matchesOutbound) {
@@ -1008,6 +1018,7 @@ async function initLookup() {
       statusFilters: activeStatusFilters,
       mutualOnly: Boolean(mutualFilter?.checked),
       hideOutboundNone: Boolean(outboundFilter?.checked),
+      state,
       emptyState,
       emptyTextWhenNoCards: "No one else has joined yet.",
     });
@@ -1044,13 +1055,15 @@ async function initLookup() {
       card.dataset.username = person.username;
       card.dataset.name = person.fullName;
 
-      const avatarUrl = `https://api.dicebear.com/6.x/initials/svg?seed=${encodeURIComponent(
+      const profilePicture = typeof person.profilePicture === "string" ? person.profilePicture.trim() : "";
+      const fallbackAvatar = `https://api.dicebear.com/6.x/initials/svg?seed=${encodeURIComponent(
         person.username
       )}`;
+      const avatarSource = profilePicture || fallbackAvatar;
       const profileHref = buildProfileUrl(person.username);
       card.innerHTML = `
         <header class="connection__header">
-          <img src="${avatarUrl}" alt="${escapeHtml(person.fullName)}" />
+          <img src="${escapeHtml(avatarSource)}" alt="${escapeHtml(person.fullName)}" />
           <div class="connection__identity">
             <h3 class="connection__name">
               <a href="${profileHref}">${escapeHtml(person.fullName)}</a>
