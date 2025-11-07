@@ -1,4 +1,5 @@
 const path = require("path");
+const os = require("os");
 const fs = require("fs");
 const fsp = require("fs/promises");
 const crypto = require("crypto");
@@ -26,7 +27,33 @@ const DEFAULT_CONNECTION_STATE = Object.freeze({
 });
 
 const MAX_MEDIA_FILE_SIZE = 100 * 1024 * 1024; // 100 MB per GitHub upload limit
-const UPLOAD_ROOT = path.resolve(__dirname, "..", "uploads");
+const PROJECT_ROOT = path.resolve(__dirname, "..");
+
+function resolveUploadRoot() {
+  const explicit = process.env.UPLOAD_ROOT?.trim();
+  if (explicit) {
+    const absolute = path.resolve(explicit);
+    ensureDirectory(absolute);
+    return absolute;
+  }
+
+  const projectUploads = path.join(PROJECT_ROOT, "uploads");
+  try {
+    ensureDirectory(projectUploads);
+    fs.accessSync(projectUploads, fs.constants.W_OK);
+    return projectUploads;
+  } catch (error) {
+    const fallback = path.join(os.tmpdir(), "wantyou", "uploads");
+    ensureDirectory(fallback);
+    console.warn(
+      `Falling back to temporary upload directory at ${fallback} due to:`,
+      error
+    );
+    return fallback;
+  }
+}
+
+const UPLOAD_ROOT = resolveUploadRoot();
 const AVATAR_UPLOAD_DIR = path.join(UPLOAD_ROOT, "avatars");
 const POST_UPLOAD_DIR = path.join(UPLOAD_ROOT, "posts");
 const EVENT_UPLOAD_DIR = path.join(UPLOAD_ROOT, "events");
@@ -503,10 +530,17 @@ function parseJsonSafe(raw, fallback = null) {
 
 function relativeUploadPath(filePath) {
   if (!filePath) return null;
-  const projectRoot = path.resolve(__dirname, "..");
-  const relative = path.relative(projectRoot, filePath);
-  if (!relative) return null;
-  return `/${relative.split(path.sep).join("/")}`;
+  const resolved = path.resolve(filePath);
+  if (resolved.startsWith(UPLOAD_ROOT)) {
+    const relativeToUpload = path.relative(UPLOAD_ROOT, resolved);
+    if (!relativeToUpload) return null;
+    return `/uploads/${relativeToUpload.split(path.sep).join("/")}`;
+  }
+  const relativeToProject = path.relative(PROJECT_ROOT, resolved);
+  if (!relativeToProject || relativeToProject.startsWith("..")) {
+    return null;
+  }
+  return `/${relativeToProject.split(path.sep).join("/")}`;
 }
 
 function describeAttachment(file) {
@@ -527,7 +561,10 @@ function absoluteUploadPath(relativePath) {
   const normalized = relativePath.startsWith("/")
     ? relativePath.slice(1)
     : relativePath;
-  return path.resolve(__dirname, "..", normalized);
+  if (normalized.startsWith("uploads/")) {
+    return path.resolve(UPLOAD_ROOT, normalized.slice("uploads/".length));
+  }
+  return path.resolve(PROJECT_ROOT, normalized);
 }
 
 async function getUser(username) {
@@ -1025,7 +1062,8 @@ function createApp() {
   const app = express();
 
   app.use(express.json());
-  app.use(express.static(path.resolve(__dirname, "..")));
+  app.use(express.static(PROJECT_ROOT));
+  app.use("/uploads", express.static(UPLOAD_ROOT));
 
   app.post("/api/signup", async (req, res) => {
     const { fullName, username, password } = req.body ?? {};
