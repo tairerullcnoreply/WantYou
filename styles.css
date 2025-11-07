@@ -519,6 +519,31 @@ img {
 .connection__username {
   margin: 0;
   color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.connection__history-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  border: none;
+  background: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.connection__history-button:hover,
+.connection__history-button:focus-visible {
+  color: var(--color-accent);
+  background: rgba(255, 122, 0, 0.12);
 }
 
 .connection__bio {
@@ -937,6 +962,31 @@ img {
 .profile-summary__username {
   margin: 0.2rem 0 0;
   color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.profile-summary__username-history {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  border: none;
+  background: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.profile-summary__username-history:hover,
+.profile-summary__username-history:focus-visible {
+  color: var(--color-accent);
+  background: rgba(255, 122, 0, 0.12);
 }
 
 .profile-summary__badges {
@@ -1170,9 +1220,19 @@ img {
 }
 
 .profile-dialog__note {
-  margin: 0;
+  margin: 0.35rem 0 0;
   color: var(--color-muted);
   font-size: 0.85rem;
+}
+
+.profile-dialog__history {
+  margin: 0.75rem 0 0;
+  padding-left: 1.25rem;
+  color: var(--color-muted);
+}
+
+.profile-dialog__history li {
+  margin: 0.25rem 0;
 }
 
 .profile-list {

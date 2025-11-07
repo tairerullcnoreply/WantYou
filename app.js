@@ -54,9 +54,17 @@ const HERO_CARDS = [
 const API_BASE = "/api";
 const SESSION_TOKEN_KEY = "wantyou_session_token";
 const OWNER_USERNAME = "wantyou";
+const USERNAME_CHANGE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function buildApiUrl(path) {
   return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function buildProfileUrl(username) {
+  if (!username) {
+    return "/profile/";
+  }
+  return `/profile/@${encodeURIComponent(username)}/`;
 }
 
 function getSessionToken() {
@@ -84,6 +92,24 @@ function clearSessionToken() {
   setSessionToken(null);
 }
 
+function updateProfileLinks(username) {
+  const target = buildProfileUrl(username);
+  document.querySelectorAll("[data-nav-profile]").forEach((anchor) => {
+    anchor.setAttribute("href", target);
+  });
+}
+
+function getNextUsernameChangeAt(changedAt) {
+  if (!changedAt) {
+    return null;
+  }
+  const changedTime = Date.parse(changedAt);
+  if (Number.isNaN(changedTime)) {
+    return null;
+  }
+  return changedTime + USERNAME_CHANGE_INTERVAL_MS;
+}
+
 function setupGlobalControls() {
   const logoutButtons = document.querySelectorAll('[data-action="logout"]');
   logoutButtons.forEach((button) => {
@@ -102,7 +128,8 @@ function setupGlobalControls() {
         }
       } finally {
         clearSessionToken();
-        window.location.href = "signup.html";
+        updateProfileLinks(null);
+        window.location.href = "/signup/";
       }
     });
   });
@@ -271,10 +298,12 @@ async function loadSession() {
   try {
     const data = await apiRequest("/session");
     sessionUser = data?.user ?? null;
+    updateProfileLinks(sessionUser?.username ?? null);
     return sessionUser;
   } catch (error) {
     if (error.status === 401) {
       sessionUser = null;
+      updateProfileLinks(null);
     }
     throw error;
   }
@@ -288,7 +317,7 @@ async function requireSession() {
     return await loadSession();
   } catch (error) {
     if (error.status === 401) {
-      window.location.href = "signup.html";
+      window.location.href = "/signup/";
     }
     throw error;
   }
@@ -503,7 +532,7 @@ function initSignup() {
       }
       const fullName = data?.user?.fullName ?? username;
       window.alert(`Welcome back, ${fullName}! Redirecting to your lookup.`);
-      window.location.href = "feed.html";
+      window.location.href = "/lookup/";
     } catch (error) {
       window.alert(error.message || "We couldn't log you in right now.");
     } finally {
@@ -652,7 +681,7 @@ async function initLookup() {
       const avatarUrl = `https://api.dicebear.com/6.x/initials/svg?seed=${encodeURIComponent(
         person.username
       )}`;
-      const profileHref = `profile.html?user=${encodeURIComponent(person.username)}`;
+      const profileHref = buildProfileUrl(person.username);
       card.innerHTML = `
         <header class="connection__header">
           <img src="${avatarUrl}" alt="${escapeHtml(person.fullName)}" />
@@ -661,7 +690,19 @@ async function initLookup() {
               <a href="${profileHref}">${escapeHtml(person.fullName)}</a>
               <span class="user-badges user-badges--inline" data-user-badges hidden></span>
             </h3>
-            <p class="connection__username">@${escapeHtml(person.username)}</p>
+            <p class="connection__username">
+              <span>@${escapeHtml(person.username)}</span>
+              <button
+                type="button"
+                class="connection__history-button"
+                data-username-history-trigger
+                hidden
+                aria-label="View previous usernames for ${escapeHtml(person.fullName)}"
+                title="View previous usernames"
+              >
+                ℹ️
+              </button>
+            </p>
           </div>
           <span class="connection__badge" data-badge></span>
         </header>
@@ -685,6 +726,21 @@ async function initLookup() {
 
       renderUserBadges(card.querySelector("[data-user-badges]"), person.badges);
       renderCardState(card, inbound, outbound);
+
+      const previousUsernames = Array.isArray(person.previousUsernames)
+        ? person.previousUsernames.filter((name) => name && name !== person.username)
+        : [];
+      const historyTrigger = card.querySelector("[data-username-history-trigger]");
+      if (historyTrigger) {
+        if (previousUsernames.length) {
+          historyTrigger.hidden = false;
+          historyTrigger.addEventListener("click", () => {
+            window.alert(`Previous usernames:\n${previousUsernames.map((name) => `@${name}`).join("\n")}`);
+          });
+        } else {
+          historyTrigger.remove();
+        }
+      }
 
       const usernameKey = person.username;
       state.set(usernameKey, { inbound, outbound, element: card });
@@ -863,7 +919,7 @@ async function initLookup() {
               : error?.message || "We couldn't remember that chat selection.";
           window.alert(message);
         }
-        window.location.href = "messages.html";
+        window.location.href = "/messages/";
       });
 
       fragment.appendChild(card);
@@ -1023,7 +1079,7 @@ async function initMessages() {
 
   newChatButton?.addEventListener("click", (event) => {
     event.preventDefault();
-    window.location.href = "feed.html";
+    window.location.href = "/lookup/";
   });
 
   placeholder.hidden = false;
@@ -1375,6 +1431,11 @@ async function initMessages() {
 async function initProfile() {
   const nameEl = document.querySelector("[data-profile-name]");
   const usernameEl = document.querySelector("[data-profile-username]");
+  const usernameHistoryButton = document.querySelector("[data-username-history-button]");
+  const usernameHistoryDialog = document.querySelector("[data-username-history-dialog]");
+  const usernameHistoryList = document.querySelector("[data-username-history-list]");
+  const usernameHistoryEmpty = document.querySelector("[data-username-history-empty]");
+  const usernameHistoryNote = document.querySelector("[data-username-history-note]");
   const taglineEl = document.querySelector("[data-profile-tagline]");
   const bioEl = document.querySelector("[data-profile-bio]");
   const profileBadges = document.querySelector("[data-profile-badges]");
@@ -1406,14 +1467,71 @@ async function initProfile() {
   const postDialog = document.querySelector("[data-post-dialog]");
   const eventLimitNote = document.querySelector("[data-event-limit]");
   const postLimitNote = document.querySelector("[data-post-limit]");
-  const ownOnlySections = document.querySelectorAll("[data-own-only]");
+  function createPresenceController(element) {
+    if (!element) return null;
+    const parent = element.parentNode;
+    if (!parent) {
+      return {
+        element,
+        show() {
+          element.hidden = false;
+        },
+        hide() {
+          element.hidden = true;
+        },
+      };
+    }
+    const placeholder = document.createComment("own-only-placeholder");
+    parent.insertBefore(placeholder, element.nextSibling);
+    return {
+      element,
+      parent,
+      placeholder,
+      show() {
+        if (!this.placeholder.parentNode) {
+          this.parent.insertBefore(this.placeholder, null);
+        }
+        if (!this.element.isConnected) {
+          this.parent.insertBefore(this.element, this.placeholder);
+        }
+        this.element.hidden = false;
+      },
+      hide() {
+        if (this.element.isConnected) {
+          this.element.remove();
+        }
+      },
+    };
+  }
+
+  const ownOnlyControllers = Array.from(
+    document.querySelectorAll("[data-own-only], [data-own-control]")
+  )
+    .map((element) => createPresenceController(element))
+    .filter(Boolean);
+  const usernameChangeNote = profileDialog?.querySelector("[data-username-note]");
 
   if (!nameEl || !usernameEl || !taglineEl || !bioEl || !avatarImg || !statKnow || !statWant || !statBoth) {
     return;
   }
 
-  const params = new URLSearchParams(window.location.search);
-  const requestedUser = params.get("user");
+  const path = window.location.pathname;
+  let requestedUser = null;
+  const profilePathMatch = path.match(/^\/profile\/@([^/]+)\/?$/i);
+  if (profilePathMatch) {
+    try {
+      requestedUser = decodeURIComponent(profilePathMatch[1]).toLowerCase();
+    } catch (error) {
+      console.warn("Unable to parse profile path", error);
+    }
+  }
+  if (!requestedUser) {
+    const params = new URLSearchParams(window.location.search);
+    const queryUser = params.get("user");
+    if (queryUser) {
+      requestedUser = queryUser.toLowerCase();
+    }
+  }
 
   nameEl.textContent = "Loading…";
   taglineEl.textContent = "Tell people what you're about.";
@@ -1423,23 +1541,15 @@ async function initProfile() {
 
   const toggleOwnVisibility = (canEdit) => {
     const canVerify = Boolean(profileData?.canVerify);
-    ownOnlySections.forEach((section) => {
-      section.hidden = !canEdit;
+    ownOnlyControllers.forEach((controller) => {
+      if (canEdit) {
+        controller.show();
+      } else {
+        controller.hide();
+      }
     });
     if (actionsContainer) {
       actionsContainer.hidden = !(canEdit || canVerify);
-    }
-    if (addEventButton) {
-      addEventButton.hidden = !canEdit;
-    }
-    if (addPostButton) {
-      addPostButton.hidden = !canEdit;
-    }
-    if (editButton) {
-      editButton.hidden = !canEdit;
-    }
-    if (changeAvatarButton) {
-      changeAvatarButton.hidden = !canEdit;
     }
     if (verifyButton) {
       verifyButton.hidden = !canVerify;
@@ -1714,10 +1824,56 @@ async function initProfile() {
     profileData.canVerify = canVerify;
     if (profileData.canEdit) {
       sessionUser = { ...sessionUser, ...user };
+      updateProfileLinks(user.username);
+      const canonicalPath = buildProfileUrl(user.username);
+      if (window.location.pathname !== canonicalPath) {
+        window.history.replaceState({}, "", canonicalPath);
+      }
     }
 
     nameEl.textContent = user.fullName ?? "Profile";
     usernameEl.textContent = user.username ? `@${user.username}` : "";
+    const previousUsernames = Array.isArray(user.previousUsernames)
+      ? user.previousUsernames.filter((name) => name && name !== user.username)
+      : [];
+    if (!profileData.canEdit && user.username && requestedUser) {
+      const canonicalViewerPath = buildProfileUrl(user.username);
+      if (window.location.pathname !== canonicalViewerPath) {
+        window.history.replaceState({}, "", canonicalViewerPath);
+      }
+    }
+    if (usernameHistoryButton) {
+      usernameHistoryButton.hidden = previousUsernames.length === 0;
+      usernameHistoryButton.disabled = previousUsernames.length === 0;
+      if (previousUsernames.length) {
+        usernameHistoryButton.setAttribute(
+          "aria-label",
+          `View previous usernames for ${user.fullName || user.username || "this user"}`
+        );
+        usernameHistoryButton.title = "View previous usernames";
+      }
+    }
+    if (usernameHistoryList) {
+      usernameHistoryList.innerHTML = previousUsernames
+        .map((name) => `<li>@${escapeHtml(name)}</li>`)
+        .join("");
+    }
+    if (usernameHistoryEmpty) {
+      usernameHistoryEmpty.hidden = previousUsernames.length > 0;
+    }
+    const nextUsernameChangeAt = getNextUsernameChangeAt(user.usernameChangedAt);
+    if (usernameHistoryNote) {
+      if (profileData.canEdit) {
+        if (nextUsernameChangeAt && Date.now() < nextUsernameChangeAt) {
+          const iso = new Date(nextUsernameChangeAt).toISOString();
+          usernameHistoryNote.textContent = `You can change your username again on ${formatTimestamp(iso)}.`;
+        } else {
+          usernameHistoryNote.textContent = "You can change your username once every 30 days.";
+        }
+      } else {
+        usernameHistoryNote.textContent = "Previous usernames they've gone by.";
+      }
+    }
     const taglineFallback = data.canEdit
       ? "Tell people what you're about."
       : "No tagline yet.";
@@ -1772,6 +1928,27 @@ async function initProfile() {
       )}.`;
     }
   };
+
+  usernameHistoryButton?.addEventListener("click", () => {
+    const previousUsernames = Array.isArray(profileData?.user?.previousUsernames)
+      ? profileData.user.previousUsernames.filter((name) => name && name !== profileData.user.username)
+      : [];
+    if (!previousUsernames.length) {
+      return;
+    }
+    if (usernameHistoryDialog && typeof usernameHistoryDialog.showModal === "function") {
+      usernameHistoryDialog.showModal();
+    } else {
+      window.alert(`Previous usernames:\n${previousUsernames.map((name) => `@${name}`).join("\n")}`);
+    }
+  });
+
+  usernameHistoryDialog?.addEventListener("click", (event) => {
+    const action = event.target?.dataset?.action;
+    if (action === "close-username-history") {
+      usernameHistoryDialog.close();
+    }
+  });
 
   verifyButton?.addEventListener("click", async () => {
     if (!profileData?.canVerify || !profileData?.user?.username) {
@@ -1829,6 +2006,16 @@ async function initProfile() {
   editButton?.addEventListener("click", () => {
     if (!profileData?.canEdit || !profileData.user) return;
     if (!openDialog(profileDialog)) {
+      const nextFullName = window.prompt(
+        "Update your full name",
+        profileData.user.fullName ?? ""
+      );
+      if (nextFullName === null) return;
+      const nextUsername = window.prompt(
+        "Update your username",
+        profileData.user.username ?? ""
+      );
+      if (nextUsername === null) return;
       const nextTagline = window.prompt(
         "Update your tagline",
         profileData.user.tagline ?? ""
@@ -1840,19 +2027,58 @@ async function initProfile() {
         try {
           const response = await apiRequest("/profile", {
             method: "PUT",
-            body: JSON.stringify({ tagline: nextTagline, bio: nextBio }),
+            body: JSON.stringify({
+              fullName: nextFullName,
+              username: nextUsername,
+              tagline: nextTagline,
+              bio: nextBio,
+            }),
           });
           profileData.user = response?.user ?? profileData.user;
           renderProfile(profileData);
         } catch (error) {
-          window.alert(error?.message || "We couldn't update your profile right now.");
+          if (error?.status === 429 && typeof error?.message === "string") {
+            const isoMatch = error.message.match(/on (.+)$/);
+            const iso = isoMatch ? isoMatch[1] : null;
+            const formatted = iso ? formatTimestamp(iso) : null;
+            const message = formatted
+              ? `You can change your username again on ${formatted}.`
+              : error.message;
+            window.alert(message);
+          } else {
+            window.alert(error?.message || "We couldn't update your profile right now.");
+          }
         }
       })();
     } else if (profileDialog) {
       const form = profileDialog.querySelector("form");
       if (form) {
+        if (form.elements.fullName) {
+          form.elements.fullName.value = profileData.user.fullName ?? "";
+        }
+        const nextChangeAt = getNextUsernameChangeAt(profileData.user.usernameChangedAt);
+        const canChangeUsername = !nextChangeAt || Date.now() >= nextChangeAt;
         form.elements.tagline.value = profileData.user.tagline ?? "";
         form.elements.bio.value = profileData.user.bio ?? "";
+        if (usernameChangeNote) {
+          if (canChangeUsername) {
+            usernameChangeNote.textContent = "You can change your username once every 30 days.";
+          } else if (nextChangeAt) {
+            const iso = new Date(nextChangeAt).toISOString();
+            usernameChangeNote.textContent = `You can change your username again on ${formatTimestamp(iso)}.`;
+          } else {
+            usernameChangeNote.textContent = "";
+          }
+        }
+        if (form.elements.username) {
+          form.elements.username.value = profileData.user.username ?? "";
+          form.elements.username.disabled = !canChangeUsername;
+          if (!canChangeUsername && usernameChangeNote) {
+            form.elements.username.title = usernameChangeNote.textContent || "";
+          } else {
+            form.elements.username.title = "";
+          }
+        }
       }
     }
   });
@@ -1864,17 +2090,41 @@ async function initProfile() {
     const form = profileDialog.querySelector("form");
     if (!form) return;
     const formData = new FormData(form);
-    const nextTagline = formData.get("tagline") ?? "";
-    const nextBio = formData.get("bio") ?? "";
+    const payload = {};
+    if (formData.has("fullName")) {
+      payload.fullName = String(formData.get("fullName") ?? "");
+    }
+    if (formData.has("username")) {
+      const rawUsername = formData.get("username");
+      if (rawUsername !== null) {
+        payload.username = String(rawUsername);
+      }
+    }
+    if (formData.has("tagline")) {
+      payload.tagline = String(formData.get("tagline") ?? "");
+    }
+    if (formData.has("bio")) {
+      payload.bio = String(formData.get("bio") ?? "");
+    }
     try {
       const response = await apiRequest("/profile", {
         method: "PUT",
-        body: JSON.stringify({ tagline: String(nextTagline), bio: String(nextBio) }),
+        body: JSON.stringify(payload),
       });
       profileData.user = response?.user ?? profileData.user;
       renderProfile(profileData);
     } catch (error) {
-      window.alert(error?.message || "We couldn't update your profile right now.");
+      if (error?.status === 429 && typeof error?.message === "string") {
+        const isoMatch = error.message.match(/on (.+)$/);
+        const iso = isoMatch ? isoMatch[1] : null;
+        const formatted = iso ? formatTimestamp(iso) : null;
+        const message = formatted
+          ? `You can change your username again on ${formatted}.`
+          : error.message;
+        window.alert(message);
+      } else {
+        window.alert(error?.message || "We couldn't update your profile right now.");
+      }
     }
   });
 
