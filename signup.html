@@ -45,15 +45,21 @@
         <form class="signup__form" id="signup-form" data-form="create" role="tabpanel">
           <label class="form__field">
             <span>Full name</span>
-            <input type="text" name="fullName" required />
+            <input type="text" name="fullName" autocomplete="name" required />
           </label>
           <label class="form__field">
             <span>Username</span>
-            <input type="text" name="username" required />
+            <input type="text" name="username" autocomplete="username" required />
           </label>
           <label class="form__field">
             <span>Password</span>
-            <input type="password" name="password" minlength="6" required />
+            <input
+              type="password"
+              name="password"
+              minlength="6"
+              autocomplete="new-password"
+              required
+            />
           </label>
           <button type="submit" class="button">Create account</button>
         </form>
@@ -61,11 +67,17 @@
         <form class="signup__form signup__form--hidden" id="login-form" data-form="login" role="tabpanel">
           <label class="form__field">
             <span>Username</span>
-            <input type="text" name="username" required />
+            <input type="text" name="username" autocomplete="username" required />
           </label>
           <label class="form__field">
             <span>Password</span>
-            <input type="password" name="password" minlength="6" required />
+            <input
+              type="password"
+              name="password"
+              minlength="6"
+              autocomplete="current-password"
+              required
+            />
           </label>
           <div class="signup__actions">
             <label class="toggle">
