@@ -47,24 +47,24 @@ const VALID_POST_MOODS = new Set([
 ]);
 const DEFAULT_POST_MOOD = "none";
 
-const PROFILE_AVAILABILITY = Object.freeze({
+const RELATIONSHIP_STATUS = Object.freeze({
+  SINGLE: "single",
+  DATING_OPEN: "dating-open",
+  DATING: "dating",
+  NOT_LOOKING: "not-looking",
   OPEN: "open",
-  LOOKING: "looking",
-  FOCUSED: "focused",
-  AWAY: "away",
-  BUSY: "busy",
 });
 
-const PROFILE_AVAILABILITY_LABELS = Object.freeze({
-  [PROFILE_AVAILABILITY.OPEN]: "Open to new connections",
-  [PROFILE_AVAILABILITY.LOOKING]: "Actively looking to connect",
-  [PROFILE_AVAILABILITY.FOCUSED]: "Heads-down on something big",
-  [PROFILE_AVAILABILITY.AWAY]: "Stepping back for now",
-  [PROFILE_AVAILABILITY.BUSY]: "Booked and busy",
+const RELATIONSHIP_STATUS_LABELS = Object.freeze({
+  [RELATIONSHIP_STATUS.SINGLE]: "Single",
+  [RELATIONSHIP_STATUS.DATING_OPEN]: "Dating but Open",
+  [RELATIONSHIP_STATUS.DATING]: "Dating",
+  [RELATIONSHIP_STATUS.NOT_LOOKING]: "Not Looking",
+  [RELATIONSHIP_STATUS.OPEN]: "Open to New Connections",
 });
 
-const PROFILE_AVAILABILITY_OPTIONS = new Set(Object.values(PROFILE_AVAILABILITY));
-const DEFAULT_PROFILE_AVAILABILITY = PROFILE_AVAILABILITY.OPEN;
+const RELATIONSHIP_STATUS_OPTIONS = new Set(Object.values(RELATIONSHIP_STATUS));
+const DEFAULT_RELATIONSHIP_STATUS = RELATIONSHIP_STATUS.OPEN;
 
 function resolveUploadRoot() {
   const explicit = process.env.UPLOAD_ROOT?.trim();
@@ -151,20 +151,32 @@ function sanitizeText(input, maxLength) {
   return trimmed.slice(0, maxLength);
 }
 
-function normalizeProfileAvailability(value) {
+function normalizeRelationshipStatus(value) {
   if (typeof value !== "string") {
-    return DEFAULT_PROFILE_AVAILABILITY;
+    return DEFAULT_RELATIONSHIP_STATUS;
   }
   const normalized = value.trim().toLowerCase();
-  if (PROFILE_AVAILABILITY_OPTIONS.has(normalized)) {
+  if (RELATIONSHIP_STATUS_OPTIONS.has(normalized)) {
     return normalized;
   }
-  return DEFAULT_PROFILE_AVAILABILITY;
+  switch (normalized) {
+    case "looking":
+    case "open":
+      return RELATIONSHIP_STATUS.OPEN;
+    case "focused":
+    case "away":
+    case "busy":
+      return RELATIONSHIP_STATUS.NOT_LOOKING;
+    default:
+      return DEFAULT_RELATIONSHIP_STATUS;
+  }
 }
 
-function getProfileAvailabilityLabel(value) {
-  const normalized = normalizeProfileAvailability(value);
-  return PROFILE_AVAILABILITY_LABELS[normalized] ?? PROFILE_AVAILABILITY_LABELS[DEFAULT_PROFILE_AVAILABILITY];
+function getRelationshipStatusLabel(value) {
+  const normalized = normalizeRelationshipStatus(value);
+  return (
+    RELATIONSHIP_STATUS_LABELS[normalized] ?? RELATIONSHIP_STATUS_LABELS[DEFAULT_RELATIONSHIP_STATUS]
+  );
 }
 
 function sanitizeWebsite(input) {
@@ -284,8 +296,10 @@ function sanitizeUserRecord(record) {
     usernameChangedAt: record.usernameChangedAt ?? null,
     pronouns: sanitizeText(record.pronouns ?? "", 40),
     location: sanitizeText(record.location ?? "", 120),
-    availability: normalizeProfileAvailability(record.availability ?? DEFAULT_PROFILE_AVAILABILITY),
-    website: sanitizeWebsite(record.website ?? ""),
+    relationshipStatus: normalizeRelationshipStatus(
+      record.relationshipStatus ?? record.availability ?? DEFAULT_RELATIONSHIP_STATUS
+    ),
+    sexuality: sanitizeText(record.sexuality ?? "", 60),
     journey: sanitizeText(record.journey ?? "", 600),
     spotlight: sanitizeText(record.spotlight ?? "", 280),
     interests: sanitizeInterestList(record.interests ?? []),
@@ -305,7 +319,8 @@ function buildUserSummaryPayload(user) {
       : [],
     pronouns: user.pronouns ?? "",
     location: user.location ?? "",
-    availability: user.availability ?? DEFAULT_PROFILE_AVAILABILITY,
+    relationshipStatus: user.relationshipStatus ?? DEFAULT_RELATIONSHIP_STATUS,
+    sexuality: user.sexuality ?? "",
   });
 }
 
@@ -974,8 +989,8 @@ async function saveUser({ fullName, username, password }) {
     usernameChangedAt: null,
     pronouns: "",
     location: "",
-    availability: DEFAULT_PROFILE_AVAILABILITY,
-    website: "",
+    relationshipStatus: DEFAULT_RELATIONSHIP_STATUS,
+    sexuality: "",
     journey: "",
     spotlight: "",
     interests: [],
@@ -1876,9 +1891,9 @@ function publicUser(user) {
     usernameChangedAt: user.usernameChangedAt ?? null,
     pronouns: user.pronouns ?? "",
     location: user.location ?? "",
-    availability: normalizeProfileAvailability(user.availability),
-    availabilityLabel: getProfileAvailabilityLabel(user.availability),
-    website: user.website ?? "",
+    relationshipStatus: normalizeRelationshipStatus(user.relationshipStatus),
+    relationshipStatusLabel: getRelationshipStatusLabel(user.relationshipStatus),
+    sexuality: user.sexuality ?? "",
     journey: user.journey ?? "",
     spotlight: user.spotlight ?? "",
     interests: Array.isArray(user.interests) ? user.interests : [],
@@ -2532,15 +2547,16 @@ function createApp() {
       }
       updates.location = req.body.location.trim();
     }
-    if (typeof req.body?.availability === "string") {
-      updates.availability = normalizeProfileAvailability(req.body.availability);
+    if (typeof req.body?.relationshipStatus === "string") {
+      updates.relationshipStatus = normalizeRelationshipStatus(req.body.relationshipStatus);
+    } else if (typeof req.body?.availability === "string") {
+      updates.relationshipStatus = normalizeRelationshipStatus(req.body.availability);
     }
-    if (typeof req.body?.website === "string") {
-      const website = sanitizeWebsite(req.body.website);
-      if (!website && req.body.website.trim()) {
-        return res.status(400).json({ message: "Website must be a valid URL" });
+    if (typeof req.body?.sexuality === "string") {
+      if (req.body.sexuality.length > 60) {
+        return res.status(400).json({ message: "Sexuality must be 60 characters or fewer" });
       }
-      updates.website = website;
+      updates.sexuality = req.body.sexuality.trim();
     }
     if (typeof req.body?.journey === "string") {
       if (req.body.journey.length > 600) {

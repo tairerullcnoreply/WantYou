@@ -2211,11 +2211,11 @@ async function initProfile() {
   const pronounsEl = document.querySelector("[data-profile-pronouns]");
   const locationContainer = document.querySelector("[data-profile-location-container]");
   const locationEl = document.querySelector("[data-profile-location]");
-  const availabilityContainer = document.querySelector("[data-profile-availability-container]");
-  const availabilityEl = document.querySelector("[data-profile-availability]");
-  const availabilityPill = document.querySelector("[data-profile-availability-pill]");
-  const websiteContainer = document.querySelector("[data-profile-website-container]");
-  const websiteLink = document.querySelector("[data-profile-website]");
+  const relationshipContainer = document.querySelector("[data-profile-relationship-container]");
+  const relationshipEl = document.querySelector("[data-profile-relationship]");
+  const relationshipPill = document.querySelector("[data-profile-relationship-pill]");
+  const sexualityContainer = document.querySelector("[data-profile-sexuality-container]");
+  const sexualityEl = document.querySelector("[data-profile-sexuality]");
   const spotlightCard = document.querySelector("[data-profile-spotlight-card]");
   const spotlightEl = document.querySelector("[data-profile-spotlight]");
   const journeyCard = document.querySelector("[data-profile-journey-card]");
@@ -2358,7 +2358,7 @@ async function initProfile() {
     if (actionsContainer) {
       actionsContainer.hidden = !(canEdit || canVerify);
     }
-    if (verifyButton) {
+    if (verifyButton && verifyButton.isConnected) {
       verifyButton.hidden = !canVerify;
     }
     if (!canEdit && statsContainer) {
@@ -2955,6 +2955,9 @@ async function initProfile() {
     const viewerUsername = sessionUser?.username ?? null;
     const targetUsername = user.username ?? null;
     const isOfficial = viewerUsername === OWNER_USERNAME;
+    if (!isOfficial && verifyButton?.isConnected) {
+      verifyButton.remove();
+    }
     const canVerify =
       Boolean(data.canVerify) &&
       isOfficial &&
@@ -3043,45 +3046,35 @@ async function initProfile() {
       }
       detailVisibility.push(hasLocation);
     }
-    const availabilityLabel = typeof user.availabilityLabel === "string"
-      ? user.availabilityLabel.trim()
-      : typeof user.availability === "string"
-      ? user.availability
+    const relationshipLabel = typeof user.relationshipStatusLabel === "string"
+      ? user.relationshipStatusLabel.trim()
+      : typeof user.relationshipStatus === "string"
+      ? user.relationshipStatus
       : "";
-    if (availabilityContainer && availabilityEl) {
-      const hasAvailability = Boolean(availabilityLabel);
-      availabilityContainer.hidden = !hasAvailability;
-      if (hasAvailability) {
-        availabilityEl.textContent = availabilityLabel;
+    if (relationshipContainer && relationshipEl) {
+      const hasRelationship = Boolean(relationshipLabel);
+      relationshipContainer.hidden = !hasRelationship;
+      if (hasRelationship) {
+        relationshipEl.textContent = relationshipLabel;
       }
-      detailVisibility.push(hasAvailability);
+      detailVisibility.push(hasRelationship);
     }
-    if (availabilityPill) {
-      if (availabilityLabel) {
-        availabilityPill.textContent = availabilityLabel;
-        availabilityPill.hidden = false;
+    if (relationshipPill) {
+      if (relationshipLabel) {
+        relationshipPill.textContent = relationshipLabel;
+        relationshipPill.hidden = false;
       } else {
-        availabilityPill.hidden = true;
+        relationshipPill.hidden = true;
       }
     }
-    const website = typeof user.website === "string" ? user.website.trim() : "";
-    if (websiteContainer && websiteLink) {
-      if (website) {
-        let label = website;
-        try {
-          const parsed = new URL(website);
-          label = parsed.hostname.replace(/^www\./i, "") || parsed.href;
-        } catch (error) {
-          label = website;
-        }
-        websiteLink.textContent = label;
-        websiteLink.setAttribute("href", website);
-        websiteContainer.hidden = false;
-        detailVisibility.push(true);
-      } else {
-        websiteContainer.hidden = true;
-        detailVisibility.push(false);
+    const sexuality = typeof user.sexuality === "string" ? user.sexuality.trim() : "";
+    if (sexualityContainer && sexualityEl) {
+      const hasSexuality = Boolean(sexuality);
+      sexualityContainer.hidden = !hasSexuality;
+      if (hasSexuality) {
+        sexualityEl.textContent = sexuality;
       }
+      detailVisibility.push(hasSexuality);
     }
     if (detailsList) {
       const hasDetails = detailVisibility.some(Boolean);
@@ -3215,7 +3208,7 @@ async function initProfile() {
     applyAvatar(user, profileData.events);
     renderUserBadges(profileBadges, user.badges);
 
-    if (verifyButton) {
+    if (verifyButton && verifyButton.isConnected) {
       if (profileData.canVerify) {
         const isVerified = getDisplayBadges(user.badges).includes("Verified");
         verifyButton.hidden = false;
@@ -3225,6 +3218,9 @@ async function initProfile() {
         verifyButton.hidden = true;
         verifyButton.disabled = true;
       }
+    } else if (verifyButton) {
+      verifyButton.hidden = true;
+      verifyButton.disabled = true;
     }
 
     if (data.stats) {
@@ -3393,11 +3389,12 @@ async function initProfile() {
         if (form.elements.location) {
           form.elements.location.value = profileData.user.location ?? "";
         }
-        if (form.elements.availability) {
-          form.elements.availability.value = profileData.user.availability ?? "open";
+        if (form.elements.relationshipStatus) {
+          form.elements.relationshipStatus.value =
+            profileData.user.relationshipStatus ?? "open";
         }
-        if (form.elements.website) {
-          form.elements.website.value = profileData.user.website ?? "";
+        if (form.elements.sexuality) {
+          form.elements.sexuality.value = profileData.user.sexuality ?? "";
         }
         if (form.elements.interests) {
           form.elements.interests.value = Array.isArray(profileData.user.interests)
@@ -3475,11 +3472,11 @@ async function initProfile() {
     if (formData.has("location")) {
       payload.location = String(formData.get("location") ?? "");
     }
-    if (formData.has("availability")) {
-      payload.availability = String(formData.get("availability") ?? "");
+    if (formData.has("relationshipStatus")) {
+      payload.relationshipStatus = String(formData.get("relationshipStatus") ?? "");
     }
-    if (formData.has("website")) {
-      payload.website = String(formData.get("website") ?? "");
+    if (formData.has("sexuality")) {
+      payload.sexuality = String(formData.get("sexuality") ?? "");
     }
     if (formData.has("interests")) {
       payload.interests = String(formData.get("interests") ?? "");

@@ -44,3 +44,4 @@ You can chat with others without being anonymous.
 * [11/16/2025; 10:05 AM UTC] Supercharged messaging with unread tracking, search filtering, and scrolling chat history pagination
 * [11/16/2025; 3:15 PM UTC] Redirected logged-in visitors to lookup, deep-linked auth tabs, and removed unauthenticated entry points
 * [11/17/2025; 9:30 AM UTC] Expanded profiles with availability signals, activity analytics, interests, and featured link spotlights
+* [11/17/2025; 4:45 PM UTC] Replaced availability with relationship status options, added sexuality details, and hid owner-only verification controls

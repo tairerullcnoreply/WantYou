@@ -73,20 +73,13 @@
                 <dt>Location</dt>
                 <dd data-profile-location></dd>
               </div>
-              <div data-profile-availability-container hidden>
-                <dt>Availability</dt>
-                <dd data-profile-availability></dd>
+              <div data-profile-relationship-container hidden>
+                <dt>Relationship Status</dt>
+                <dd data-profile-relationship></dd>
               </div>
-              <div data-profile-website-container hidden>
-                <dt>Website</dt>
-                <dd>
-                  <a
-                    data-profile-website
-                    href="#"
-                    target="_blank"
-                    rel="noreferrer noopener"
-                  ></a>
-                </dd>
+              <div data-profile-sexuality-container hidden>
+                <dt>Sexuality</dt>
+                <dd data-profile-sexuality></dd>
               </div>
             </dl>
           </div>
@@ -126,7 +119,7 @@
             <h2>About</h2>
             <p>The story behind the statuses.</p>
           </div>
-          <span class="tag profile-availability" data-profile-availability-pill hidden></span>
+          <span class="tag profile-relationship" data-profile-relationship-pill hidden></span>
         </header>
         <div class="profile-about">
           <article class="profile-about__card" data-profile-spotlight-card>
@@ -311,18 +304,18 @@
             <input type="text" name="location" maxlength="120" />
           </label>
           <label>
-            <span>Availability</span>
-            <select name="availability">
-              <option value="open">Open to new connections</option>
-              <option value="looking">Actively looking to connect</option>
-              <option value="focused">Heads-down on something big</option>
-              <option value="away">Stepping back for now</option>
-              <option value="busy">Booked and busy</option>
+            <span>Relationship Status</span>
+            <select name="relationshipStatus">
+              <option value="single">Single</option>
+              <option value="dating-open">Dating but Open</option>
+              <option value="dating">Dating</option>
+              <option value="not-looking">Not Looking</option>
+              <option value="open">Open to New Connections</option>
             </select>
           </label>
           <label>
-            <span>Website</span>
-            <input type="url" name="website" maxlength="200" placeholder="https://" />
+            <span>Sexuality</span>
+            <input type="text" name="sexuality" maxlength="60" />
           </label>
           <label>
             <span>Focus &amp; interests</span>
