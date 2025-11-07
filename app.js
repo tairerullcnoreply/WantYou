@@ -144,6 +144,9 @@ async function apiRequest(path, options = {}) {
     }
     const error = new Error(data?.message || `Request failed with status ${response.status}`);
     error.status = response.status;
+    if (data && typeof data === "object") {
+      error.data = data;
+    }
     throw error;
   }
 
@@ -151,6 +154,7 @@ async function apiRequest(path, options = {}) {
 }
 
 const MAX_ALIAS_LENGTH = 40;
+const USERNAME_CHANGE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_CONNECTION = {
   status: "none",
   anonymous: false,
@@ -355,6 +359,45 @@ function formatRelativeTime(isoString) {
     return `${days} day${days === 1 ? "" : "s"} ago`;
   }
   return date.toLocaleDateString();
+}
+
+function formatAbsoluteDateTime(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  const timestamp = typeof value === "number" ? value : Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return "";
+  }
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  try {
+    return date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  } catch (error) {
+    return date.toLocaleString();
+  }
+}
+
+function showUsernameHistory(username, history) {
+  if (!username || !Array.isArray(history) || !history.length) {
+    return;
+  }
+  const lines = history.map((entry, index) => `${index + 1}. @${entry}`);
+  const message = `Previous usernames for @${username} (most recent first):\n${lines.join("\n")}`;
+  window.alert(message);
+}
+
+function nextUsernameChangeTimestamp(lastChangeIso) {
+  if (!lastChangeIso) {
+    return null;
+  }
+  const lastChange = Date.parse(lastChangeIso);
+  if (Number.isNaN(lastChange)) {
+    return null;
+  }
+  return lastChange + USERNAME_CHANGE_INTERVAL_MS;
 }
 
 function tagClassForStatus(status) {
@@ -661,7 +704,13 @@ async function initLookup() {
               <a href="${profileHref}">${escapeHtml(person.fullName)}</a>
               <span class="user-badges user-badges--inline" data-user-badges hidden></span>
             </h3>
-            <p class="connection__username">@${escapeHtml(person.username)}</p>
+            <p class="connection__username">
+              <span>@${escapeHtml(person.username)}</span>
+              <button class="username-history-button" type="button" data-username-history hidden>
+                <span aria-hidden="true">ℹ️</span>
+                <span class="visually-hidden">View previous usernames</span>
+              </button>
+            </p>
           </div>
           <span class="connection__badge" data-badge></span>
         </header>
@@ -684,6 +733,24 @@ async function initLookup() {
       `;
 
       renderUserBadges(card.querySelector("[data-user-badges]"), person.badges);
+      const historyButton = card.querySelector("[data-username-history]");
+      if (historyButton) {
+        const previous = Array.isArray(person.previousUsernames)
+          ? person.previousUsernames
+          : [];
+        const hasHistory = previous.length > 0;
+        historyButton.hidden = !hasHistory;
+        historyButton.disabled = !hasHistory;
+        if (hasHistory) {
+          historyButton.setAttribute(
+            "aria-label",
+            `View previous usernames for @${person.username}`
+          );
+          historyButton.addEventListener("click", () => {
+            showUsernameHistory(person.username, previous);
+          });
+        }
+      }
       renderCardState(card, inbound, outbound);
 
       const usernameKey = person.username;
@@ -1375,6 +1442,7 @@ async function initMessages() {
 async function initProfile() {
   const nameEl = document.querySelector("[data-profile-name]");
   const usernameEl = document.querySelector("[data-profile-username]");
+  const usernameHistoryButton = document.querySelector("[data-profile-username-history]");
   const taglineEl = document.querySelector("[data-profile-tagline]");
   const bioEl = document.querySelector("[data-profile-bio]");
   const profileBadges = document.querySelector("[data-profile-badges]");
@@ -1402,10 +1470,12 @@ async function initProfile() {
   const eventModalList = eventModal?.querySelector("[data-events-modal-list]");
   const eventModalEmpty = eventModal?.querySelector("[data-events-modal-empty]");
   const profileDialog = document.querySelector("[data-profile-dialog]");
+  const dialogHistoryButton = profileDialog?.querySelector("[data-dialog-username-history]");
   const eventDialog = document.querySelector("[data-event-dialog]");
   const postDialog = document.querySelector("[data-post-dialog]");
   const eventLimitNote = document.querySelector("[data-event-limit]");
   const postLimitNote = document.querySelector("[data-post-limit]");
+  const usernameNextChangeNote = profileDialog?.querySelector("[data-username-next-change]");
   const ownOnlySections = document.querySelectorAll("[data-own-only]");
 
   if (!nameEl || !usernameEl || !taglineEl || !bioEl || !avatarImg || !statKnow || !statWant || !statBoth) {
@@ -1420,6 +1490,82 @@ async function initProfile() {
   bioEl.textContent = "Add more about yourself so people can get to know you.";
 
   let profileData = null;
+
+  const alertProfileError = (error) => {
+    const baseMessage = error?.message || "We couldn't update your profile right now.";
+    const availableAt = error?.data?.availableAt || error?.availableAt || null;
+    if (!availableAt) {
+      window.alert(baseMessage);
+      return;
+    }
+    const formatted = formatAbsoluteDateTime(availableAt);
+    const relative = formatRelativeTime(availableAt);
+    const details = [formatted, relative].filter(Boolean).join(" · ");
+    window.alert(details ? `${baseMessage}\nNext username change available ${details}.` : baseMessage);
+  };
+
+  const updateUsernameHistoryControls = () => {
+    const history = Array.isArray(profileData?.user?.previousUsernames)
+      ? profileData.user.previousUsernames
+      : [];
+    const hasHistory = history.length > 0;
+    const usernameLabel = profileData?.user?.username
+      ? `View previous usernames for @${profileData.user.username}`
+      : "View previous usernames";
+    if (usernameHistoryButton) {
+      usernameHistoryButton.hidden = !hasHistory;
+      usernameHistoryButton.disabled = !hasHistory;
+      usernameHistoryButton.setAttribute("aria-label", usernameLabel);
+    }
+    if (dialogHistoryButton) {
+      dialogHistoryButton.hidden = !hasHistory;
+      dialogHistoryButton.disabled = !hasHistory;
+      dialogHistoryButton.setAttribute("aria-label", usernameLabel);
+    }
+    if (usernameNextChangeNote) {
+      const nextChange = nextUsernameChangeTimestamp(profileData?.user?.lastUsernameChangeAt);
+      if (nextChange && nextChange > Date.now()) {
+        const formatted = formatAbsoluteDateTime(nextChange);
+        const relative = formatRelativeTime(new Date(nextChange).toISOString());
+        const parts = [formatted, relative].filter(Boolean);
+        usernameNextChangeNote.textContent = parts.length
+          ? `Next username change available ${parts.join(" · ")}.`
+          : "Next username change will be available soon.";
+        usernameNextChangeNote.hidden = false;
+      } else {
+        usernameNextChangeNote.hidden = true;
+        usernameNextChangeNote.textContent = "";
+      }
+    }
+  };
+
+  usernameHistoryButton?.addEventListener("click", () => {
+    if (!profileData?.user?.username) {
+      return;
+    }
+    const history = Array.isArray(profileData.user.previousUsernames)
+      ? profileData.user.previousUsernames
+      : [];
+    if (!history.length) {
+      return;
+    }
+    showUsernameHistory(profileData.user.username, history);
+  });
+
+  dialogHistoryButton?.addEventListener("click", () => {
+    if (!profileData?.user?.username) {
+      return;
+    }
+    const history = Array.isArray(profileData.user.previousUsernames)
+      ? profileData.user.previousUsernames
+      : [];
+    if (!history.length) {
+      return;
+    }
+    showUsernameHistory(profileData.user.username, history);
+  });
+
+  updateUsernameHistoryControls();
 
   const toggleOwnVisibility = (canEdit) => {
     const canVerify = Boolean(profileData?.canVerify);
@@ -1703,6 +1849,10 @@ async function initProfile() {
     };
     const user = profileData.user;
     user.badges = Array.isArray(user.badges) ? user.badges : [];
+    user.previousUsernames = Array.isArray(user.previousUsernames)
+      ? user.previousUsernames
+      : [];
+    user.lastUsernameChangeAt = user.lastUsernameChangeAt ?? null;
     const viewerUsername = sessionUser?.username ?? null;
     const targetUsername = user.username ?? null;
     const isOfficial = viewerUsername === OWNER_USERNAME;
@@ -1718,6 +1868,7 @@ async function initProfile() {
 
     nameEl.textContent = user.fullName ?? "Profile";
     usernameEl.textContent = user.username ? `@${user.username}` : "";
+    updateUsernameHistoryControls();
     const taglineFallback = data.canEdit
       ? "Tell people what you're about."
       : "No tagline yet.";
@@ -1829,6 +1980,16 @@ async function initProfile() {
   editButton?.addEventListener("click", () => {
     if (!profileData?.canEdit || !profileData.user) return;
     if (!openDialog(profileDialog)) {
+      const nextFullName = window.prompt(
+        "Update your full name",
+        profileData.user.fullName ?? ""
+      );
+      if (nextFullName === null) return;
+      const nextUsername = window.prompt(
+        "Update your username",
+        profileData.user.username ?? ""
+      );
+      if (nextUsername === null) return;
       const nextTagline = window.prompt(
         "Update your tagline",
         profileData.user.tagline ?? ""
@@ -1840,19 +2001,31 @@ async function initProfile() {
         try {
           const response = await apiRequest("/profile", {
             method: "PUT",
-            body: JSON.stringify({ tagline: nextTagline, bio: nextBio }),
+            body: JSON.stringify({
+              fullName: nextFullName,
+              username: nextUsername,
+              tagline: nextTagline,
+              bio: nextBio,
+            }),
           });
           profileData.user = response?.user ?? profileData.user;
           renderProfile(profileData);
         } catch (error) {
-          window.alert(error?.message || "We couldn't update your profile right now.");
+          alertProfileError(error);
         }
       })();
     } else if (profileDialog) {
       const form = profileDialog.querySelector("form");
       if (form) {
+        if (form.elements.fullName) {
+          form.elements.fullName.value = profileData.user.fullName ?? "";
+        }
+        if (form.elements.username) {
+          form.elements.username.value = profileData.user.username ?? "";
+        }
         form.elements.tagline.value = profileData.user.tagline ?? "";
         form.elements.bio.value = profileData.user.bio ?? "";
+        updateUsernameHistoryControls();
       }
     }
   });
@@ -1864,17 +2037,24 @@ async function initProfile() {
     const form = profileDialog.querySelector("form");
     if (!form) return;
     const formData = new FormData(form);
+    const nextFullName = formData.get("fullName") ?? "";
+    const nextUsername = formData.get("username") ?? "";
     const nextTagline = formData.get("tagline") ?? "";
     const nextBio = formData.get("bio") ?? "";
     try {
       const response = await apiRequest("/profile", {
         method: "PUT",
-        body: JSON.stringify({ tagline: String(nextTagline), bio: String(nextBio) }),
+        body: JSON.stringify({
+          fullName: String(nextFullName),
+          username: String(nextUsername),
+          tagline: String(nextTagline),
+          bio: String(nextBio),
+        }),
       });
       profileData.user = response?.user ?? profileData.user;
       renderProfile(profileData);
     } catch (error) {
-      window.alert(error?.message || "We couldn't update your profile right now.");
+      alertProfileError(error);
     }
   });
 

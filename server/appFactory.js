@@ -26,6 +26,8 @@ const DEFAULT_CONNECTION_STATE = Object.freeze({
   updatedAt: null,
 });
 
+const USERNAME_CHANGE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
+
 const MAX_MEDIA_FILE_SIZE = 100 * 1024 * 1024; // 100 MB per GitHub upload limit
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 
@@ -104,15 +106,42 @@ function sanitizeUserRecord(record) {
   if (!record || !record.username) {
     throw new Error("User record must include a username");
   }
+  const username = normalizeUsername(record.username);
+  const rawHistory = Array.isArray(record.usernameHistory)
+    ? record.usernameHistory
+    : Array.isArray(record.previousUsernames)
+    ? record.previousUsernames
+    : [];
+  const history = [];
+  const seenHistory = new Set();
+  rawHistory.forEach((entry) => {
+    const normalized = normalizeUsername(entry);
+    if (!normalized || normalized === username || seenHistory.has(normalized)) {
+      return;
+    }
+    seenHistory.add(normalized);
+    history.push(normalized);
+  });
+
+  let lastUsernameChangeAt = null;
+  if (record.lastUsernameChangeAt) {
+    const parsed = Date.parse(record.lastUsernameChangeAt);
+    if (!Number.isNaN(parsed)) {
+      lastUsernameChangeAt = new Date(parsed).toISOString();
+    }
+  }
+
   return {
     fullName: typeof record.fullName === "string" ? record.fullName.trim() : "",
-    username: normalizeUsername(record.username),
+    username,
     passwordHash: record.passwordHash,
     tagline: typeof record.tagline === "string" ? record.tagline : "",
     bio: typeof record.bio === "string" ? record.bio : "",
     profilePicturePath:
       typeof record.profilePicturePath === "string" ? record.profilePicturePath : "",
-    badges: enforceBadgeRules(normalizeUsername(record.username), record.badges),
+    badges: enforceBadgeRules(username, record.badges),
+    usernameHistory: history,
+    lastUsernameChangeAt,
   };
 }
 
@@ -121,15 +150,25 @@ function buildUserSummaryPayload(user) {
     fullName: user.fullName,
     tagline: user.tagline ?? "",
     badges: Array.isArray(user.badges) ? user.badges : [],
+    previousUsernames: Array.isArray(user.usernameHistory) ? user.usernameHistory : [],
+    lastUsernameChangeAt: user.lastUsernameChangeAt ?? null,
   });
 }
 
-async function writeUserRecord(record) {
+async function writeUserRecord(record, previousUsername = null) {
   const sanitized = sanitizeUserRecord(record);
-  await redisPipeline([
+  const commands = [
     ["SET", userKey(sanitized.username), JSON.stringify(sanitized)],
     ["HSET", "users", sanitized.username, buildUserSummaryPayload(sanitized)],
-  ]);
+  ];
+  if (previousUsername) {
+    const normalizedPrevious = normalizeUsername(previousUsername);
+    if (normalizedPrevious && normalizedPrevious !== sanitized.username) {
+      commands.push(["DEL", userKey(normalizedPrevious)]);
+      commands.push(["HDEL", "users", normalizedPrevious]);
+    }
+  }
+  await redisPipeline(commands);
   return sanitized;
 }
 
@@ -698,6 +737,8 @@ async function saveUser({ fullName, username, password }) {
     bio: "",
     profilePicturePath: "",
     badges: initialBadges,
+    usernameHistory: [],
+    lastUsernameChangeAt: null,
   };
   return writeUserRecord(record);
 }
@@ -705,10 +746,80 @@ async function saveUser({ fullName, username, password }) {
 async function updateUserProfile(username, updates) {
   const existing = await getUser(username);
   if (!existing) return null;
-  const next = {
-    ...existing,
-    ...updates,
-  };
+
+  const next = { ...existing };
+
+  if (Object.prototype.hasOwnProperty.call(updates, "fullName")) {
+    if (typeof updates.fullName !== "string" || !updates.fullName.trim()) {
+      const error = new Error("Full name cannot be empty");
+      error.status = 400;
+      throw error;
+    }
+    next.fullName = updates.fullName.trim();
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, "tagline") && typeof updates.tagline === "string") {
+    next.tagline = updates.tagline;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, "bio") && typeof updates.bio === "string") {
+    next.bio = updates.bio;
+  }
+
+  let requestedUsername = existing.username;
+  let usernameChanged = false;
+  if (Object.prototype.hasOwnProperty.call(updates, "username")) {
+    if (typeof updates.username !== "string") {
+      const error = new Error("Username must be a string");
+      error.status = 400;
+      throw error;
+    }
+    requestedUsername = normalizeUsername(updates.username);
+    if (!requestedUsername) {
+      const error = new Error("Username cannot be empty");
+      error.status = 400;
+      throw error;
+    }
+    usernameChanged = requestedUsername !== existing.username;
+  }
+
+  if (usernameChanged) {
+    const conflicting = await getUser(requestedUsername);
+    if (conflicting) {
+      const error = new Error("Username is already taken");
+      error.status = 409;
+      throw error;
+    }
+    const lastChange = existing.lastUsernameChangeAt ? Date.parse(existing.lastUsernameChangeAt) : null;
+    if (lastChange && !Number.isNaN(lastChange)) {
+      const nextAvailable = lastChange + USERNAME_CHANGE_INTERVAL_MS;
+      if (Date.now() < nextAvailable) {
+        const error = new Error("You can change your username again later");
+        error.status = 400;
+        error.availableAt = new Date(nextAvailable).toISOString();
+        throw error;
+      }
+    }
+    const history = Array.isArray(existing.usernameHistory)
+      ? [existing.username, ...existing.usernameHistory]
+      : [existing.username];
+    const renameRecord = {
+      ...next,
+      username: requestedUsername,
+      usernameHistory: history,
+      lastUsernameChangeAt: new Date().toISOString(),
+      passwordHash: existing.passwordHash,
+    };
+    const sanitized = sanitizeUserRecord(renameRecord);
+    sanitized.passwordHash = existing.passwordHash;
+    await applyUsernameRename(existing, sanitized);
+    return { ...sanitized, passwordHash: existing.passwordHash };
+  }
+
+  next.username = existing.username;
+  next.usernameHistory = Array.isArray(existing.usernameHistory) ? existing.usernameHistory : [];
+  next.lastUsernameChangeAt = existing.lastUsernameChangeAt ?? null;
+
   const saved = await writeUserRecord(next);
   return { ...saved, passwordHash: existing.passwordHash };
 }
@@ -730,9 +841,20 @@ async function listUsers() {
         fullName: parsed.fullName,
         tagline: parsed.tagline ?? "",
         badges: enforceBadgeRules(username, parsed.badges),
+        previousUsernames: Array.isArray(parsed.previousUsernames)
+          ? parsed.previousUsernames
+          : [],
+        lastUsernameChangeAt: parsed.lastUsernameChangeAt ?? null,
       });
     } else {
-      users.push({ username, fullName: raw, tagline: "", badges: [] });
+      users.push({
+        username,
+        fullName: raw,
+        tagline: "",
+        badges: [],
+        previousUsernames: [],
+        lastUsernameChangeAt: null,
+      });
     }
   }
   return users;
@@ -871,6 +993,7 @@ async function getLookupPeople(currentUsername) {
       fullName: user.fullName,
       tagline: user.tagline ?? "",
       badges: Array.isArray(user.badges) ? user.badges : [],
+      previousUsernames: Array.isArray(user.previousUsernames) ? user.previousUsernames : [],
       inbound: connectionStateFor(user.username, incoming),
       outbound: connectionStateFor(user.username, outgoing),
     }));
@@ -1033,6 +1156,233 @@ async function rewriteList(key, entries) {
   await redisPipeline(commands);
 }
 
+function parseHashEntries(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const entries = [];
+  for (let index = 0; index < raw.length; index += 2) {
+    const field = raw[index];
+    const value = raw[index + 1];
+    if (field === undefined) {
+      continue;
+    }
+    entries.push([field, value]);
+  }
+  return entries;
+}
+
+async function rewriteHash(key, entries) {
+  const commands = [["DEL", key]];
+  entries.forEach(([field, value]) => {
+    commands.push(["HSET", key, field, value]);
+  });
+  await redisPipeline(commands);
+}
+
+async function renameHashField(key, oldField, newField) {
+  const normalizedOld = normalizeUsername(oldField);
+  const normalizedNew = normalizeUsername(newField);
+  if (!normalizedOld || !normalizedNew || normalizedOld === normalizedNew) {
+    return;
+  }
+  const raw = await redisCommand(["HGETALL", key]);
+  const entries = parseHashEntries(raw);
+  if (!entries.length) {
+    return;
+  }
+  let changed = false;
+  const updated = entries.map(([field, value]) => {
+    if (normalizeUsername(field) === normalizedOld) {
+      changed = true;
+      return [normalizedNew, value];
+    }
+    return [field, value];
+  });
+  if (!changed) {
+    return;
+  }
+  await rewriteHash(key, updated);
+}
+
+async function moveHashKey(oldKey, newKey) {
+  if (oldKey === newKey) {
+    return;
+  }
+  const raw = await redisCommand(["HGETALL", oldKey]);
+  const entries = parseHashEntries(raw);
+  const commands = [["DEL", newKey]];
+  entries.forEach(([field, value]) => {
+    commands.push(["HSET", newKey, field, value]);
+  });
+  commands.push(["DEL", oldKey]);
+  await redisPipeline(commands);
+}
+
+async function moveListKey(oldKey, newKey) {
+  if (oldKey === newKey) {
+    return;
+  }
+  const raw = await redisCommand(["LRANGE", oldKey, "0", "-1"]);
+  const commands = [["DEL", newKey]];
+  if (Array.isArray(raw) && raw.length) {
+    raw.forEach((entry) => {
+      commands.push(["RPUSH", newKey, entry]);
+    });
+  }
+  commands.push(["DEL", oldKey]);
+  await redisPipeline(commands);
+}
+
+async function moveSelectedThread(rawValue, oldUsername, newUsername) {
+  const oldKey = selectedThreadKey(oldUsername);
+  const newKey = selectedThreadKey(newUsername);
+  if (!rawValue) {
+    await redisPipeline([
+      ["DEL", newKey],
+      ["DEL", oldKey],
+    ]);
+    return;
+  }
+  const parsed = parseJsonSafe(rawValue, null);
+  if (parsed) {
+    if (normalizeUsername(parsed.person) === oldUsername) {
+      parsed.person = newUsername;
+    }
+    if (normalizeUsername(parsed.threadId) === oldUsername) {
+      parsed.threadId = newUsername;
+    }
+    await redisPipeline([
+      ["SET", newKey, JSON.stringify(parsed)],
+      ["DEL", oldKey],
+    ]);
+    return;
+  }
+  await redisPipeline([
+    ["SET", newKey, rawValue],
+    ["DEL", oldKey],
+  ]);
+}
+
+async function updateSelectedThreadForUser(username, oldUsername, newUsername) {
+  const raw = await redisCommand(["GET", selectedThreadKey(username)]);
+  if (!raw) {
+    return;
+  }
+  const parsed = parseJsonSafe(raw, null);
+  if (!parsed) {
+    return;
+  }
+  let changed = false;
+  if (normalizeUsername(parsed.person) === oldUsername) {
+    parsed.person = newUsername;
+    changed = true;
+  }
+  if (normalizeUsername(parsed.threadId) === oldUsername) {
+    parsed.threadId = newUsername;
+    changed = true;
+  }
+  if (!changed) {
+    return;
+  }
+  await redisCommand(["SET", selectedThreadKey(username), JSON.stringify(parsed)]);
+}
+
+async function migrateConversationRecords(oldUsername, newUsername, otherUsername) {
+  const oldId = conversationId(oldUsername, otherUsername);
+  const newId = conversationId(newUsername, otherUsername);
+  if (!oldId || !newId || oldId === newId) {
+    return;
+  }
+  const [messagesRaw, metaRaw] = await Promise.all([
+    redisCommand(["LRANGE", conversationMessagesKey(oldId), "0", "-1"]),
+    redisCommand(["GET", conversationMetaKey(oldId)]),
+  ]);
+
+  const messageCommands = [["DEL", conversationMessagesKey(newId)]];
+  if (Array.isArray(messagesRaw) && messagesRaw.length) {
+    messagesRaw.forEach((entry) => {
+      const parsed = parseJsonSafe(entry, null);
+      if (!parsed) {
+        return;
+      }
+      if (normalizeUsername(parsed.sender) === oldUsername) {
+        parsed.sender = newUsername;
+      }
+      messageCommands.push(["RPUSH", conversationMessagesKey(newId), JSON.stringify(parsed)]);
+    });
+  }
+  messageCommands.push(["DEL", conversationMessagesKey(oldId)]);
+  await redisPipeline(messageCommands);
+
+  if (metaRaw) {
+    const parsedMeta = parseJsonSafe(metaRaw, null);
+    if (parsedMeta) {
+      if (normalizeUsername(parsedMeta.lastMessage?.sender) === oldUsername) {
+        parsedMeta.lastMessage.sender = newUsername;
+      }
+      await redisPipeline([
+        ["SET", conversationMetaKey(newId), JSON.stringify(parsedMeta)],
+        ["DEL", conversationMetaKey(oldId)],
+      ]);
+    } else {
+      await redisPipeline([
+        ["DEL", conversationMetaKey(newId)],
+        ["DEL", conversationMetaKey(oldId)],
+      ]);
+    }
+  } else {
+    await redisPipeline([
+      ["DEL", conversationMetaKey(newId)],
+      ["DEL", conversationMetaKey(oldId)],
+    ]);
+  }
+}
+
+async function applyUsernameRename(existing, updated) {
+  const oldUsername = existing.username;
+  const newUsername = updated.username;
+  if (oldUsername === newUsername) {
+    await writeUserRecord(updated, oldUsername);
+    return;
+  }
+
+  const usersBeforeRename = await listUsers();
+  const otherUsernames = usersBeforeRename
+    .map((user) => user.username)
+    .filter((name) => name && name !== oldUsername);
+
+  const selfSelectedRaw = await redisCommand(["GET", selectedThreadKey(oldUsername)]);
+
+  await writeUserRecord(updated, oldUsername);
+
+  await Promise.all([
+    moveHashKey(incomingConnectionsKey(oldUsername), incomingConnectionsKey(newUsername)),
+    moveHashKey(outgoingConnectionsKey(oldUsername), outgoingConnectionsKey(newUsername)),
+    moveListKey(userEventsKey(oldUsername), userEventsKey(newUsername)),
+    moveListKey(userPostsKey(oldUsername), userPostsKey(newUsername)),
+  ]);
+
+  await moveSelectedThread(selfSelectedRaw, oldUsername, newUsername);
+
+  await Promise.all(
+    otherUsernames.map((other) =>
+      Promise.all([
+        renameHashField(incomingConnectionsKey(other), oldUsername, newUsername),
+        renameHashField(outgoingConnectionsKey(other), oldUsername, newUsername),
+      ])
+    )
+  );
+
+  await Promise.all(
+    otherUsernames.map((other) => updateSelectedThreadForUser(other, oldUsername, newUsername))
+  );
+
+  await Promise.all(
+    otherUsernames.map((other) => migrateConversationRecords(oldUsername, newUsername, other))
+  );
+}
+
 function sortByNewest(records) {
   return records.slice().sort((a, b) => {
     const scoreA = timestampScore(a?.createdAt);
@@ -1119,6 +1469,8 @@ function publicUser(user) {
     bio: user.bio ?? "",
     profilePicture: user.profilePicturePath ? resolveMediaUrl(user.profilePicturePath) : "",
     badges,
+    previousUsernames: Array.isArray(user.usernameHistory) ? user.usernameHistory : [],
+    lastUsernameChangeAt: user.lastUsernameChangeAt ?? null,
   };
 }
 
@@ -1383,31 +1735,33 @@ function createApp() {
     try {
       const people = await getLookupPeople(req.user.username);
       const metaMap = await getConversationMetaRecords(req.user.username, people);
-      const threads = people.map((person) => {
-        const inbound = person.inbound;
-        const outbound = person.outbound;
-        const meta = metaMap.get(person.username) ?? null;
-        const lastMessage = meta?.lastMessage ?? null;
-        const updatedAt =
-          meta?.updatedAt ?? outbound.updatedAt ?? inbound.updatedAt ?? null;
-        return {
-          username: person.username,
-          fullName: person.fullName,
-          displayName: formatDisplayName(person, inbound),
-          tagline: person.tagline ?? "",
-          badges: Array.isArray(person.badges) ? person.badges : [],
-          inbound,
-          outbound,
-          lastMessage: lastMessage
-            ? {
-                sender: lastMessage.sender,
-                text: lastMessage.text,
-                createdAt: lastMessage.createdAt,
-              }
-            : null,
-          updatedAt,
-        };
-      });
+      const threads = people
+        .map((person) => {
+          const inbound = person.inbound;
+          const outbound = person.outbound;
+          const meta = metaMap.get(person.username) ?? null;
+          const lastMessage = meta?.lastMessage ?? null;
+          if (!lastMessage) {
+            return null;
+          }
+          const updatedAt = meta?.updatedAt ?? lastMessage.createdAt ?? null;
+          return {
+            username: person.username,
+            fullName: person.fullName,
+            displayName: formatDisplayName(person, inbound),
+            tagline: person.tagline ?? "",
+            badges: Array.isArray(person.badges) ? person.badges : [],
+            inbound,
+            outbound,
+            lastMessage: {
+              sender: lastMessage.sender,
+              text: lastMessage.text,
+              createdAt: lastMessage.createdAt,
+            },
+            updatedAt,
+          };
+        })
+        .filter(Boolean);
       threads.sort((a, b) => {
         const delta = timestampScore(b.updatedAt) - timestampScore(a.updatedAt);
         if (delta !== 0) return delta;
@@ -1549,7 +1903,7 @@ function createApp() {
   });
 
   app.put("/api/profile", authenticate, async (req, res) => {
-    const { tagline, bio } = req.body ?? {};
+    const { tagline, bio, fullName, username } = req.body ?? {};
     const updates = {};
     if (typeof tagline === "string") {
       if (tagline.length > 160) {
@@ -1563,6 +1917,28 @@ function createApp() {
       }
       updates.bio = bio.trim();
     }
+    if (typeof fullName === "string") {
+      const trimmed = fullName.trim();
+      if (!trimmed) {
+        return res.status(400).json({ message: "Full name cannot be empty" });
+      }
+      if (trimmed.length > 80) {
+        return res.status(400).json({ message: "Full name must be 80 characters or fewer" });
+      }
+      updates.fullName = trimmed;
+    }
+    if (typeof username === "string") {
+      const trimmedUsername = username.trim();
+      if (!trimmedUsername) {
+        return res.status(400).json({ message: "Username cannot be empty" });
+      }
+      if (trimmedUsername.length > 30) {
+        return res
+          .status(400)
+          .json({ message: "Username must be 30 characters or fewer" });
+      }
+      updates.username = trimmedUsername;
+    }
     if (!Object.keys(updates).length) {
       return res.status(400).json({ message: "Nothing to update" });
     }
@@ -1572,8 +1948,19 @@ function createApp() {
         return res.status(404).json({ message: "User not found" });
       }
       const user = publicUser(updated);
+      if (req.sessionToken && user.username !== req.user.username) {
+        await redisCommand(["SET", sessionKey(req.sessionToken), user.username, "EX", "86400"]);
+        req.user = user;
+      }
       res.json({ user });
     } catch (error) {
+      if (error?.status) {
+        const payload = { message: error.message };
+        if (error.availableAt) {
+          payload.availableAt = error.availableAt;
+        }
+        return res.status(error.status).json(payload);
+      }
       console.error("Failed to update profile", error);
       res.status(500).json({ message: "Unable to update profile" });
     }

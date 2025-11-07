@@ -31,3 +31,5 @@ You can chat with others without being anonymous.
 * [11/10/2025; 3:20 PM UTC] Routed uploads to writable storage, kept verification controls owner-only in the UI, and aligned badges beside names
 * [11/11/2025; 8:10 PM UTC] Persisted media uploads through KV streaming, restored avatar updates, added logout controls, and tightened the profile event highlight
 * [11/12/2025; 4:30 PM UTC] Restored Vercel API routing, embedded media when persistent storage is unavailable, and refit the profile event highlight
+* [11/13/2025; 2:15 PM UTC] Enabled full-name and timed username updates with history indicators, hid profile tools on other users, and limited message threads to active conversations
+* [11/13/2025; 2:35 PM UTC] Defaulted profile management controls to hidden until eligibility is confirmed to prevent flashes on other profiles
