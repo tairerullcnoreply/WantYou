@@ -1460,36 +1460,36 @@ function createApp() {
   app.use(express.static(PROJECT_ROOT));
   app.use("/uploads", express.static(UPLOAD_ROOT));
 
-  function sendPage(res, filename) {
-    res.sendFile(path.join(PROJECT_ROOT, filename));
+  function sendPage(res, ...segments) {
+    res.sendFile(path.join(PROJECT_ROOT, ...segments));
   }
 
   app.get("/lookup", (req, res) => {
     res.redirect(301, "/lookup/");
   });
   app.get("/lookup/", (req, res) => {
-    sendPage(res, "feed.html");
+    sendPage(res, "lookup", "index.html");
   });
 
   app.get("/messages", (req, res) => {
     res.redirect(301, "/messages/");
   });
   app.get("/messages/", (req, res) => {
-    sendPage(res, "messages.html");
+    sendPage(res, "messages", "index.html");
   });
 
   app.get("/signup", (req, res) => {
     res.redirect(301, "/signup/");
   });
   app.get("/signup/", (req, res) => {
-    sendPage(res, "signup.html");
+    sendPage(res, "signup", "index.html");
   });
 
   app.get("/profile", (req, res) => {
-    sendPage(res, "profile.html");
+    sendPage(res, "profile", "index.html");
   });
   app.get("/profile/", (req, res) => {
-    sendPage(res, "profile.html");
+    sendPage(res, "profile", "index.html");
   });
   app.get("/profile/@:username", (req, res) => {
     const normalizedTarget = normalizeUsername(req.params.username || "");
@@ -1500,7 +1500,7 @@ function createApp() {
     res.redirect(301, `/profile/@${normalizedTarget}/`);
   });
   app.get("/profile/@:username/", (req, res) => {
-    sendPage(res, "profile.html");
+    sendPage(res, "profile", "index.html");
   });
 
   app.get("/feed.html", (req, res) => {
