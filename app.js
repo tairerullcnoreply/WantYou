@@ -26,6 +26,26 @@ const STATUS_NAMES = {
   both: "Both",
 };
 
+const STATUS_SORT_WEIGHTS = Object.freeze({
+  both: 0,
+  want: 1,
+  know: 2,
+  none: 3,
+});
+
+function isWantStatus(status) {
+  return status === "want" || status === "both";
+}
+
+function getStatusWeight(status) {
+  return STATUS_SORT_WEIGHTS[status] ?? 4;
+}
+
+function formatCount(value, singular, plural = `${singular}s`) {
+  const noun = value === 1 ? singular : plural;
+  return `${value} ${noun}`;
+}
+
 const USER_BADGE_DEFINITIONS = Object.freeze({
   WantYou: { label: "WantYou", variant: "wantyou", icon: "★" },
   Verified: { label: "Verified", variant: "verified", icon: "✔" },
@@ -591,28 +611,88 @@ function renderCardState(card, inbound, outbound) {
   card.dataset.inboundAnonymous = String(Boolean(displayInbound.anonymous));
   card.dataset.outboundStatus = normalizedOutbound.status ?? "none";
   card.dataset.outboundAnonymous = String(Boolean(normalizedOutbound.anonymous));
+  card.dataset.inboundUpdated = normalizedInbound.updatedAt ?? "";
+  card.dataset.outboundUpdated = normalizedOutbound.updatedAt ?? "";
+  card.dataset.mutualWant = String(
+    isWantStatus(normalizedInbound.status) && isWantStatus(normalizedOutbound.status)
+  );
+  card.dataset.awaitingResponse = String(
+    isWantStatus(normalizedInbound.status) && normalizedOutbound.status === "none"
+  );
   updateBadge(card, displayInbound.status, displayInbound.anonymous);
   updateChips(card, normalizedOutbound.status);
   updateAnonToggle(card, normalizedOutbound.status, normalizedOutbound.anonymous);
   setOutboundNote(card, normalizedOutbound);
 }
 
-function applyLookupFilters({ cards, input, filterAnon, emptyState, emptyTextWhenNoCards }) {
+function getCardUpdatedTimestamp(card) {
+  const inboundUpdated = Date.parse(card.dataset.inboundUpdated ?? "");
+  const outboundUpdated = Date.parse(card.dataset.outboundUpdated ?? "");
+  const inboundTime = Number.isFinite(inboundUpdated) ? inboundUpdated : 0;
+  const outboundTime = Number.isFinite(outboundUpdated) ? outboundUpdated : 0;
+  return Math.max(inboundTime, outboundTime);
+}
+
+function sortLookupCards(cards, sortValue) {
+  if (!cards?.length) {
+    return cards;
+  }
+  const sorted = [...cards];
+  switch (sortValue) {
+    case "recent":
+      sorted.sort((a, b) => getCardUpdatedTimestamp(b) - getCardUpdatedTimestamp(a));
+      break;
+    case "status":
+      sorted.sort((a, b) => {
+        const weightA = getStatusWeight(a.dataset.actualInboundStatus ?? "none");
+        const weightB = getStatusWeight(b.dataset.actualInboundStatus ?? "none");
+        if (weightA !== weightB) {
+          return weightA - weightB;
+        }
+        return a.dataset.name?.localeCompare(b.dataset.name ?? "") ?? 0;
+      });
+      break;
+    case "username":
+      sorted.sort((a, b) => (a.dataset.username ?? "").localeCompare(b.dataset.username ?? ""));
+      break;
+    case "name":
+      sorted.sort((a, b) => (a.dataset.name ?? "").localeCompare(b.dataset.name ?? ""));
+      break;
+    default:
+      break;
+  }
+  return sorted;
+}
+
+function applyLookupFilters({
+  cards,
+  input,
+  filterAnon,
+  statusFilters,
+  mutualOnly,
+  hideOutboundNone,
+  emptyState,
+  emptyTextWhenNoCards,
+}) {
   const query = input?.value.trim().toLowerCase() ?? "";
   const anonOnly = Boolean(filterAnon?.checked);
+  const statusSet = statusFilters ? new Set(statusFilters) : null;
+  const hasCustomStatusFilter = Boolean(statusSet?.size) && !statusSet.has("all");
   let anyVisible = false;
 
   cards.forEach((card) => {
     const name = card.dataset.name?.toLowerCase() ?? "";
     const username = card.dataset.username?.toLowerCase() ?? "";
-    const inboundStatus = card.dataset.inboundStatus ?? "none";
-    const inboundAnonymous = card.dataset.inboundAnonymous === "true";
+    const inboundStatus = card.dataset.actualInboundStatus ?? "none";
+    const inboundAnonymous = card.dataset.actualInboundAnonymous === "true";
+    const outboundStatus = card.dataset.outboundStatus ?? "none";
     const matchesQuery = !query || name.includes(query) || username.includes(query);
-    const matchesAnon =
-      !anonOnly ||
-      ((inboundStatus === "want" || inboundStatus === "both") && inboundAnonymous);
+    const matchesAnon = !anonOnly || (isWantStatus(inboundStatus) && inboundAnonymous);
+    const matchesStatus = !hasCustomStatusFilter || statusSet.has(inboundStatus);
+    const matchesMutual = !mutualOnly || card.dataset.mutualWant === "true";
+    const matchesOutbound = !hideOutboundNone || outboundStatus !== "none";
 
-    if (matchesQuery && matchesAnon) {
+    if (matchesQuery && matchesAnon && matchesStatus && matchesMutual && matchesOutbound) {
       card.hidden = false;
       anyVisible = true;
     } else {
@@ -627,10 +707,175 @@ function applyLookupFilters({ cards, input, filterAnon, emptyState, emptyTextWhe
     } else if (anyVisible) {
       emptyState.hidden = true;
     } else {
+      const activeFilters = [];
+      if (query) {
+        activeFilters.push(`matches for "${query}"`);
+      }
+      if (anonOnly) {
+        activeFilters.push("anonymous admirers");
+      }
+      if (mutualOnly) {
+        activeFilters.push("mutual Want Yous");
+      }
+      if (hideOutboundNone) {
+        activeFilters.push("people you've already marked");
+      }
+      if (hasCustomStatusFilter && statusSet) {
+        const statusDescriptions = [...statusSet]
+          .map((status) => STATUS_NAMES[status] ?? status)
+          .join(", ")
+          .toLowerCase();
+        if (statusDescriptions) {
+          activeFilters.push(`status: ${statusDescriptions}`);
+        }
+      }
       emptyState.textContent = query
         ? `No matches for "${query}" yet.`
+        : activeFilters.length
+        ? `No people match those filters yet (${activeFilters.join(" + ")}).`
         : "No people match those filters yet.";
       emptyState.hidden = false;
+    }
+  }
+
+  return anyVisible;
+}
+
+function updateLookupSummary(summary, state) {
+  if (!summary?.card) {
+    return;
+  }
+
+  const { card, totals = {}, recentSection, recentList, note } = summary;
+
+  if (!state || state.size === 0) {
+    card.hidden = true;
+    if (recentSection) {
+      recentSection.hidden = true;
+    }
+    if (recentList) {
+      recentList.innerHTML = "";
+    }
+    if (note) {
+      note.textContent = "";
+    }
+    return;
+  }
+
+  let total = 0;
+  const statusCounts = { none: 0, know: 0, want: 0, both: 0 };
+  let mutual = 0;
+  let anonymous = 0;
+  let awaiting = 0;
+  const recent = [];
+
+  state.forEach((entry) => {
+    if (!entry) {
+      return;
+    }
+    const inbound = normalizeConnectionState(entry.inbound);
+    const outbound = normalizeConnectionState(entry.outbound);
+    const element = entry.element;
+    const profile = entry.profile ?? {};
+    const displayName = profile.fullName ?? element?.dataset?.name ?? "";
+    const username = profile.username ?? element?.dataset?.username ?? "";
+
+    total += 1;
+    statusCounts[inbound.status] = (statusCounts[inbound.status] ?? 0) + 1;
+    if (connectionIsAnonymous(inbound)) {
+      anonymous += 1;
+    }
+    if (isWantStatus(inbound.status) && isWantStatus(outbound.status)) {
+      mutual += 1;
+    }
+    if (isWantStatus(inbound.status) && outbound.status === "none") {
+      awaiting += 1;
+    }
+    const updated = Math.max(
+      Date.parse(inbound.updatedAt ?? "") || 0,
+      Date.parse(outbound.updatedAt ?? "") || 0
+    );
+    if (updated > 0) {
+      recent.push({
+        updated,
+        name: displayName,
+        username,
+        status: inbound.status,
+      });
+    }
+  });
+
+  if (!total) {
+    card.hidden = true;
+    if (recentSection) {
+      recentSection.hidden = true;
+    }
+    if (recentList) {
+      recentList.innerHTML = "";
+    }
+    if (note) {
+      note.textContent = "";
+    }
+    return;
+  }
+
+  card.hidden = false;
+
+  const setTotal = (element, value) => {
+    if (element) {
+      element.textContent = value;
+    }
+  };
+
+  setTotal(totals.total, total);
+  setTotal(totals.both, statusCounts.both ?? 0);
+  setTotal(totals.want, statusCounts.want ?? 0);
+  setTotal(totals.know, statusCounts.know ?? 0);
+  setTotal(totals.none, statusCounts.none ?? 0);
+  setTotal(totals.mutual, mutual);
+  setTotal(totals.anon, anonymous);
+  setTotal(totals.outbound, awaiting);
+
+  if (recentList) {
+    recent.sort((a, b) => b.updated - a.updated);
+    const top = recent.slice(0, 3);
+    if (top.length) {
+      const items = top
+        .map((item) => {
+          const name = item.name?.trim() || (item.username ? `@${item.username}` : "Someone");
+          const statusLabel = STATUS_NAMES[item.status] ?? STATUS_NAMES.none;
+          return `
+            <li>
+              <span>${escapeHtml(name)}</span>
+              <span class="tag tag--ghost">${escapeHtml(statusLabel)}</span>
+            </li>
+          `;
+        })
+        .join("");
+      recentList.innerHTML = items;
+      if (recentSection) {
+        recentSection.hidden = false;
+      }
+    } else {
+      recentList.innerHTML = "";
+      if (recentSection) {
+        recentSection.hidden = true;
+      }
+    }
+  }
+
+  if (note) {
+    if (mutual > 0) {
+      note.textContent = `${formatCount(mutual, "mutual Want You", "mutual Want Yous")} ready to chat.`;
+    } else if (awaiting > 0) {
+      note.textContent =
+        awaiting === 1
+          ? "1 person is waiting on you to respond."
+          : `${awaiting} people are waiting on you to respond.`;
+    } else if (anonymous > 0) {
+      note.textContent = `${formatCount(anonymous, "anonymous admirer", "anonymous admirers")} keeping things secret.`;
+    } else {
+      note.textContent = `${formatCount(total, "person", "people")} in your lookup. Mark someone to open a chat.`;
     }
   }
 }
@@ -642,21 +887,142 @@ async function initLookup() {
   const searchForm = document.getElementById("lookup-form");
   const searchInput = document.getElementById("lookup-input");
   const filterAnon = document.getElementById("lookup-anon-filter");
+  const statusButtons = Array.from(document.querySelectorAll("[data-filter-status]"));
+  const mutualFilter = document.getElementById("lookup-mutual-filter");
+  const outboundFilter = document.getElementById("lookup-outbound-filter");
+  const sortSelect = document.getElementById("lookup-sort");
+  const clearFiltersButton = document.querySelector('[data-action="clear-filters"]');
+  if (sortSelect && sortSelect.dataset.defaultSort) {
+    sortSelect.value = sortSelect.dataset.defaultSort;
+  }
+  const summaryCard = document.querySelector("[data-lookup-summary]");
+  const summaryContext = {
+    card: summaryCard,
+    totals: {
+      total: summaryCard?.querySelector("[data-summary-total]"),
+      both: summaryCard?.querySelector("[data-summary-both]"),
+      want: summaryCard?.querySelector("[data-summary-want]"),
+      know: summaryCard?.querySelector("[data-summary-know]"),
+      none: summaryCard?.querySelector("[data-summary-none]"),
+      mutual: summaryCard?.querySelector("[data-summary-mutual]"),
+      anon: summaryCard?.querySelector("[data-summary-anon]"),
+      outbound: summaryCard?.querySelector("[data-summary-outbound]"),
+    },
+    recentSection: summaryCard?.querySelector("[data-summary-recent]"),
+    recentList: summaryCard?.querySelector("[data-summary-recent-list]"),
+    note: summaryCard?.querySelector("[data-summary-note]"),
+  };
+
   const cards = [];
   const state = new Map();
   let emptyState = null;
 
+  const activeStatusFilters = new Set(["all"]);
+
+  const updateStatusButtons = () => {
+    statusButtons.forEach((button) => {
+      const value = button.dataset.filterStatus ?? "all";
+      const isActive = activeStatusFilters.has(value);
+      button.classList.toggle("chip--active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    });
+  };
+
+  const setStatusFilters = (values) => {
+    activeStatusFilters.clear();
+    values.forEach((value) => {
+      if (value) {
+        activeStatusFilters.add(value);
+      }
+    });
+    if (!activeStatusFilters.size) {
+      activeStatusFilters.add("all");
+    }
+    updateStatusButtons();
+  };
+
+  const toggleStatusFilter = (value) => {
+    if (!value) {
+      return;
+    }
+    if (value === "all") {
+      setStatusFilters(["all"]);
+      refreshFilters();
+      return;
+    }
+    if (activeStatusFilters.has(value)) {
+      activeStatusFilters.delete(value);
+    } else {
+      activeStatusFilters.add(value);
+    }
+    activeStatusFilters.delete("all");
+    if (!activeStatusFilters.size) {
+      activeStatusFilters.add("all");
+    }
+    updateStatusButtons();
+    refreshFilters();
+  };
+
+  const applySort = () => {
+    if (!sortSelect || cards.length === 0) {
+      return;
+    }
+    const sorted = sortLookupCards(cards, sortSelect.value);
+    if (!sorted || sorted.length !== cards.length) {
+      return;
+    }
+    let changed = false;
+    for (let index = 0; index < sorted.length; index += 1) {
+      if (sorted[index] !== cards[index]) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) {
+      return;
+    }
+    cards.length = 0;
+    sorted.forEach((card) => {
+      cards.push(card);
+    });
+    const anchor = emptyState && container.contains(emptyState) ? emptyState : null;
+    sorted.forEach((card) => {
+      if (anchor) {
+        container.insertBefore(card, anchor);
+      } else {
+        container.appendChild(card);
+      }
+    });
+  };
+
+  const refreshSummary = () => {
+    updateLookupSummary(summaryContext, state);
+  };
+
   const refreshFilters = () => {
+    applySort();
     applyLookupFilters({
       cards,
       input: searchInput,
       filterAnon,
+      statusFilters: activeStatusFilters,
+      mutualOnly: Boolean(mutualFilter?.checked),
+      hideOutboundNone: Boolean(outboundFilter?.checked),
       emptyState,
       emptyTextWhenNoCards: "No one else has joined yet.",
     });
+    refreshSummary();
   };
 
+  updateStatusButtons();
+  refreshSummary();
+
   container.innerHTML = '<p class="lookup__empty">Loading your people…</p>';
+
+  statusButtons.forEach((button) => {
+    const value = button.dataset.filterStatus ?? "all";
+    button.addEventListener("click", () => toggleStatusFilter(value));
+  });
 
   const renderPeople = (people) => {
     cards.length = 0;
@@ -743,7 +1109,8 @@ async function initLookup() {
       }
 
       const usernameKey = person.username;
-      state.set(usernameKey, { inbound, outbound, element: card });
+      const profile = { username: person.username, fullName: person.fullName };
+      state.set(usernameKey, { inbound, outbound, element: card, profile });
 
       card.querySelectorAll("[data-status-button]").forEach((button) => {
         button.addEventListener("click", async () => {
@@ -753,6 +1120,7 @@ async function initLookup() {
               inbound: normalizeConnectionState(),
               outbound: normalizeConnectionState(),
               element: card,
+              profile,
             };
           const previousInbound = normalizeConnectionState(entry.inbound);
           const previousOutbound = normalizeConnectionState(entry.outbound);
@@ -769,6 +1137,7 @@ async function initLookup() {
             inbound: previousInbound,
             outbound: nextOutbound,
             element: card,
+            profile: entry.profile ?? profile,
           });
           renderCardState(card, previousInbound, nextOutbound);
           refreshFilters();
@@ -794,6 +1163,7 @@ async function initLookup() {
               inbound: inboundState,
               outbound: outboundState,
               element: card,
+              profile: entry.profile ?? profile,
             });
             renderCardState(card, inboundState, outboundState);
             refreshFilters();
@@ -802,6 +1172,7 @@ async function initLookup() {
               inbound: previousInbound,
               outbound: previousOutbound,
               element: card,
+              profile: entry.profile ?? profile,
             });
             renderCardState(card, previousInbound, previousOutbound);
             refreshFilters();
@@ -845,6 +1216,7 @@ async function initLookup() {
           inbound: currentInbound,
           outbound: nextOutbound,
           element: card,
+          profile: entry.profile ?? profile,
         });
         renderCardState(card, currentInbound, nextOutbound);
         refreshFilters();
@@ -870,6 +1242,7 @@ async function initLookup() {
             inbound: inboundState,
             outbound: outboundState,
             element: card,
+            profile: entry.profile ?? profile,
           });
           renderCardState(card, inboundState, outboundState);
           refreshFilters();
@@ -878,6 +1251,7 @@ async function initLookup() {
             inbound: currentInbound,
             outbound: currentOutbound,
             element: card,
+            profile: entry.profile ?? profile,
           });
           renderCardState(card, currentInbound, currentOutbound);
           refreshFilters();
@@ -935,8 +1309,36 @@ async function initLookup() {
   if (searchForm) {
     searchForm.addEventListener("submit", (event) => event.preventDefault());
   }
-  searchInput?.addEventListener("input", refreshFilters);
-  filterAnon?.addEventListener("change", refreshFilters);
+  searchInput?.addEventListener("input", () => refreshFilters());
+  filterAnon?.addEventListener("change", () => refreshFilters());
+  mutualFilter?.addEventListener("change", () => refreshFilters());
+  outboundFilter?.addEventListener("change", () => refreshFilters());
+  sortSelect?.addEventListener("change", () => refreshFilters());
+  clearFiltersButton?.addEventListener("click", () => {
+    if (searchInput) {
+      searchInput.value = "";
+    }
+    if (filterAnon) {
+      filterAnon.checked = false;
+    }
+    if (mutualFilter) {
+      mutualFilter.checked = false;
+    }
+    if (outboundFilter) {
+      outboundFilter.checked = false;
+    }
+    if (sortSelect) {
+      const defaultSortValue =
+        sortSelect.dataset.defaultSort ||
+        (sortSelect.options && sortSelect.options.length
+          ? sortSelect.options[0].value
+          : sortSelect.value);
+      sortSelect.value = defaultSortValue;
+    }
+    setStatusFilters(["all"]);
+    refreshFilters();
+    searchInput?.focus();
+  });
 
   try {
     await requireSession();
@@ -952,6 +1354,9 @@ async function initLookup() {
     container.innerHTML = `<p class="lookup__empty">${escapeHtml(
       error?.message || "We couldn't load your people right now."
     )}</p>`;
+    cards.length = 0;
+    state.clear();
+    updateLookupSummary(summaryContext, state);
   }
 }
 

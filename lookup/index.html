@@ -47,11 +47,83 @@
           </p>
         </header>
 
-        <div class="lookup__filters">
-          <label class="toggle">
-            <input type="checkbox" id="lookup-anon-filter" />
-            <span>Show only anonymous Want Yous</span>
-          </label>
+        <div class="lookup__filters" role="region" aria-label="Lookup filters">
+          <div class="lookup__filter-row">
+            <div class="lookup__filter-group">
+              <p class="lookup__filter-label">Status focus</p>
+              <div class="lookup__filter-chips" data-status-filter-group>
+                <button
+                  type="button"
+                  class="chip chip--filter"
+                  data-filter-status="all"
+                  aria-pressed="true"
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  class="chip chip--filter"
+                  data-filter-status="both"
+                  aria-pressed="false"
+                >
+                  Both
+                </button>
+                <button
+                  type="button"
+                  class="chip chip--filter"
+                  data-filter-status="want"
+                  aria-pressed="false"
+                >
+                  Want you
+                </button>
+                <button
+                  type="button"
+                  class="chip chip--filter"
+                  data-filter-status="know"
+                  aria-pressed="false"
+                >
+                  Know you
+                </button>
+                <button
+                  type="button"
+                  class="chip chip--filter"
+                  data-filter-status="none"
+                  aria-pressed="false"
+                >
+                  No status
+                </button>
+              </div>
+            </div>
+            <label class="lookup__sort">
+              <span>Sort by</span>
+              <select id="lookup-sort" data-default-sort="recent">
+                <option value="recent">Most recently updated</option>
+                <option value="status">Highest status first</option>
+                <option value="name">Name (A–Z)</option>
+                <option value="username">Username (A–Z)</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="lookup__filter-row lookup__filter-row--secondary">
+            <div class="lookup__toggles">
+              <label class="toggle">
+                <input type="checkbox" id="lookup-anon-filter" />
+                <span>Show only anonymous Want Yous</span>
+              </label>
+              <label class="toggle">
+                <input type="checkbox" id="lookup-mutual-filter" />
+                <span>Only mutual Want Yous</span>
+              </label>
+              <label class="toggle">
+                <input type="checkbox" id="lookup-outbound-filter" />
+                <span>Hide people you marked “None”</span>
+              </label>
+            </div>
+            <button type="button" class="button button--ghost lookup__clear" data-action="clear-filters">
+              Clear filters
+            </button>
+          </div>
         </div>
 
         <div class="lookup__results" id="lookup-results" aria-live="polite">
@@ -60,6 +132,49 @@
       </section>
 
       <aside class="lookup-sidebar">
+        <section class="card insight insight--summary" data-lookup-summary hidden>
+          <h2>Lookup snapshot</h2>
+          <dl class="lookup-summary">
+            <div>
+              <dt>Total people</dt>
+              <dd data-summary-total>0</dd>
+            </div>
+            <div>
+              <dt>Both</dt>
+              <dd data-summary-both>0</dd>
+            </div>
+            <div>
+              <dt>Want you</dt>
+              <dd data-summary-want>0</dd>
+            </div>
+            <div>
+              <dt>Know you</dt>
+              <dd data-summary-know>0</dd>
+            </div>
+            <div>
+              <dt>No status</dt>
+              <dd data-summary-none>0</dd>
+            </div>
+            <div>
+              <dt>Mutual Want Yous</dt>
+              <dd data-summary-mutual>0</dd>
+            </div>
+            <div>
+              <dt>Anonymous admirers</dt>
+              <dd data-summary-anon>0</dd>
+            </div>
+            <div>
+              <dt>Waiting on you</dt>
+              <dd data-summary-outbound>0</dd>
+            </div>
+          </dl>
+          <div class="lookup-summary__recent" data-summary-recent hidden>
+            <h3>Recently updated</h3>
+            <ol data-summary-recent-list></ol>
+          </div>
+          <p class="insight__note" data-summary-note></p>
+        </section>
+
         <section class="card insight">
           <h2>Need a hint?</h2>
           <p>
