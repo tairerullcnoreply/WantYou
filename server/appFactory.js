@@ -554,6 +554,9 @@ function decodeMediaLocation(location) {
   if (location.startsWith("kv://")) {
     return { storage: "kv", id: location.slice("kv://".length) };
   }
+  if (location.startsWith("data:")) {
+    return { storage: "inline", path: location };
+  }
   return { storage: "disk", path: location };
 }
 
@@ -565,11 +568,20 @@ function resolveMediaUrl(location) {
   return location;
 }
 
+function buildDataUrl(mimeType, buffer) {
+  const safeMime = typeof mimeType === "string" && mimeType ? mimeType : "application/octet-stream";
+  return `data:${safeMime};base64,${buffer.toString("base64")}`;
+}
+
 async function persistMediaFile(file) {
   if (!file) return null;
+  const readBuffer = async () => {
+    const content = await fsp.readFile(file.path);
+    return content;
+  };
   if (USE_KV_MEDIA_STORAGE) {
     const id = crypto.randomUUID();
-    const buffer = await fsp.readFile(file.path);
+    const buffer = await readBuffer();
     const payload = {
       mimeType: file.mimetype,
       data: buffer.toString("base64"),
@@ -582,15 +594,22 @@ async function persistMediaFile(file) {
       size: buffer.length,
     };
   }
-  const location = relativeUploadPath(file.path);
-  if (!location) {
-    await removeFileSafe(file.path);
-    return null;
+  if (!USE_EPHEMERAL_UPLOADS) {
+    const location = relativeUploadPath(file.path);
+    if (location) {
+      return {
+        location,
+        mimeType: file.mimetype,
+        size: file.size ?? 0,
+      };
+    }
   }
+  const buffer = await readBuffer();
+  await removeFileSafe(file.path);
   return {
-    location,
+    location: buildDataUrl(file.mimetype, buffer),
     mimeType: file.mimetype,
-    size: file.size ?? 0,
+    size: buffer.length,
   };
 }
 
@@ -630,6 +649,9 @@ async function removeMediaLocation(location) {
   if (!location) return;
   const decoded = decodeMediaLocation(location);
   if (!decoded) return;
+  if (decoded.storage === "inline") {
+    return;
+  }
   if (decoded.storage === "kv") {
     await redisCommand(["DEL", mediaKey(decoded.id)]);
     return;

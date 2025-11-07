@@ -30,3 +30,4 @@ You can chat with others without being anonymous.
 * [11/09/2025; 5:45 PM UTC] Introduced WantYou and Verified badges with owner-managed verification controls across profiles and chats
 * [11/10/2025; 3:20 PM UTC] Routed uploads to writable storage, kept verification controls owner-only in the UI, and aligned badges beside names
 * [11/11/2025; 8:10 PM UTC] Persisted media uploads through KV streaming, restored avatar updates, added logout controls, and tightened the profile event highlight
+* [11/12/2025; 4:30 PM UTC] Restored Vercel API routing, embedded media when persistent storage is unavailable, and refit the profile event highlight
