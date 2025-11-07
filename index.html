@@ -53,11 +53,11 @@
         <div class="container steps">
           <article class="step">
             <span class="step__number">1</span>
-            <h2>Create your account</h2>
-            <p>
-              Securely sign up with your email, then import your contacts or add
-              them one by one.
-            </p>
+          <h2>Create your account</h2>
+          <p>
+            Sign up with your full name and a username, then import your
+            contacts or add them one by one.
+          </p>
           </article>
           <article class="step">
             <span class="step__number">2</span>
@@ -154,8 +154,12 @@
           </div>
           <form class="cta__form" id="request-access">
             <label class="form__field">
-              <span class="visually-hidden">Email</span>
-              <input type="email" placeholder="you@example.com" required />
+              <span class="visually-hidden">Full name</span>
+              <input type="text" name="fullName" placeholder="Full name" required />
+            </label>
+            <label class="form__field">
+              <span class="visually-hidden">Desired username</span>
+              <input type="text" name="desiredUsername" placeholder="Preferred username" required />
             </label>
             <button type="submit" class="button">Request invite</button>
           </form>

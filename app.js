@@ -23,6 +23,80 @@ const HERO_CARDS = [
   },
 ];
 
+const API_BASE = "/api";
+const SESSION_TOKEN_KEY = "wantyou_session_token";
+
+function buildApiUrl(path) {
+  return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function getSessionToken() {
+  try {
+    return window.localStorage.getItem(SESSION_TOKEN_KEY);
+  } catch (error) {
+    console.warn("Unable to access session storage", error);
+    return null;
+  }
+}
+
+function setSessionToken(token) {
+  try {
+    if (token) {
+      window.localStorage.setItem(SESSION_TOKEN_KEY, token);
+    } else {
+      window.localStorage.removeItem(SESSION_TOKEN_KEY);
+    }
+  } catch (error) {
+    console.warn("Unable to persist session token", error);
+  }
+}
+
+function clearSessionToken() {
+  setSessionToken(null);
+}
+
+async function apiRequest(path, options = {}) {
+  const url = buildApiUrl(path);
+  const init = { ...options };
+  const headers = new Headers(init.headers || {});
+  const token = getSessionToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const hasBody = init.body !== undefined && init.body !== null && !(init.body instanceof FormData);
+  if (hasBody && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  init.headers = headers;
+
+  const response = await fetch(url, init);
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      data = { message: text };
+    }
+  }
+
+  if (!response.ok) {
+    if (response.status === 401 && token) {
+      clearSessionToken();
+    }
+    const error = new Error(data?.message || `Request failed with status ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  return data;
+}
+
 const THREADS = {
   brandon: {
     id: "brandon",
@@ -130,12 +204,28 @@ function initLanding() {
   }
 
   if (form) {
-    form.addEventListener("submit", (event) => {
+    form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const input = form.querySelector("input[type='email']");
-      if (!input?.value) return;
-      form.classList.add("form--submitted");
-      form.innerHTML = `<p class="form__success">Invite requested! We'll email you shortly.</p>`;
+      const formData = new FormData(form);
+      const fullName = formData.get("fullName")?.toString().trim();
+      const desiredUsername = formData.get("desiredUsername")?.toString().trim();
+      if (!fullName || !desiredUsername) {
+        window.alert("Please include your full name and preferred username.");
+        return;
+      }
+      const submitButton = form.querySelector("button[type='submit']");
+      submitButton?.setAttribute("disabled", "true");
+      try {
+        await apiRequest("/request-access", {
+          method: "POST",
+          body: JSON.stringify({ fullName, desiredUsername }),
+        });
+        form.classList.add("form--submitted");
+        form.innerHTML = `<p class="form__success">Request received! We'll reach out soon.</p>`;
+      } catch (error) {
+        window.alert(error.message || "We couldn't send your request. Please try again.");
+        submitButton?.removeAttribute("disabled");
+      }
     });
   }
 }
@@ -165,15 +255,61 @@ function initSignup() {
     });
   });
 
-  signupForm?.addEventListener("submit", (event) => {
+  signupForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    window.alert("Account created! Check your inbox to verify.");
+    if (!signupForm) return;
+    const formData = new FormData(signupForm);
+    const fullName = formData.get("fullName")?.toString().trim();
+    const username = formData.get("username")?.toString().trim();
+    const password = formData.get("password")?.toString();
+    if (!fullName || !username || !password) {
+      window.alert("Please provide your full name, username, and password.");
+      return;
+    }
+    const submitButton = signupForm.querySelector("button[type='submit']");
+    submitButton?.setAttribute("disabled", "true");
+    try {
+      await apiRequest("/signup", {
+        method: "POST",
+        body: JSON.stringify({ fullName, username, password }),
+      });
+      window.alert("Account created! You can log in now.");
+      signupForm.reset();
+    } catch (error) {
+      window.alert(error.message || "We couldn't create your account right now.");
+    } finally {
+      submitButton?.removeAttribute("disabled");
+    }
   });
 
-  loginForm?.addEventListener("submit", (event) => {
+  loginForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    window.alert("Logged in! Redirecting you to your lookup.");
-    window.location.href = "feed.html";
+    if (!loginForm) return;
+    const formData = new FormData(loginForm);
+    const username = formData.get("username")?.toString().trim();
+    const password = formData.get("password")?.toString();
+    if (!username || !password) {
+      window.alert("Enter your username and password to continue.");
+      return;
+    }
+    const submitButton = loginForm.querySelector("button[type='submit']");
+    submitButton?.setAttribute("disabled", "true");
+    try {
+      const data = await apiRequest("/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+      });
+      if (data?.token) {
+        setSessionToken(data.token);
+      }
+      const fullName = data?.user?.fullName ?? username;
+      window.alert(`Welcome back, ${fullName}! Redirecting to your lookup.`);
+      window.location.href = "feed.html";
+    } catch (error) {
+      window.alert(error.message || "We couldn't log you in right now.");
+    } finally {
+      submitButton?.removeAttribute("disabled");
+    }
   });
 }
 
@@ -239,7 +375,7 @@ function applyLookupFilters({ cards, input, filterAnon, emptyState }) {
   }
 }
 
-function initLookup() {
+async function initLookup() {
   const cards = Array.from(document.querySelectorAll(".connection"));
   if (!cards.length) return;
 
@@ -249,59 +385,132 @@ function initLookup() {
   const emptyState = document.querySelector("[data-empty]");
   const state = new Map();
 
-  cards.forEach((card) => {
-    const status = card.dataset.status || "none";
-    const anonymous = card.dataset.anonymous === "true";
-    state.set(card, { status, anonymous });
+  let storedStatuses = {};
+  if (getSessionToken()) {
+    try {
+      const data = await apiRequest("/lookup");
+      storedStatuses = data?.statuses ?? {};
+    } catch (error) {
+      if (error.status === 401) {
+        window.alert("Log in to save your Want You updates.");
+      } else {
+        console.warn("Unable to load saved statuses", error);
+      }
+    }
+  }
+
+  const renderCardState = (card, status, anonymous) => {
+    card.dataset.status = status;
+    card.dataset.anonymous = String(Boolean(anonymous));
     updateBadge(card, status, anonymous);
     updateChips(card, status);
     updateAnonToggle(card, status, anonymous);
+  };
+
+  const persistState = async (username, status, anonymous, onError) => {
+    try {
+      await apiRequest("/status", {
+        method: "POST",
+        body: JSON.stringify({
+          targetUsername: username,
+          status,
+          anonymous,
+        }),
+      });
+    } catch (error) {
+      if (typeof onError === "function") {
+        onError(error);
+      }
+    }
+  };
+
+  cards.forEach((card) => {
+    const username = card.dataset.username?.toLowerCase().trim();
+    const savedState = username ? storedStatuses[username] : null;
+    const status = savedState?.status ?? card.dataset.status ?? "none";
+    const anonymous = Boolean(savedState?.anonymous ?? (card.dataset.anonymous === "true"));
+    state.set(card, { status, anonymous });
+    renderCardState(card, status, anonymous);
 
     card.querySelectorAll("[data-status-button]").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
         const newStatus = button.dataset.statusButton || "none";
         const prev = state.get(card) ?? { status: "none", anonymous: false };
         const anonymousState =
           newStatus === "want" || newStatus === "both" ? prev.anonymous : false;
 
         state.set(card, { status: newStatus, anonymous: anonymousState });
-        card.dataset.status = newStatus;
-        card.dataset.anonymous = String(anonymousState);
-        updateBadge(card, newStatus, anonymousState);
-        updateChips(card, newStatus);
-        updateAnonToggle(card, newStatus, anonymousState);
+        renderCardState(card, newStatus, anonymousState);
         applyLookupFilters({ cards, input: searchInput, filterAnon, emptyState });
+        const usernameKey = card.dataset.username;
+        if (!usernameKey) {
+          return;
+        }
+        await persistState(usernameKey, newStatus, anonymousState, (error) => {
+          state.set(card, prev);
+          renderCardState(card, prev.status, prev.anonymous);
+          applyLookupFilters({ cards, input: searchInput, filterAnon, emptyState });
+          const message =
+            error?.status === 401
+              ? "Log in to save your Want You updates."
+              : error?.message || "We couldn't save that change.";
+          window.alert(message);
+        });
       });
     });
 
     const anonToggle = card.querySelector("[data-anonymous-toggle]");
-    anonToggle?.addEventListener("change", () => {
+    anonToggle?.addEventListener("change", async () => {
       const current = state.get(card) ?? { status: "none", anonymous: false };
       const canAnonymous = current.status === "want" || current.status === "both";
       const anonymousState = canAnonymous && anonToggle.checked;
-      state.set(card, { ...current, anonymous: anonymousState });
-      card.dataset.anonymous = String(anonymousState);
-      updateBadge(card, current.status, anonymousState);
+      const nextState = { ...current, anonymous: anonymousState };
+      state.set(card, nextState);
+      renderCardState(card, nextState.status, nextState.anonymous);
       applyLookupFilters({ cards, input: searchInput, filterAnon, emptyState });
+      const usernameKey = card.dataset.username;
+      if (!usernameKey) {
+        return;
+      }
+      await persistState(usernameKey, nextState.status, nextState.anonymous, (error) => {
+        state.set(card, current);
+        renderCardState(card, current.status, current.anonymous);
+        applyLookupFilters({ cards, input: searchInput, filterAnon, emptyState });
+        const message =
+          error?.status === 401
+            ? "Log in to save your Want You updates."
+            : error?.message || "We couldn't update anonymity right now.";
+        window.alert(message);
+      });
     });
 
     const chatButton = card.querySelector("[data-chat-button]");
-    chatButton?.addEventListener("click", () => {
-      const current = state.get(card) ?? { status: card.dataset.status || "none", anonymous: card.dataset.anonymous === "true" };
+    chatButton?.addEventListener("click", async () => {
+      const current = state.get(card) ?? {
+        status: card.dataset.status || "none",
+        anonymous: card.dataset.anonymous === "true",
+      };
       if (current.status === "none") {
         window.alert("Choose Know you, Want you, or Both before starting a chat.");
         return;
       }
-      const payload = {
-        person: card.dataset.username,
-        name: card.dataset.name,
-        status: current.status,
-        anonymous: current.anonymous,
-      };
       try {
-        window.localStorage.setItem("wantyou_selectedThread", JSON.stringify(payload));
+        await apiRequest("/messages/selection", {
+          method: "POST",
+          body: JSON.stringify({
+            threadId: card.dataset.username,
+            person: card.dataset.username,
+            name: card.dataset.name,
+            status: current.status,
+            anonymous: current.anonymous,
+          }),
+        });
       } catch (error) {
-        console.warn("Unable to persist selected thread", error);
+        const message =
+          error?.status === 401
+            ? "Log in to keep track of your chats."
+            : error?.message || "We couldn't remember that chat selection.";
+        window.alert(message);
       }
       window.location.href = "messages.html";
     });
@@ -396,7 +605,7 @@ function renderMessages(thread) {
     .join("");
 }
 
-function initMessages() {
+async function initMessages() {
   const listItems = Array.from(document.querySelectorAll(".messages-list__item"));
   if (!listItems.length) return;
 
@@ -404,13 +613,15 @@ function initMessages() {
   const input = document.getElementById("message-input");
   let activeThread = THREADS[listItems[0].dataset.thread ?? ""];
 
-  const storedThread = (() => {
+  const storedThread = await (async () => {
+    if (!getSessionToken()) return null;
     try {
-      const raw = window.localStorage.getItem("wantyou_selectedThread");
-      if (!raw) return null;
-      return JSON.parse(raw);
+      const data = await apiRequest("/messages/selection");
+      return data?.thread ?? null;
     } catch (error) {
-      console.warn("Unable to parse stored thread", error);
+      if (error.status && error.status !== 404) {
+        console.warn("Unable to load stored thread", error);
+      }
       return null;
     }
   })();
@@ -421,7 +632,7 @@ function initMessages() {
       activeThread = THREADS[mappedId];
     } else {
       activeThread = {
-        id: storedThread.person ?? "custom",
+        id: storedThread.threadId ?? storedThread.person ?? "custom",
         person: storedThread.person ?? "custom",
         displayName: storedThread.name ?? "Unknown user",
         alias: storedThread.anonymous ? "Anonymous" : null,
@@ -430,17 +641,14 @@ function initMessages() {
         messages: [
           {
             direction: "incoming",
-            author: storedThread.anonymous ? "Anonymous" : storedThread.name ?? "Friend",
+            author: storedThread.anonymous
+              ? "Anonymous"
+              : storedThread.name ?? "Friend",
             time: "Just now",
             text: "Say hi to keep the chat going!",
           },
         ],
       };
-    }
-    try {
-      window.localStorage.removeItem("wantyou_selectedThread");
-    } catch (error) {
-      console.warn("Unable to clear stored thread", error);
     }
   }
 
