@@ -84,6 +84,30 @@ function clearSessionToken() {
   setSessionToken(null);
 }
 
+function setupGlobalControls() {
+  const logoutButtons = document.querySelectorAll('[data-action="logout"]');
+  logoutButtons.forEach((button) => {
+    const control = button;
+    control.addEventListener("click", async (event) => {
+      event.preventDefault();
+      if (control.disabled) {
+        return;
+      }
+      control.disabled = true;
+      try {
+        await apiRequest("/logout", { method: "POST" });
+      } catch (error) {
+        if (error?.status !== 401) {
+          console.error("Failed to log out", error);
+        }
+      } finally {
+        clearSessionToken();
+        window.location.href = "signup.html";
+      }
+    });
+  });
+}
+
 async function apiRequest(path, options = {}) {
   const url = buildApiUrl(path);
   const init = { ...options };
@@ -2044,4 +2068,7 @@ function initApp() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", initApp);
+document.addEventListener("DOMContentLoaded", () => {
+  setupGlobalControls();
+  initApp();
+});

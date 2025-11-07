@@ -16,11 +16,16 @@
     <header class="app-header">
       <div class="app-header__inner container">
         <a href="feed.html" class="brand">WantYou</a>
-        <nav class="app-nav" aria-label="App navigation">
-          <a href="feed.html">Lookup</a>
-          <a href="messages.html">Messages</a>
-          <a href="profile.html" aria-current="page">Profile</a>
-        </nav>
+        <div class="app-header__actions">
+          <nav class="app-nav" aria-label="App navigation">
+            <a href="feed.html">Lookup</a>
+            <a href="messages.html">Messages</a>
+            <a href="profile.html" aria-current="page">Profile</a>
+          </nav>
+          <button class="button button--ghost app-header__logout" data-action="logout" type="button">
+            Log out
+          </button>
+        </div>
       </div>
     </header>
 

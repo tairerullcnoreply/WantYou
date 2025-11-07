@@ -19,11 +19,16 @@
         <form class="app-search" role="search">
           <input type="search" placeholder="Search messages" />
         </form>
-        <nav class="app-nav" aria-label="App navigation">
-          <a href="feed.html">Lookup</a>
-          <a href="messages.html" aria-current="page">Messages</a>
-          <a href="profile.html">Profile</a>
-        </nav>
+        <div class="app-header__actions">
+          <nav class="app-nav" aria-label="App navigation">
+            <a href="feed.html">Lookup</a>
+            <a href="messages.html" aria-current="page">Messages</a>
+            <a href="profile.html">Profile</a>
+          </nav>
+          <button class="button button--ghost app-header__logout" data-action="logout" type="button">
+            Log out
+          </button>
+        </div>
       </div>
     </header>
 

@@ -57,6 +57,8 @@ const UPLOAD_ROOT = resolveUploadRoot();
 const AVATAR_UPLOAD_DIR = path.join(UPLOAD_ROOT, "avatars");
 const POST_UPLOAD_DIR = path.join(UPLOAD_ROOT, "posts");
 const EVENT_UPLOAD_DIR = path.join(UPLOAD_ROOT, "events");
+const USE_EPHEMERAL_UPLOADS = UPLOAD_ROOT.startsWith(os.tmpdir());
+const USE_KV_MEDIA_STORAGE = USE_EPHEMERAL_UPLOADS && HAS_UPSTASH_CONFIG;
 
 function ensureDirectory(directory) {
   try {
@@ -543,21 +545,78 @@ function relativeUploadPath(filePath) {
   return `/${relativeToProject.split(path.sep).join("/")}`;
 }
 
-function describeAttachment(file) {
+function mediaKey(id) {
+  return `media:${id}`;
+}
+
+function decodeMediaLocation(location) {
+  if (!location) return null;
+  if (location.startsWith("kv://")) {
+    return { storage: "kv", id: location.slice("kv://".length) };
+  }
+  return { storage: "disk", path: location };
+}
+
+function resolveMediaUrl(location) {
+  if (!location) return "";
+  if (location.startsWith("kv://")) {
+    return `/api/media/${location.slice("kv://".length)}`;
+  }
+  return location;
+}
+
+async function persistMediaFile(file) {
   if (!file) return null;
+  if (USE_KV_MEDIA_STORAGE) {
+    const id = crypto.randomUUID();
+    const buffer = await fsp.readFile(file.path);
+    const payload = {
+      mimeType: file.mimetype,
+      data: buffer.toString("base64"),
+    };
+    await redisCommand(["SET", mediaKey(id), JSON.stringify(payload)]);
+    await removeFileSafe(file.path);
+    return {
+      location: `kv://${id}`,
+      mimeType: file.mimetype,
+      size: buffer.length,
+    };
+  }
+  const location = relativeUploadPath(file.path);
+  if (!location) {
+    await removeFileSafe(file.path);
+    return null;
+  }
+  return {
+    location,
+    mimeType: file.mimetype,
+    size: file.size ?? 0,
+  };
+}
+
+async function describeAttachment(file) {
+  if (!file) return null;
+  const base = await persistMediaFile(file);
+  if (!base?.location) {
+    await removeFileSafe(file.path);
+    return null;
+  }
   const type = ALLOWED_VIDEO_TYPES.has(file.mimetype) ? "video" : "image";
   return {
     id: crypto.randomUUID(),
     type,
-    url: relativeUploadPath(file.path),
+    location: base.location,
     originalName: file.originalname ?? "",
-    size: file.size ?? 0,
-    mimeType: file.mimetype,
+    size: base.size,
+    mimeType: base.mimeType,
   };
 }
 
 function absoluteUploadPath(relativePath) {
   if (!relativePath) return null;
+  if (relativePath.startsWith("kv://")) {
+    return null;
+  }
   const normalized = relativePath.startsWith("/")
     ? relativePath.slice(1)
     : relativePath;
@@ -565,6 +624,31 @@ function absoluteUploadPath(relativePath) {
     return path.resolve(UPLOAD_ROOT, normalized.slice("uploads/".length));
   }
   return path.resolve(PROJECT_ROOT, normalized);
+}
+
+async function removeMediaLocation(location) {
+  if (!location) return;
+  const decoded = decodeMediaLocation(location);
+  if (!decoded) return;
+  if (decoded.storage === "kv") {
+    await redisCommand(["DEL", mediaKey(decoded.id)]);
+    return;
+  }
+  const absolute = absoluteUploadPath(decoded.path);
+  if (absolute) {
+    await removeFileSafe(absolute);
+  }
+}
+
+async function cleanupAttachments(attachments) {
+  if (!Array.isArray(attachments) || !attachments.length) {
+    return;
+  }
+  await Promise.all(
+    attachments.map((attachment) =>
+      removeMediaLocation(attachment?.location ?? attachment?.url ?? null)
+    )
+  );
 }
 
 async function getUser(username) {
@@ -1011,7 +1095,7 @@ function publicUser(user) {
     username: user.username,
     tagline: user.tagline ?? "",
     bio: user.bio ?? "",
-    profilePicture: user.profilePicturePath ? user.profilePicturePath : "",
+    profilePicture: user.profilePicturePath ? resolveMediaUrl(user.profilePicturePath) : "",
     badges,
   };
 }
@@ -1022,7 +1106,7 @@ function normalizeAttachments(attachments) {
     .map((attachment) => ({
       id: attachment.id,
       type: attachment.type,
-      url: attachment.url,
+      url: resolveMediaUrl(attachment.location ?? attachment.url),
       originalName: attachment.originalName ?? "",
       mimeType: attachment.mimeType ?? "",
       size: attachment.size ?? 0,
@@ -1064,6 +1148,30 @@ function createApp() {
   app.use(express.json());
   app.use(express.static(PROJECT_ROOT));
   app.use("/uploads", express.static(UPLOAD_ROOT));
+
+  app.get("/api/media/:id", async (req, res) => {
+    const mediaId = req.params.id;
+    if (!mediaId || !USE_KV_MEDIA_STORAGE) {
+      return res.status(404).json({ message: "File not found" });
+    }
+    try {
+      const raw = await redisCommand(["GET", mediaKey(mediaId)]);
+      if (!raw) {
+        return res.status(404).json({ message: "File not found" });
+      }
+      const payload = parseJsonSafe(raw, null);
+      if (!payload?.data || !payload?.mimeType) {
+        return res.status(404).json({ message: "File not found" });
+      }
+      const buffer = Buffer.from(payload.data, "base64");
+      res.setHeader("Content-Type", payload.mimeType);
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      res.send(buffer);
+    } catch (error) {
+      console.error("Failed to stream media", error);
+      res.status(500).json({ message: "Unable to load media" });
+    }
+  });
 
   app.post("/api/signup", async (req, res) => {
     const { fullName, username, password } = req.body ?? {};
@@ -1493,26 +1601,33 @@ function createApp() {
       if (!req.file) {
         return res.status(400).json({ message: "Select an image to upload" });
       }
+      let media = null;
       try {
         const user = await getUser(req.user.username);
         if (!user) {
           await removeFileSafe(req.file.path);
           return res.status(404).json({ message: "User not found" });
         }
-        const previousPath = user.profilePicturePath
-          ? absoluteUploadPath(user.profilePicturePath)
-          : null;
-        const pictureUrl = relativeUploadPath(req.file.path);
+        media = await persistMediaFile(req.file);
+        if (!media?.location) {
+          await removeFileSafe(req.file.path);
+          return res.status(500).json({ message: "Unable to store profile picture" });
+        }
+        const previousLocation = user.profilePicturePath;
         const updated = await updateUserProfile(req.user.username, {
-          profilePicturePath: pictureUrl,
+          profilePicturePath: media.location,
         });
-        if (previousPath && previousPath !== req.file.path) {
-          await removeFileSafe(previousPath);
+        if (previousLocation && previousLocation !== media.location) {
+          await removeMediaLocation(previousLocation);
         }
         res.status(201).json({ user: publicUser(updated) });
       } catch (err) {
         console.error("Failed to upload profile picture", err);
-        await removeFileSafe(req.file.path);
+        if (media?.location) {
+          await removeMediaLocation(media.location);
+        } else if (req.file?.path) {
+          await removeFileSafe(req.file.path);
+        }
         res.status(500).json({ message: "Unable to update profile picture" });
       }
     });
@@ -1526,15 +1641,10 @@ function createApp() {
       }
       const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
       const attachments = Array.isArray(req.files)
-        ? req.files.map((file) => describeAttachment(file)).filter(Boolean)
+        ? (await Promise.all(req.files.map((file) => describeAttachment(file)))).filter(Boolean)
         : [];
       if (!text && !attachments.length) {
-        await Promise.all(
-          attachments.map((attachment) => {
-            const abs = absoluteUploadPath(attachment.url);
-            return abs ? removeFileSafe(abs) : Promise.resolve();
-          })
-        );
+        await cleanupAttachments(attachments);
         return res.status(400).json({ message: "Add text or media to your event" });
       }
       try {
@@ -1558,12 +1668,7 @@ function createApp() {
         });
       } catch (err) {
         console.error("Failed to save event", err);
-        await Promise.all(
-          attachments.map((attachment) => {
-            const abs = absoluteUploadPath(attachment.url);
-            return abs ? removeFileSafe(abs) : Promise.resolve();
-          })
-        );
+        await cleanupAttachments(attachments);
         res.status(500).json({ message: "Unable to publish event" });
       }
     });
@@ -1582,14 +1687,7 @@ function createApp() {
       }
       await deleteUserEvent(req.user.username, eventId);
       if (Array.isArray(target.attachments)) {
-        await Promise.all(
-          target.attachments.map(async (attachment) => {
-            const abs = absoluteUploadPath(attachment.url);
-            if (abs) {
-              await removeFileSafe(abs);
-            }
-          })
-        );
+        await cleanupAttachments(target.attachments);
       }
       res.status(204).end();
     } catch (error) {
@@ -1606,15 +1704,10 @@ function createApp() {
       }
       const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
       const attachments = Array.isArray(req.files)
-        ? req.files.map((file) => describeAttachment(file)).filter(Boolean)
+        ? (await Promise.all(req.files.map((file) => describeAttachment(file)))).filter(Boolean)
         : [];
       if (!text && !attachments.length) {
-        await Promise.all(
-          attachments.map((attachment) => {
-            const abs = absoluteUploadPath(attachment.url);
-            return abs ? removeFileSafe(abs) : Promise.resolve();
-          })
-        );
+        await cleanupAttachments(attachments);
         return res.status(400).json({ message: "Posts must include text or media" });
       }
       try {
@@ -1637,12 +1730,7 @@ function createApp() {
         });
       } catch (err) {
         console.error("Failed to create post", err);
-        await Promise.all(
-          attachments.map((attachment) => {
-            const abs = absoluteUploadPath(attachment.url);
-            return abs ? removeFileSafe(abs) : Promise.resolve();
-          })
-        );
+        await cleanupAttachments(attachments);
         res.status(500).json({ message: "Unable to publish post" });
       }
     });
@@ -1661,14 +1749,7 @@ function createApp() {
       }
       await deleteUserPost(req.user.username, postId);
       if (Array.isArray(target.attachments)) {
-        await Promise.all(
-          target.attachments.map(async (attachment) => {
-            const abs = absoluteUploadPath(attachment.url);
-            if (abs) {
-              await removeFileSafe(abs);
-            }
-          })
-        );
+        await cleanupAttachments(target.attachments);
       }
       res.status(204).end();
     } catch (error) {
