@@ -53,6 +53,48 @@ const USER_BADGE_DEFINITIONS = Object.freeze({
 
 const USER_BADGE_ORDER = Object.freeze(["WantYou", "Verified"]);
 
+const POST_VISIBILITY_LABELS = Object.freeze({
+  public: "Public",
+  connections: "Connections",
+  private: "Private",
+});
+
+const POST_VISIBILITY_BADGE = Object.freeze({
+  public: "badge--info",
+  connections: "badge--accent",
+  private: "badge--muted",
+});
+
+const POST_MOOD_LABELS = Object.freeze({
+  none: "",
+  celebration: "Celebration",
+  question: "Question",
+  memory: "Memory",
+  announcement: "Announcement",
+});
+
+const POST_MOOD_BADGE = Object.freeze({
+  celebration: "badge--accent",
+  question: "badge--info",
+  memory: "badge--muted",
+  announcement: "badge--warning",
+});
+
+const EVENT_ACCENTS = Object.freeze(["sunrise", "ocean", "violet", "forest"]);
+
+const EVENT_ACCENT_COLORS = Object.freeze({
+  sunrise: "var(--event-accent-sunrise)",
+  ocean: "var(--event-accent-ocean)",
+  violet: "var(--event-accent-violet)",
+  forest: "var(--event-accent-forest)",
+});
+
+const EVENT_RING_ACCENT_CLASSES = EVENT_ACCENTS.map(
+  (accent) => `profile-summary__event-ring--accent-${accent}`
+);
+
+const EVENT_VIEW_DURATION_MS = 6000;
+
 const HERO_CARDS = [
   {
     heading: "Know you",
@@ -404,6 +446,65 @@ function formatRelativeTime(isoString) {
     return `${days} day${days === 1 ? "" : "s"} ago`;
   }
   return date.toLocaleDateString();
+}
+
+function formatTimeRemaining(isoString) {
+  if (!isoString) return "";
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const diff = date.getTime() - Date.now();
+  if (diff <= 0) {
+    return "Expired";
+  }
+  const totalMinutes = Math.floor(diff / 60000);
+  if (totalMinutes < 60) {
+    return `Expires in ${totalMinutes} min${totalMinutes === 1 ? "" : "s"}`;
+  }
+  const totalHours = Math.floor(totalMinutes / 60);
+  if (totalHours < 48) {
+    const remainingMinutes = totalMinutes % 60;
+    const minuteText = remainingMinutes ? ` ${remainingMinutes} min` : "";
+    return `Expires in ${totalHours} h${minuteText}`;
+  }
+  const days = Math.floor(totalHours / 24);
+  return `Expires in ${days} day${days === 1 ? "" : "s"}`;
+}
+
+function postSortScore(post) {
+  const updated = post?.updatedAt ?? post?.createdAt;
+  if (!updated) return 0;
+  const time = Date.parse(updated);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function sortPostsForDisplay(posts = []) {
+  return posts.slice().sort((a, b) => postSortScore(b) - postSortScore(a));
+}
+
+function eventSortScore(event) {
+  const created = event?.createdAt ?? event?.expiresAt;
+  const time = created ? Date.parse(created) : 0;
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function sortEventsForDisplay(events = []) {
+  return events
+    .slice()
+    .sort((a, b) => {
+      if (Boolean(a?.highlighted) !== Boolean(b?.highlighted)) {
+        return a.highlighted ? -1 : 1;
+      }
+      return eventSortScore(b) - eventSortScore(a);
+    });
+}
+
+function normalizeEventAccent(accent) {
+  if (EVENT_ACCENTS.includes(accent)) {
+    return accent;
+  }
+  return EVENT_ACCENTS[0];
 }
 
 function tagClassForStatus(status) {
@@ -1878,11 +1979,14 @@ async function initProfile() {
   const addEventButton = document.querySelector('[data-action="add-event"]');
   const addPostButton = document.querySelector('[data-action="add-post"]');
   const eventModal = document.querySelector("[data-events-modal]");
-  const eventModalList = eventModal?.querySelector("[data-events-modal-list]");
+  const eventModalStage = eventModal?.querySelector("[data-events-modal-stage]");
+  const eventModalProgress = eventModal?.querySelector("[data-events-modal-progress]");
   const eventModalEmpty = eventModal?.querySelector("[data-events-modal-empty]");
+  const eventModalNav = eventModal?.querySelector("[data-events-modal-nav]");
   const profileDialog = document.querySelector("[data-profile-dialog]");
   const eventDialog = document.querySelector("[data-event-dialog]");
   const postDialog = document.querySelector("[data-post-dialog]");
+  const postEditDialog = document.querySelector("[data-post-edit-dialog]");
   const eventLimitNote = document.querySelector("[data-event-limit]");
   const postLimitNote = document.querySelector("[data-post-limit]");
   function createPresenceController(element) {
@@ -1965,6 +2069,8 @@ async function initProfile() {
   bioEl.textContent = "Add more about yourself so people can get to know you.";
 
   let profileData = null;
+  let activeEventIndex = 0;
+  let eventAutoAdvanceTimer = null;
 
   const toggleOwnVisibility = (canEdit) => {
     const canVerify = Boolean(profileData?.canVerify);
@@ -2008,7 +2114,22 @@ async function initProfile() {
       );
     }
     if (eventRing) {
-      eventRing.hidden = !events?.length;
+      EVENT_RING_ACCENT_CLASSES.forEach((cls) => eventRing.classList.remove(cls));
+      if (events?.length) {
+        const primaryAccent = normalizeEventAccent(events[0]?.accent);
+        const accentClass = `profile-summary__event-ring--accent-${primaryAccent}`;
+        eventRing.classList.add(accentClass);
+        const accentColor = EVENT_ACCENT_COLORS[primaryAccent] ?? "";
+        if (accentColor) {
+          eventRing.style.setProperty("--event-accent", accentColor);
+        } else {
+          eventRing.style.removeProperty("--event-accent");
+        }
+        eventRing.hidden = false;
+      } else {
+        eventRing.hidden = true;
+        eventRing.style.removeProperty("--event-accent");
+      }
     }
   };
 
@@ -2091,32 +2212,194 @@ async function initProfile() {
     });
   };
 
-  const renderEvents = () => {
-    if (!eventList || !eventEmpty || !eventModalList || !eventModalEmpty) return;
+  const clearEventAutoAdvance = () => {
+    if (eventAutoAdvanceTimer) {
+      window.clearTimeout(eventAutoAdvanceTimer);
+      eventAutoAdvanceTimer = null;
+    }
+  };
+
+  const scheduleEventAutoAdvance = () => {
+    clearEventAutoAdvance();
     const events = profileData?.events ?? [];
+    if (events.length <= 1) {
+      return;
+    }
+    if (!eventModal?.classList.contains("events-modal--open")) {
+      return;
+    }
+    eventAutoAdvanceTimer = window.setTimeout(() => {
+      showEventAt(activeEventIndex + 1);
+    }, EVENT_VIEW_DURATION_MS);
+  };
+
+  const updateEventProgress = () => {
+    if (!eventModalProgress) return;
+    const segments = Array.from(eventModalProgress.children);
+    const events = profileData?.events ?? [];
+    segments.forEach((segment, index) => {
+      const event = events[index] ?? null;
+      const accent = normalizeEventAccent(event?.accent);
+      const accentColor = EVENT_ACCENT_COLORS[accent] ?? "";
+      if (accentColor) {
+        segment.style.setProperty("--event-accent", accentColor);
+        segment.style.color = accentColor;
+      } else {
+        segment.style.removeProperty("--event-accent");
+        segment.style.removeProperty("color");
+      }
+      if (event) {
+        segment.dataset.accent = accent;
+        const caption = event.text?.trim() || "Shared an update";
+        segment.setAttribute("aria-label", caption);
+        segment.title = caption;
+      } else {
+        segment.removeAttribute("data-accent");
+        segment.removeAttribute("aria-label");
+        segment.removeAttribute("title");
+      }
+      const highlighted = Boolean(event?.highlighted);
+      segment.dataset.highlighted = highlighted ? "true" : "false";
+      segment.classList.toggle("is-highlighted", highlighted);
+      segment.classList.toggle("is-active", index === activeEventIndex);
+    });
+  };
+
+  const updateEventNavState = () => {
+    if (!eventModalNav) return;
+    const events = profileData?.events ?? [];
+    const prevButton = eventModalNav.querySelector('[data-action="prev-event"]');
+    const nextButton = eventModalNav.querySelector('[data-action="next-event"]');
+    const disabled = events.length <= 1;
+    if (prevButton) {
+      prevButton.disabled = disabled;
+    }
+    if (nextButton) {
+      nextButton.disabled = disabled;
+    }
+    eventModalNav.hidden = !events.length;
+  };
+
+  const renderEventStage = () => {
+    if (!eventModalStage) return;
+    const events = profileData?.events ?? [];
+    const event = events[activeEventIndex] ?? null;
+    eventModalStage.innerHTML = "";
+    if (!event) {
+      eventModalStage.removeAttribute("data-accent");
+      eventModalStage.removeAttribute("data-highlighted");
+      eventModalStage.removeAttribute("aria-label");
+      eventModalStage.style.removeProperty("--event-accent");
+      return;
+    }
+    const accent = normalizeEventAccent(event.accent);
+    eventModalStage.dataset.accent = accent;
+    eventModalStage.dataset.highlighted = event.highlighted ? "true" : "false";
+    const color = EVENT_ACCENT_COLORS[accent] ?? "";
+    if (color) {
+      eventModalStage.style.setProperty("--event-accent", color);
+    } else {
+      eventModalStage.style.removeProperty("--event-accent");
+    }
+    const captionText = event.text?.trim() || "Shared an update";
+    const labelText = event.highlighted
+      ? `${captionText} (highlighted event)`
+      : captionText;
+    eventModalStage.setAttribute("aria-label", labelText);
+    const heading = document.createElement("h3");
+    heading.textContent = captionText;
+    eventModalStage.appendChild(heading);
+    if (event.attachments?.length) {
+      const media = document.createElement("div");
+      media.className = "events-modal__media";
+      media.appendChild(createMediaFragment(event.attachments));
+      eventModalStage.appendChild(media);
+    }
+    const meta = document.createElement("div");
+    meta.className = "events-modal__meta";
+    const created = document.createElement("time");
+    if (event.createdAt) {
+      created.dateTime = event.createdAt;
+    }
+    created.textContent = formatRelativeTime(event.createdAt) || "Just now";
+    meta.appendChild(created);
+    const countdown = formatTimeRemaining(event.expiresAt);
+    if (countdown) {
+      const countdownEl = document.createElement("span");
+      countdownEl.textContent = countdown;
+      meta.appendChild(countdownEl);
+    }
+    if (event.highlighted) {
+      const badge = document.createElement("span");
+      badge.className = "badge badge--accent";
+      badge.textContent = "Highlighted";
+      meta.appendChild(badge);
+    }
+    const loop = document.createElement("span");
+    loop.textContent = `${event.durationHours || 24}h loop`;
+    meta.appendChild(loop);
+    eventModalStage.appendChild(meta);
+  };
+
+  function showEventAt(index) {
+    const events = profileData?.events ?? [];
+    if (!events.length) {
+      activeEventIndex = 0;
+      renderEventStage();
+      updateEventProgress();
+      updateEventNavState();
+      return;
+    }
+    const total = events.length;
+    const nextIndex = ((index % total) + total) % total;
+    activeEventIndex = nextIndex;
+    renderEventStage();
+    updateEventProgress();
+    updateEventNavState();
+    scheduleEventAutoAdvance();
+  }
+
+  const renderEvents = () => {
+    if (!eventList || !eventEmpty || !eventModalEmpty) return;
+    profileData.events = sortEventsForDisplay(profileData?.events ?? []);
+    const events = profileData.events;
     eventList.innerHTML = "";
-    eventModalList.innerHTML = "";
     const hasEvents = Boolean(events.length);
     eventEmpty.hidden = hasEvents;
     eventModalEmpty.hidden = hasEvents;
     if (avatarButton) {
       avatarButton.classList.toggle("profile-summary__avatar--has-events", hasEvents);
     }
-    if (eventRing) {
-      eventRing.hidden = !hasEvents;
-    }
-
     if (!hasEvents) {
+      if (eventModalStage) {
+        eventModalStage.innerHTML = "";
+        eventModalStage.removeAttribute("data-accent");
+        eventModalStage.removeAttribute("data-highlighted");
+        eventModalStage.removeAttribute("aria-label");
+        eventModalStage.style.removeProperty("--event-accent");
+      }
+      if (eventModalProgress) {
+        eventModalProgress.innerHTML = "";
+      }
+      updateEventNavState();
+      clearEventAutoAdvance();
+      applyAvatar(profileData.user, profileData.events);
       return;
     }
 
-    events.forEach((event) => {
+    events.forEach((event, index) => {
       const item = document.createElement("li");
       item.className = "profile-event";
+      item.dataset.accent = normalizeEventAccent(event.accent);
+      item.dataset.highlighted = event.highlighted ? "true" : "false";
+      item.tabIndex = 0;
+      const caption = event.text?.trim() || "Shared an update";
+      const labelText = event.highlighted ? `${caption} (highlighted event)` : caption;
+      item.setAttribute("aria-label", labelText);
       const header = document.createElement("div");
       header.className = "profile-event__header";
       const title = document.createElement("strong");
-      title.textContent = event.text || "Event";
+      title.textContent = caption;
       const time = document.createElement("p");
       time.className = "profile-event__timestamp";
       time.textContent = formatRelativeTime(event.createdAt) || "Just now";
@@ -2131,6 +2414,35 @@ async function initProfile() {
         item.appendChild(media);
       }
 
+      const metaRow = document.createElement("div");
+      metaRow.className = "profile-event__meta";
+      const countdown = document.createElement("p");
+      countdown.className = "profile-event__countdown";
+      countdown.textContent = formatTimeRemaining(event.expiresAt);
+      metaRow.appendChild(countdown);
+      if (event.highlighted) {
+        const badge = document.createElement("span");
+        badge.className = "badge badge--accent";
+        badge.textContent = "Highlighted";
+        metaRow.appendChild(badge);
+      }
+      const durationBadge = document.createElement("span");
+      durationBadge.className = "badge badge--muted";
+      durationBadge.textContent = `${event.durationHours || 24}h`; 
+      metaRow.appendChild(durationBadge);
+      item.appendChild(metaRow);
+
+      const openEvent = () => {
+        openEventsModal(index);
+      };
+      item.addEventListener("click", openEvent);
+      item.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter" || evt.key === " ") {
+          evt.preventDefault();
+          openEvent();
+        }
+      });
+
       if (profileData?.canEdit) {
         const actions = document.createElement("div");
         actions.className = "profile-event__actions";
@@ -2138,7 +2450,8 @@ async function initProfile() {
         deleteButton.className = "button button--ghost";
         deleteButton.type = "button";
         deleteButton.textContent = "Remove";
-        deleteButton.addEventListener("click", async () => {
+        deleteButton.addEventListener("click", async (eventClick) => {
+          eventClick.stopPropagation();
           if (!window.confirm("Remove this event?")) return;
           try {
             await apiRequest(`/events/${encodeURIComponent(event.id)}`, { method: "DELETE" });
@@ -2153,26 +2466,64 @@ async function initProfile() {
       }
 
       eventList.appendChild(item);
-
-      const modalItem = document.createElement("li");
-      modalItem.className = "events-modal__item";
-      if (event.text) {
-        const text = document.createElement("p");
-        text.textContent = event.text;
-        modalItem.appendChild(text);
-      }
-      if (event.attachments?.length) {
-        const media = document.createElement("div");
-        media.className = "events-modal__media";
-        media.appendChild(createMediaFragment(event.attachments));
-        modalItem.appendChild(media);
-      }
-      const meta = document.createElement("p");
-      meta.className = "profile-event__timestamp";
-      meta.textContent = formatRelativeTime(event.createdAt) || "Just now";
-      modalItem.appendChild(meta);
-      eventModalList.appendChild(modalItem);
     });
+
+    if (eventModalProgress) {
+      eventModalProgress.innerHTML = "";
+      profileData.events.forEach((event) => {
+        const segment = document.createElement("span");
+        segment.className = "events-modal__progress-segment";
+        const accent = normalizeEventAccent(event.accent);
+        segment.dataset.accent = accent;
+        const accentColor = EVENT_ACCENT_COLORS[accent] ?? "";
+        if (accentColor) {
+          segment.style.setProperty("--event-accent", accentColor);
+          segment.style.color = accentColor;
+        }
+        const highlighted = Boolean(event.highlighted);
+        segment.dataset.highlighted = highlighted ? "true" : "false";
+        if (highlighted) {
+          segment.classList.add("is-highlighted");
+        }
+        const caption = event.text?.trim() || "Shared an update";
+        segment.setAttribute("aria-label", caption);
+        segment.title = caption;
+        const bar = document.createElement("span");
+        bar.className = "events-modal__progress-bar";
+        segment.appendChild(bar);
+        eventModalProgress.appendChild(segment);
+      });
+    }
+
+    if (activeEventIndex >= profileData.events.length) {
+      activeEventIndex = 0;
+    }
+    updateEventProgress();
+    updateEventNavState();
+    applyAvatar(profileData.user, profileData.events);
+    if (eventModal?.classList.contains("events-modal--open")) {
+      showEventAt(activeEventIndex);
+    } else {
+      renderEventStage();
+    }
+  };
+
+  const integrateEvent = (event) => {
+    if (!event) return;
+    const current = Array.isArray(profileData?.events) ? profileData.events : [];
+    const next = current.filter((entry) => entry.id !== event.id);
+    next.push(event);
+    profileData.events = sortEventsForDisplay(next);
+    renderEvents();
+  };
+
+  const integratePost = (post) => {
+    if (!post) return;
+    const current = Array.isArray(profileData?.posts) ? profileData.posts : [];
+    const next = current.filter((entry) => entry.id !== post.id);
+    next.push(post);
+    profileData.posts = sortPostsForDisplay(next);
+    renderPosts();
   };
 
   const renderPosts = () => {
@@ -2194,9 +2545,35 @@ async function initProfile() {
       header.appendChild(title);
       const time = document.createElement("p");
       time.className = "profile-post__timestamp";
-      time.textContent = formatRelativeTime(post.createdAt) || "Just now";
+      const createdText = formatRelativeTime(post.createdAt) || "Just now";
+      const updatedText =
+        post.updatedAt && post.updatedAt !== post.createdAt
+          ? formatRelativeTime(post.updatedAt)
+          : null;
+      time.textContent = updatedText ? `Updated ${updatedText}` : createdText;
       header.appendChild(time);
       item.appendChild(header);
+
+      const badges = document.createElement("div");
+      badges.className = "profile-post__badges";
+      const visibility = post.visibility || "public";
+      const visibilityBadge = document.createElement("span");
+      const visibilityClass = POST_VISIBILITY_BADGE[visibility] || "badge--muted";
+      visibilityBadge.className = `badge ${visibilityClass} profile-post__visibility`;
+      visibilityBadge.textContent = POST_VISIBILITY_LABELS[visibility] || POST_VISIBILITY_LABELS.public;
+      badges.appendChild(visibilityBadge);
+      const moodLabel = POST_MOOD_LABELS[post.mood] || "";
+      if (moodLabel) {
+        const moodBadge = document.createElement("span");
+        const moodClass = POST_MOOD_BADGE[post.mood] || "badge--accent";
+        moodBadge.className = `badge ${moodClass} profile-post__mood`;
+        const dot = document.createElement("span");
+        dot.className = "badge__dot";
+        moodBadge.appendChild(dot);
+        moodBadge.appendChild(document.createTextNode(moodLabel));
+        badges.appendChild(moodBadge);
+      }
+      item.appendChild(badges);
 
       if (post.attachments?.length) {
         const media = document.createElement("div");
@@ -2208,6 +2585,14 @@ async function initProfile() {
       if (profileData?.canEdit) {
         const actions = document.createElement("div");
         actions.className = "profile-post__actions";
+        const editButton = document.createElement("button");
+        editButton.className = "button button--ghost";
+        editButton.type = "button";
+        editButton.textContent = "Edit";
+        editButton.addEventListener("click", () => {
+          openPostEditor(post);
+        });
+        actions.appendChild(editButton);
         const deleteButton = document.createElement("button");
         deleteButton.className = "button button--ghost";
         deleteButton.type = "button";
@@ -2216,7 +2601,7 @@ async function initProfile() {
           if (!window.confirm("Delete this post?")) return;
           try {
             await apiRequest(`/posts/${encodeURIComponent(post.id)}`, { method: "DELETE" });
-            profileData.posts = profileData.posts.filter((entry) => entry.id !== post.id);
+            profileData.posts = (profileData.posts ?? []).filter((entry) => entry.id !== post.id);
             renderPosts();
           } catch (error) {
             window.alert(error?.message || "We couldn't delete that post.");
@@ -2230,6 +2615,56 @@ async function initProfile() {
     });
   };
 
+  function openPostEditor(post) {
+    if (!profileData?.canEdit || !post) return;
+    if (!postEditDialog || !openDialog(postEditDialog)) {
+      const nextText = window.prompt("Update your post", post.text ?? "");
+      if (nextText === null) return;
+      const nextVisibility = window.prompt(
+        "Update visibility (public, connections, private)",
+        post.visibility || "public"
+      );
+      if (nextVisibility === null) return;
+      const nextMood = window.prompt(
+        "Update mood (none, celebration, question, memory, announcement)",
+        post.mood || "none"
+      );
+      (async () => {
+        try {
+          const response = await apiRequest(`/posts/${encodeURIComponent(post.id)}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              text: nextText,
+              visibility: nextVisibility,
+              mood: nextMood,
+            }),
+          });
+          if (response?.post) {
+            integratePost(response.post);
+          }
+        } catch (error) {
+          window.alert(error?.message || "We couldn't update that post.");
+        }
+      })();
+      return;
+    }
+    const form = postEditDialog.querySelector("form");
+    if (!form) return;
+    form.reset();
+    if (form.elements.postId) {
+      form.elements.postId.value = post.id;
+    }
+    if (form.elements.text) {
+      form.elements.text.value = post.text ?? "";
+    }
+    if (form.elements.visibility) {
+      form.elements.visibility.value = post.visibility || "public";
+    }
+    if (form.elements.mood) {
+      form.elements.mood.value = post.mood || "none";
+    }
+  }
+
   const renderProfile = (data) => {
     if (!data) return;
     profileData = {
@@ -2238,6 +2673,9 @@ async function initProfile() {
         ...(data.user ?? {}),
       },
     };
+    profileData.events = sortEventsForDisplay(data.events ?? []);
+    profileData.posts = sortPostsForDisplay(data.posts ?? []);
+    activeEventIndex = 0;
     const user = profileData.user;
     user.badges = Array.isArray(user.badges) ? user.badges : [];
     const viewerUsername = sessionUser?.username ?? null;
@@ -2312,7 +2750,7 @@ async function initProfile() {
     bioEl.textContent = user.bio ? user.bio : bioFallback;
     bioEl.classList.toggle("profile-summary__tagline--empty", !user.bio);
 
-    applyAvatar(user, data.events);
+    applyAvatar(user, profileData.events);
     renderUserBadges(profileBadges, user.badges);
 
     if (verifyButton) {
@@ -2597,8 +3035,7 @@ async function initProfile() {
         body: payload,
       });
       if (response?.event) {
-        profileData.events = [response.event, ...(profileData.events ?? [])];
-        renderEvents();
+        integrateEvent(response.event);
       }
     } catch (error) {
       window.alert(error?.message || "We couldn't share that event.");
@@ -2625,8 +3062,7 @@ async function initProfile() {
         body: payload,
       });
       if (response?.post) {
-        profileData.posts = [response.post, ...(profileData.posts ?? [])];
-        renderPosts();
+        integratePost(response.post);
       }
     } catch (error) {
       window.alert(error?.message || "We couldn't publish that post.");
@@ -2647,6 +3083,34 @@ async function initProfile() {
     }
   });
 
+  postEditDialog?.addEventListener("close", async () => {
+    const form = postEditDialog.querySelector("form");
+    if (!form) return;
+    const postId = form.elements.postId?.value;
+    if (!postId || !profileData?.canEdit || postEditDialog.returnValue !== "save") {
+      form.reset();
+      return;
+    }
+    const payload = {
+      text: String(form.elements.text?.value ?? ""),
+      visibility: String(form.elements.visibility?.value ?? "public"),
+      mood: String(form.elements.mood?.value ?? "none"),
+    };
+    try {
+      const response = await apiRequest(`/posts/${encodeURIComponent(postId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      if (response?.post) {
+        integratePost(response.post);
+      }
+    } catch (error) {
+      window.alert(error?.message || "We couldn't update that post.");
+    } finally {
+      form.reset();
+    }
+  });
+
   addEventButton?.addEventListener("click", () => {
     if (!profileData?.canEdit) return;
     if (!openDialog(eventDialog)) {
@@ -2658,8 +3122,7 @@ async function initProfile() {
         try {
           const response = await apiRequest("/events", { method: "POST", body: payload });
           if (response?.event) {
-            profileData.events = [response.event, ...(profileData.events ?? [])];
-            renderEvents();
+            integrateEvent(response.event);
           }
         } catch (error) {
           window.alert(error?.message || "We couldn't share that event.");
@@ -2679,8 +3142,7 @@ async function initProfile() {
         try {
           const response = await apiRequest("/posts", { method: "POST", body: payload });
           if (response?.post) {
-            profileData.posts = [response.post, ...(profileData.posts ?? [])];
-            renderPosts();
+            integratePost(response.post);
           }
         } catch (error) {
           window.alert(error?.message || "We couldn't publish that post.");
@@ -2693,31 +3155,48 @@ async function initProfile() {
     if (!eventModal) return;
     eventModal.classList.remove("events-modal--open");
     eventModal.hidden = true;
+    clearEventAutoAdvance();
   };
 
-  const openEventsModal = () => {
+  const openEventsModal = (index = 0) => {
     if (!eventModal) return;
-    eventModal.hidden = false;
-    eventModal.classList.add("events-modal--open");
-  };
-
-  avatarButton?.addEventListener("click", () => {
     if (!profileData?.events?.length && !profileData?.canEdit) {
       return;
     }
-    openEventsModal();
+    activeEventIndex = Math.max(0, Math.min(index, (profileData?.events?.length ?? 1) - 1));
+    eventModal.hidden = false;
+    eventModal.classList.add("events-modal--open");
+    showEventAt(activeEventIndex);
+  };
+
+  avatarButton?.addEventListener("click", () => {
+    openEventsModal(activeEventIndex);
   });
 
   eventModal?.addEventListener("click", (event) => {
     const action = event.target?.dataset?.action;
     if (action === "close-events") {
       closeEventsModal();
+    } else if (action === "prev-event") {
+      showEventAt(activeEventIndex - 1);
+    } else if (action === "next-event") {
+      showEventAt(activeEventIndex + 1);
     }
+  });
+
+  eventModalStage?.addEventListener("click", () => {
+    showEventAt(activeEventIndex + 1);
   });
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeEventsModal();
+    } else if (eventModal?.classList.contains("events-modal--open")) {
+      if (event.key === "ArrowRight") {
+        showEventAt(activeEventIndex + 1);
+      } else if (event.key === "ArrowLeft") {
+        showEventAt(activeEventIndex - 1);
+      }
     }
   });
 }

@@ -31,6 +31,22 @@ const USERNAME_CHANGE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const MAX_MEDIA_FILE_SIZE = 100 * 1024 * 1024; // 100 MB per GitHub upload limit
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 
+const EVENT_DURATION_OPTIONS = new Set([6, 12, 24, 48]);
+const EVENT_ACCENTS = new Set(["sunrise", "ocean", "violet", "forest"]);
+const DEFAULT_EVENT_DURATION_HOURS = 24;
+const DEFAULT_EVENT_ACCENT = "sunrise";
+
+const VALID_POST_VISIBILITIES = new Set(["public", "connections", "private"]);
+const DEFAULT_POST_VISIBILITY = "public";
+const VALID_POST_MOODS = new Set([
+  "none",
+  "celebration",
+  "question",
+  "memory",
+  "announcement",
+]);
+const DEFAULT_POST_MOOD = "none";
+
 function resolveUploadRoot() {
   const explicit = process.env.UPLOAD_ROOT?.trim();
   if (explicit) {
@@ -1337,13 +1353,121 @@ function sortByNewest(records) {
   });
 }
 
+function normalizeEventDuration(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (EVENT_DURATION_OPTIONS.has(parsed)) {
+    return parsed;
+  }
+  return DEFAULT_EVENT_DURATION_HOURS;
+}
+
+function normalizeEventAccent(accent) {
+  if (typeof accent !== "string") {
+    return DEFAULT_EVENT_ACCENT;
+  }
+  const trimmed = accent.trim().toLowerCase();
+  if (EVENT_ACCENTS.has(trimmed)) {
+    return trimmed;
+  }
+  return DEFAULT_EVENT_ACCENT;
+}
+
+function normalizePostVisibility(value) {
+  if (typeof value !== "string") {
+    return DEFAULT_POST_VISIBILITY;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (VALID_POST_VISIBILITIES.has(normalized)) {
+    return normalized;
+  }
+  return DEFAULT_POST_VISIBILITY;
+}
+
+function normalizePostMood(value) {
+  if (typeof value !== "string") {
+    return DEFAULT_POST_MOOD;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (VALID_POST_MOODS.has(normalized)) {
+    return normalized;
+  }
+  return DEFAULT_POST_MOOD;
+}
+
+function sanitizeEventRecord(event) {
+  if (!event) {
+    throw new Error("Event record missing");
+  }
+  const createdAtRaw = typeof event.createdAt === "string" ? event.createdAt : new Date().toISOString();
+  const createdAtTime = Date.parse(createdAtRaw);
+  const createdAt = Number.isNaN(createdAtTime) ? new Date().toISOString() : new Date(createdAtTime).toISOString();
+  const durationHours = normalizeEventDuration(event.durationHours);
+  const expiresSource = typeof event.expiresAt === "string" ? Date.parse(event.expiresAt) : NaN;
+  const expiresAt = Number.isNaN(expiresSource)
+    ? new Date(Date.parse(createdAt) + durationHours * 60 * 60 * 1000).toISOString()
+    : new Date(expiresSource).toISOString();
+  return {
+    id: event.id ?? crypto.randomUUID(),
+    text: typeof event.text === "string" ? event.text.trim() : "",
+    attachments: Array.isArray(event.attachments) ? event.attachments : [],
+    createdAt,
+    expiresAt,
+    durationHours,
+    accent: normalizeEventAccent(event.accent),
+    highlighted: Boolean(event.highlighted),
+  };
+}
+
+function postSortScore(post) {
+  const reference = post?.updatedAt ?? post?.createdAt;
+  if (!reference) return 0;
+  const parsed = Date.parse(reference);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function sortPostsForDisplay(posts) {
+  return posts.slice().sort((a, b) => postSortScore(b) - postSortScore(a));
+}
+
+function sortEventsForDisplay(events) {
+  return events
+    .slice()
+    .sort((a, b) => {
+      if (Boolean(a?.highlighted) !== Boolean(b?.highlighted)) {
+        return a.highlighted ? -1 : 1;
+      }
+      return timestampScore(b?.createdAt) - timestampScore(a?.createdAt);
+    });
+}
+
+function sanitizePostRecord(post) {
+  if (!post) {
+    throw new Error("Post record missing");
+  }
+  const createdAtRaw = typeof post.createdAt === "string" ? post.createdAt : new Date().toISOString();
+  const createdTime = Date.parse(createdAtRaw);
+  const createdAt = Number.isNaN(createdTime) ? new Date().toISOString() : new Date(createdTime).toISOString();
+  const updatedRaw = typeof post.updatedAt === "string" ? post.updatedAt : createdAt;
+  const updatedTime = Date.parse(updatedRaw);
+  const updatedAt = Number.isNaN(updatedTime) ? createdAt : new Date(updatedTime).toISOString();
+  return {
+    id: post.id ?? crypto.randomUUID(),
+    text: typeof post.text === "string" ? post.text.trim() : "",
+    attachments: Array.isArray(post.attachments) ? post.attachments : [],
+    createdAt,
+    updatedAt,
+    visibility: normalizePostVisibility(post.visibility),
+    mood: normalizePostMood(post.mood),
+  };
+}
+
 async function listUserEvents(username) {
   const key = userEventsKey(username);
   const raw = await redisCommand(["LRANGE", key, "0", "-1"]);
   if (!Array.isArray(raw)) {
     return [];
   }
-  const nowIso = Date.now();
+  const nowMs = Date.now();
   const events = [];
   let changed = false;
   raw.forEach((item) => {
@@ -1352,30 +1476,33 @@ async function listUserEvents(username) {
       changed = true;
       return;
     }
-    const expires = parsed.expiresAt ? Date.parse(parsed.expiresAt) : null;
-    if (expires && expires <= nowIso) {
+    const sanitized = sanitizeEventRecord(parsed);
+    const expiresTime = sanitized.expiresAt ? Date.parse(sanitized.expiresAt) : NaN;
+    if (Number.isNaN(expiresTime) || expiresTime <= nowMs) {
       changed = true;
       return;
     }
-    events.push(parsed);
+    events.push(sanitized);
   });
+  const sorted = sortEventsForDisplay(events);
   if (changed) {
-    await rewriteList(key, sortByNewest(events));
+    await rewriteList(key, sorted);
   }
-  return sortByNewest(events);
+  return sorted;
 }
 
 async function saveUserEvent(username, event) {
   const key = userEventsKey(username);
-  await redisCommand(["LPUSH", key, JSON.stringify(event)]);
-  return event;
+  const sanitized = sanitizeEventRecord(event);
+  await redisCommand(["LPUSH", key, JSON.stringify(sanitized)]);
+  return sanitized;
 }
 
 async function deleteUserEvent(username, eventId) {
   const events = await listUserEvents(username);
   const filtered = events.filter((event) => event.id !== eventId);
   if (filtered.length !== events.length) {
-    await rewriteList(userEventsKey(username), sortByNewest(filtered));
+    await rewriteList(userEventsKey(username), sortEventsForDisplay(filtered));
   }
 }
 
@@ -1388,22 +1515,43 @@ async function listUserPosts(username) {
   const posts = raw
     .map((item) => parseJsonSafe(item, null))
     .filter(Boolean)
-    .map((post) => ({ ...post, attachments: Array.isArray(post.attachments) ? post.attachments : [] }));
-  return sortByNewest(posts);
+    .map((post) => sanitizePostRecord(post));
+  return sortPostsForDisplay(posts);
 }
 
 async function saveUserPost(username, post) {
-  await redisCommand(["LPUSH", userPostsKey(username), JSON.stringify(post)]);
-  return post;
+  const sanitized = sanitizePostRecord(post);
+  await redisCommand(["LPUSH", userPostsKey(username), JSON.stringify(sanitized)]);
+  return sanitized;
 }
 
 async function deleteUserPost(username, postId) {
   const posts = await listUserPosts(username);
   const filtered = posts.filter((post) => post.id !== postId);
   if (filtered.length !== posts.length) {
-    await rewriteList(userPostsKey(username), sortByNewest(filtered));
+    await rewriteList(userPostsKey(username), sortPostsForDisplay(filtered));
   }
   return posts.find((post) => post.id === postId) ?? null;
+}
+
+async function updateUserPost(username, postId, updates) {
+  const posts = await listUserPosts(username);
+  const index = posts.findIndex((post) => post.id === postId);
+  if (index === -1) {
+    return null;
+  }
+  const existing = posts[index];
+  const merged = sanitizePostRecord({
+    ...existing,
+    ...updates,
+    id: existing.id,
+    attachments: existing.attachments,
+    createdAt: existing.createdAt,
+  });
+  const nextPosts = posts.slice();
+  nextPosts[index] = merged;
+  await rewriteList(userPostsKey(username), sortPostsForDisplay(nextPosts));
+  return merged;
 }
 
 function publicUser(user) {
@@ -1870,6 +2018,28 @@ function createApp() {
         listUserEvents(requested),
         listUserPosts(requested),
       ]);
+      let filteredPosts = posts;
+      if (!isSelf) {
+        const [incomingToTarget, outgoingFromTarget] = await Promise.all([
+          getIncomingConnections(requested),
+          getOutgoingConnections(requested),
+        ]);
+        const viewerUsername = req.user.username;
+        const viewerOutbound = connectionStateFor(viewerUsername, incomingToTarget);
+        const viewerInbound = connectionStateFor(viewerUsername, outgoingFromTarget);
+        const hasConnection =
+          (viewerOutbound.status && viewerOutbound.status !== "none") ||
+          (viewerInbound.status && viewerInbound.status !== "none");
+        filteredPosts = posts.filter((post) => {
+          if (post.visibility === "private") {
+            return false;
+          }
+          if (post.visibility === "connections") {
+            return hasConnection;
+          }
+          return true;
+        });
+      }
       const response = {
         user: publicUser({ ...targetUser }),
         events: events.map((event) => ({
@@ -1878,13 +2048,18 @@ function createApp() {
           attachments: normalizeAttachments(event.attachments),
           createdAt: event.createdAt,
           expiresAt: event.expiresAt,
+          durationHours: event.durationHours,
+          accent: normalizeEventAccent(event.accent),
+          highlighted: Boolean(event.highlighted),
         })),
-        posts: posts.map((post) => ({
+        posts: filteredPosts.map((post) => ({
           id: post.id,
           text: post.text ?? "",
           attachments: normalizeAttachments(post.attachments),
           createdAt: post.createdAt,
           visibility: post.visibility ?? "public",
+          updatedAt: post.updatedAt,
+          mood: post.mood ?? DEFAULT_POST_MOOD,
         })),
         canEdit: isSelf,
         maxUploadSize: MAX_MEDIA_FILE_SIZE,
@@ -2071,6 +2246,13 @@ function createApp() {
         return uploadErrorResponse(res, error);
       }
       const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+      const requestedDuration = normalizeEventDuration(req.body?.durationHours);
+      const accent = normalizeEventAccent(req.body?.accent);
+      const highlighted = Boolean(
+        req.body?.highlighted === "on" ||
+          req.body?.highlighted === "true" ||
+          req.body?.highlighted === "1"
+      );
       const attachments = Array.isArray(req.files)
         ? (await Promise.all(req.files.map((file) => describeAttachment(file)))).filter(Boolean)
         : [];
@@ -2080,21 +2262,28 @@ function createApp() {
       }
       try {
         const now = new Date();
+        const expiresAt = new Date(now.getTime() + requestedDuration * 60 * 60 * 1000).toISOString();
         const event = {
           id: crypto.randomUUID(),
           text,
           attachments,
           createdAt: now.toISOString(),
-          expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          expiresAt,
+          durationHours: requestedDuration,
+          accent,
+          highlighted,
         };
-        await saveUserEvent(req.user.username, event);
+        const stored = await saveUserEvent(req.user.username, event);
         res.status(201).json({
           event: {
-            id: event.id,
-            text: event.text,
-            attachments: normalizeAttachments(event.attachments),
-            createdAt: event.createdAt,
-            expiresAt: event.expiresAt,
+            id: stored.id,
+            text: stored.text,
+            attachments: normalizeAttachments(stored.attachments),
+            createdAt: stored.createdAt,
+            expiresAt: stored.expiresAt,
+            durationHours: stored.durationHours,
+            accent: stored.accent,
+            highlighted: stored.highlighted,
           },
         });
       } catch (err) {
@@ -2134,29 +2323,40 @@ function createApp() {
         return uploadErrorResponse(res, error);
       }
       const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+      const visibility = normalizePostVisibility(req.body?.visibility);
+      const mood = normalizePostMood(req.body?.mood);
       const attachments = Array.isArray(req.files)
         ? (await Promise.all(req.files.map((file) => describeAttachment(file)))).filter(Boolean)
         : [];
+      if (text.length > 1000) {
+        await cleanupAttachments(attachments);
+        return res.status(400).json({ message: "Posts must be 1000 characters or fewer" });
+      }
       if (!text && !attachments.length) {
         await cleanupAttachments(attachments);
         return res.status(400).json({ message: "Posts must include text or media" });
       }
       try {
+        const nowIso = new Date().toISOString();
         const post = {
           id: crypto.randomUUID(),
           text,
           attachments,
-          createdAt: new Date().toISOString(),
-          visibility: "public",
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          visibility,
+          mood,
         };
-        await saveUserPost(req.user.username, post);
+        const stored = await saveUserPost(req.user.username, post);
         res.status(201).json({
           post: {
-            id: post.id,
-            text: post.text,
-            attachments: normalizeAttachments(post.attachments),
-            createdAt: post.createdAt,
-            visibility: post.visibility,
+            id: stored.id,
+            text: stored.text,
+            attachments: normalizeAttachments(stored.attachments),
+            createdAt: stored.createdAt,
+            updatedAt: stored.updatedAt,
+            visibility: stored.visibility,
+            mood: stored.mood,
           },
         });
       } catch (err) {
@@ -2165,6 +2365,63 @@ function createApp() {
         res.status(500).json({ message: "Unable to publish post" });
       }
     });
+  });
+
+  app.patch("/api/posts/:id", authenticate, async (req, res) => {
+    const postId = req.params.id;
+    if (!postId) {
+      return res.status(400).json({ message: "Post id required" });
+    }
+    const { text, visibility, mood } = req.body ?? {};
+    try {
+      const posts = await listUserPosts(req.user.username);
+      const target = posts.find((post) => post.id === postId);
+      if (!target) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      const updates = {};
+      if (text !== undefined) {
+        if (typeof text !== "string") {
+          return res.status(400).json({ message: "Post text must be a string" });
+        }
+        const trimmed = text.trim();
+        if (trimmed.length > 1000) {
+          return res.status(400).json({ message: "Posts must be 1000 characters or fewer" });
+        }
+        if (!trimmed && !(target.attachments?.length)) {
+          return res.status(400).json({ message: "Posts must include text or media" });
+        }
+        updates.text = trimmed;
+      }
+      if (visibility !== undefined) {
+        updates.visibility = normalizePostVisibility(visibility);
+      }
+      if (mood !== undefined) {
+        updates.mood = normalizePostMood(mood);
+      }
+      if (!Object.keys(updates).length) {
+        return res.status(400).json({ message: "Nothing to update" });
+      }
+      updates.updatedAt = new Date().toISOString();
+      const updated = await updateUserPost(req.user.username, postId, updates);
+      if (!updated) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      res.json({
+        post: {
+          id: updated.id,
+          text: updated.text,
+          attachments: normalizeAttachments(updated.attachments),
+          createdAt: updated.createdAt,
+          updatedAt: updated.updatedAt,
+          visibility: updated.visibility,
+          mood: updated.mood,
+        },
+      });
+    } catch (err) {
+      console.error("Failed to update post", err);
+      res.status(500).json({ message: "Unable to update post" });
+    }
   });
 
   app.delete("/api/posts/:id", authenticate, async (req, res) => {
