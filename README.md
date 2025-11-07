@@ -25,3 +25,4 @@ You can chat with others without being anonymous.
 * [11/08/2025; 2:45 PM UTC] Added Upstash-backed API with username/password auth and removed email flows
 * [11/08/2025; 3:40 PM UTC] Removed dotenv dependency to rely on runtime environment variables
 * [11/08/2025; 4:55 PM UTC] Finished dynamic lookup, messaging, and profile experiences with real user data flows
+* [11/09/2025; 10:30 AM UTC] Added resilient chat storage fallback, anonymous nickname support, and privacy fixes for hidden Want Yous

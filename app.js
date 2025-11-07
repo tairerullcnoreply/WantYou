@@ -104,7 +104,55 @@ async function apiRequest(path, options = {}) {
   return data;
 }
 
-const DEFAULT_CONNECTION = { status: "none", anonymous: false, updatedAt: null };
+const MAX_ALIAS_LENGTH = 40;
+const DEFAULT_CONNECTION = {
+  status: "none",
+  anonymous: false,
+  alias: "",
+  updatedAt: null,
+};
+
+function normalizeConnectionState(state) {
+  if (!state) {
+    return { ...DEFAULT_CONNECTION };
+  }
+  return {
+    status: state.status ?? "none",
+    anonymous: Boolean(state.anonymous),
+    alias: typeof state.alias === "string" ? state.alias : "",
+    updatedAt: state.updatedAt ?? null,
+  };
+}
+
+function normalizeThread(thread) {
+  if (!thread) return null;
+  return {
+    ...thread,
+    inbound: normalizeConnectionState(thread.inbound),
+    outbound: normalizeConnectionState(thread.outbound),
+  };
+}
+
+function promptForAlias(currentAlias = "") {
+  const initial = typeof currentAlias === "string" ? currentAlias.trim() : "";
+  const response = window.prompt(
+    `Choose a nickname they'll see (max ${MAX_ALIAS_LENGTH} characters)`,
+    initial
+  );
+  if (response === null) {
+    return null;
+  }
+  const trimmed = response.trim();
+  if (!trimmed) {
+    window.alert("Nickname cannot be empty when you stay anonymous.");
+    return null;
+  }
+  if (trimmed.length > MAX_ALIAS_LENGTH) {
+    window.alert(`Nickname must be ${MAX_ALIAS_LENGTH} characters or fewer.`);
+    return null;
+  }
+  return trimmed;
+}
 let sessionUser = null;
 
 function escapeHtml(value = "") {
@@ -147,17 +195,22 @@ function connectionIsAnonymous(state) {
   return state.status === "want" || state.status === "both";
 }
 
-function describeOutbound(status, anonymous) {
+function describeOutbound(status, anonymous, alias) {
+  const nickname = typeof alias === "string" ? alias.trim() : "";
   switch (status) {
     case "know":
       return "You marked that you know them.";
     case "want":
       return anonymous
-        ? "You marked that you want them and you're staying anonymous."
+        ? nickname
+          ? `You marked that you want them as “${nickname}” and you're staying anonymous.`
+          : "You marked that you want them and you're staying anonymous."
         : "You marked that you want them.";
     case "both":
       return anonymous
-        ? "You marked them as Both and you're staying anonymous."
+        ? nickname
+          ? `You marked them as Both as “${nickname}” and you're staying anonymous.`
+          : "You marked them as Both and you're staying anonymous."
         : "You marked them as Both.";
     default:
       return "You haven't marked this person yet.";
@@ -389,18 +442,27 @@ function updateAnonToggle(card, status, anonymous) {
 function setOutboundNote(card, outbound) {
   const note = card.querySelector("[data-outbound-note]");
   if (!note) return;
-  note.textContent = describeOutbound(outbound.status, outbound.anonymous);
+  note.textContent = describeOutbound(outbound.status, outbound.anonymous, outbound.alias);
 }
 
 function renderCardState(card, inbound, outbound) {
-  card.dataset.inboundStatus = inbound.status ?? "none";
-  card.dataset.inboundAnonymous = String(Boolean(inbound.anonymous));
-  card.dataset.outboundStatus = outbound.status ?? "none";
-  card.dataset.outboundAnonymous = String(Boolean(outbound.anonymous));
-  updateBadge(card, inbound.status, inbound.anonymous);
-  updateChips(card, outbound.status);
-  updateAnonToggle(card, outbound.status, outbound.anonymous);
-  setOutboundNote(card, outbound);
+  const normalizedInbound = normalizeConnectionState(inbound);
+  const normalizedOutbound = normalizeConnectionState(outbound);
+  const displayInbound =
+    normalizedInbound.anonymous &&
+    (normalizedInbound.status === "want" || normalizedInbound.status === "both")
+      ? { ...normalizedInbound, status: "none", anonymous: false }
+      : normalizedInbound;
+  card.dataset.actualInboundStatus = normalizedInbound.status ?? "none";
+  card.dataset.actualInboundAnonymous = String(Boolean(normalizedInbound.anonymous));
+  card.dataset.inboundStatus = displayInbound.status ?? "none";
+  card.dataset.inboundAnonymous = String(Boolean(displayInbound.anonymous));
+  card.dataset.outboundStatus = normalizedOutbound.status ?? "none";
+  card.dataset.outboundAnonymous = String(Boolean(normalizedOutbound.anonymous));
+  updateBadge(card, displayInbound.status, displayInbound.anonymous);
+  updateChips(card, normalizedOutbound.status);
+  updateAnonToggle(card, normalizedOutbound.status, normalizedOutbound.anonymous);
+  setOutboundNote(card, normalizedOutbound);
 }
 
 function applyLookupFilters({ cards, input, filterAnon, emptyState, emptyTextWhenNoCards }) {
@@ -476,8 +538,8 @@ async function initLookup() {
     const fragment = document.createDocumentFragment();
 
     people.forEach((person) => {
-      const inbound = person.inbound ? { ...person.inbound } : { ...DEFAULT_CONNECTION };
-      const outbound = person.outbound ? { ...person.outbound } : { ...DEFAULT_CONNECTION };
+      const inbound = normalizeConnectionState(person.inbound);
+      const outbound = normalizeConnectionState(person.outbound);
 
       const card = document.createElement("article");
       card.className = "card connection";
@@ -522,23 +584,29 @@ async function initLookup() {
       card.querySelectorAll("[data-status-button]").forEach((button) => {
         button.addEventListener("click", async () => {
           const newStatus = button.dataset.statusButton || "none";
-          const entry = state.get(usernameKey) ?? {
-            inbound: { ...DEFAULT_CONNECTION },
-            outbound: { ...DEFAULT_CONNECTION },
-            element: card,
-          };
-          const previousOutbound = entry.outbound;
+          const entry =
+            state.get(usernameKey) ?? {
+              inbound: normalizeConnectionState(),
+              outbound: normalizeConnectionState(),
+              element: card,
+            };
+          const previousInbound = normalizeConnectionState(entry.inbound);
+          const previousOutbound = normalizeConnectionState(entry.outbound);
+          const canStayAnonymous = newStatus === "want" || newStatus === "both";
           const nextOutbound = {
+            ...previousOutbound,
             status: newStatus,
-            anonymous:
-              newStatus === "want" || newStatus === "both"
-                ? previousOutbound.anonymous
-                : false,
+            anonymous: canStayAnonymous ? previousOutbound.anonymous : false,
+            alias: canStayAnonymous ? previousOutbound.alias : "",
             updatedAt: new Date().toISOString(),
           };
 
-          state.set(usernameKey, { ...entry, outbound: nextOutbound });
-          renderCardState(card, entry.inbound, nextOutbound);
+          state.set(usernameKey, {
+            inbound: previousInbound,
+            outbound: nextOutbound,
+            element: card,
+          });
+          renderCardState(card, previousInbound, nextOutbound);
           refreshFilters();
 
           try {
@@ -548,13 +616,16 @@ async function initLookup() {
                 targetUsername: usernameKey,
                 status: newStatus,
                 anonymous: nextOutbound.anonymous,
+                alias: nextOutbound.alias,
               }),
             });
             const connection = result?.connection;
-            const inboundState =
-              connection?.inbound ?? state.get(usernameKey)?.inbound ?? entry.inbound;
-            const outboundState =
-              connection?.outbound ?? state.get(usernameKey)?.outbound ?? nextOutbound;
+            const inboundState = normalizeConnectionState(
+              connection?.inbound ?? state.get(usernameKey)?.inbound ?? previousInbound
+            );
+            const outboundState = normalizeConnectionState(
+              connection?.outbound ?? state.get(usernameKey)?.outbound ?? nextOutbound
+            );
             state.set(usernameKey, {
               inbound: inboundState,
               outbound: outboundState,
@@ -563,8 +634,12 @@ async function initLookup() {
             renderCardState(card, inboundState, outboundState);
             refreshFilters();
           } catch (error) {
-            state.set(usernameKey, { ...entry, outbound: previousOutbound });
-            renderCardState(card, entry.inbound, previousOutbound);
+            state.set(usernameKey, {
+              inbound: previousInbound,
+              outbound: previousOutbound,
+              element: card,
+            });
+            renderCardState(card, previousInbound, previousOutbound);
             refreshFilters();
             const message =
               error?.status === 401
@@ -579,15 +654,35 @@ async function initLookup() {
       anonToggle?.addEventListener("change", async () => {
         const entry = state.get(usernameKey);
         if (!entry) return;
+        const currentInbound = normalizeConnectionState(entry.inbound);
+        const currentOutbound = normalizeConnectionState(entry.outbound);
         const canAnonymous =
-          entry.outbound.status === "want" || entry.outbound.status === "both";
+          currentOutbound.status === "want" || currentOutbound.status === "both";
+        const wantsAnonymous = canAnonymous && anonToggle.checked;
+        let aliasValue = currentOutbound.alias;
+        if (wantsAnonymous && !aliasValue) {
+          const aliasResult = promptForAlias(aliasValue);
+          if (aliasResult === null) {
+            anonToggle.checked = currentOutbound.anonymous;
+            return;
+          }
+          aliasValue = aliasResult;
+        }
+        if (!wantsAnonymous) {
+          aliasValue = "";
+        }
         const nextOutbound = {
-          ...entry.outbound,
-          anonymous: canAnonymous && anonToggle.checked,
+          ...currentOutbound,
+          anonymous: wantsAnonymous,
+          alias: aliasValue,
           updatedAt: new Date().toISOString(),
         };
-        state.set(usernameKey, { ...entry, outbound: nextOutbound });
-        renderCardState(card, entry.inbound, nextOutbound);
+        state.set(usernameKey, {
+          inbound: currentInbound,
+          outbound: nextOutbound,
+          element: card,
+        });
+        renderCardState(card, currentInbound, nextOutbound);
         refreshFilters();
 
         try {
@@ -597,13 +692,16 @@ async function initLookup() {
               targetUsername: usernameKey,
               status: nextOutbound.status,
               anonymous: nextOutbound.anonymous,
+              alias: nextOutbound.alias,
             }),
           });
           const connection = result?.connection;
-          const inboundState =
-            connection?.inbound ?? state.get(usernameKey)?.inbound ?? entry.inbound;
-          const outboundState =
-            connection?.outbound ?? state.get(usernameKey)?.outbound ?? nextOutbound;
+          const inboundState = normalizeConnectionState(
+            connection?.inbound ?? state.get(usernameKey)?.inbound ?? currentInbound
+          );
+          const outboundState = normalizeConnectionState(
+            connection?.outbound ?? state.get(usernameKey)?.outbound ?? nextOutbound
+          );
           state.set(usernameKey, {
             inbound: inboundState,
             outbound: outboundState,
@@ -612,8 +710,12 @@ async function initLookup() {
           renderCardState(card, inboundState, outboundState);
           refreshFilters();
         } catch (error) {
-          state.set(usernameKey, entry);
-          renderCardState(card, entry.inbound, entry.outbound);
+          state.set(usernameKey, {
+            inbound: currentInbound,
+            outbound: currentOutbound,
+            element: card,
+          });
+          renderCardState(card, currentInbound, currentOutbound);
           refreshFilters();
           const message =
             error?.status === 401
@@ -703,8 +805,8 @@ function renderThreadView(context, thread) {
     placeholder,
   } = context;
 
-  const inbound = thread.inbound ? { ...thread.inbound } : { ...DEFAULT_CONNECTION };
-  const outbound = thread.outbound ? { ...thread.outbound } : { ...DEFAULT_CONNECTION };
+  const inbound = normalizeConnectionState(thread.inbound);
+  const outbound = normalizeConnectionState(thread.outbound);
 
   placeholder.hidden = true;
   statusHeader.hidden = false;
@@ -716,7 +818,8 @@ function renderThreadView(context, thread) {
   if (aliasNote) {
     if (outbound.status === "want" || outbound.status === "both") {
       if (outbound.anonymous) {
-        aliasNote.innerHTML = "They currently see you as <strong>Anonymous</strong>.";
+        const aliasName = escapeHtml(outbound.alias || "Anonymous");
+        aliasNote.innerHTML = `They currently see you as <strong>${aliasName}</strong>.`;
       } else {
         const name = escapeHtml(sessionUser?.fullName ?? "You");
         aliasNote.innerHTML = `They see you as <strong>${name}</strong>.`;
@@ -749,10 +852,11 @@ function renderThreadView(context, thread) {
     requestReveal.disabled = !inboundAnonymous;
   }
 
-  const incomingAuthor =
-    (inbound.status === "want" || inbound.status === "both") && inbound.anonymous
-      ? "Anonymous"
-      : thread.displayName;
+  const inboundAnonymous =
+    (inbound.status === "want" || inbound.status === "both") && inbound.anonymous;
+  const incomingAuthor = inboundAnonymous
+    ? inbound.alias?.trim() || "Anonymous"
+    : thread.displayName;
 
   messageLog.innerHTML = (thread.messages ?? [])
     .map((message) => {
@@ -837,12 +941,12 @@ async function initMessages() {
 
   const fetchThreads = async () => {
     const data = await apiRequest("/messages/threads");
-    return data?.threads ?? [];
+    return (data?.threads ?? []).map((thread) => normalizeThread(thread));
   };
 
   const fetchThreadDetail = async (username) => {
     const data = await apiRequest(`/messages/thread/${encodeURIComponent(username)}`);
-    return data?.thread ?? null;
+    return normalizeThread(data?.thread ?? null);
   };
 
   const updateListSelection = (username) => {
@@ -872,17 +976,18 @@ async function initMessages() {
       button.className = "messages-list__item";
       button.dataset.thread = thread.username;
 
-      const statusClass = tagClassForStatus(thread.inbound?.status ?? "none");
-      const statusText =
-        STATUS_LABELS[thread.inbound?.status ?? "none"] ?? STATUS_LABELS.none;
-      const statusName =
-        STATUS_NAMES[thread.inbound?.status ?? "none"] ??
-        thread.inbound?.status ??
-        "none";
+      const inbound = normalizeConnectionState(thread.inbound);
+      const outbound = normalizeConnectionState(thread.outbound);
+      thread.inbound = inbound;
+      thread.outbound = outbound;
+
+      const statusClass = tagClassForStatus(inbound.status ?? "none");
+      const statusText = STATUS_LABELS[inbound.status ?? "none"] ?? STATUS_LABELS.none;
+      const statusName = STATUS_NAMES[inbound.status ?? "none"] ?? inbound.status ?? "none";
       let previewText;
       if (thread.lastMessage?.text) {
         previewText = `“${escapeHtml(thread.lastMessage.text)}”`;
-      } else if (thread.inbound?.status && thread.inbound.status !== "none") {
+      } else if (inbound.status && inbound.status !== "none") {
         previewText = `${escapeHtml(thread.displayName)} marked you as ${escapeHtml(
           statusName
         )}.`;
@@ -909,33 +1014,62 @@ async function initMessages() {
   };
 
   const updateOutbound = async (thread, anonymous) => {
-    const outbound = thread.outbound ?? { ...DEFAULT_CONNECTION };
-    if (outbound.status !== "want" && outbound.status !== "both") {
+    const originalOutbound = normalizeConnectionState(thread.outbound);
+    const originalInbound = normalizeConnectionState(thread.inbound);
+    if (originalOutbound.status !== "want" && originalOutbound.status !== "both") {
       return;
     }
+
+    let aliasValue = originalOutbound.alias;
+    if (anonymous) {
+      const aliasResult = promptForAlias(aliasValue);
+      if (aliasResult === null) {
+        renderThreadView(context, thread);
+        attachThreadControls(thread);
+        return;
+      }
+      aliasValue = aliasResult;
+    } else {
+      aliasValue = "";
+    }
+
+    const optimisticOutbound = {
+      ...originalOutbound,
+      anonymous,
+      alias: aliasValue,
+      updatedAt: new Date().toISOString(),
+    };
+
     try {
       const result = await apiRequest("/status", {
         method: "POST",
         body: JSON.stringify({
           targetUsername: thread.username,
-          status: outbound.status,
-          anonymous,
+          status: originalOutbound.status,
+          anonymous: optimisticOutbound.anonymous,
+          alias: optimisticOutbound.alias,
         }),
       });
       const connection = result?.connection;
       if (connection) {
-        thread.outbound = connection.outbound ?? thread.outbound;
-        thread.inbound = connection.inbound ?? thread.inbound;
+        const updatedOutbound = normalizeConnectionState(
+          connection.outbound ?? optimisticOutbound
+        );
+        const updatedInbound = normalizeConnectionState(
+          connection.inbound ?? originalInbound
+        );
+        thread.outbound = updatedOutbound;
+        thread.inbound = updatedInbound;
         thread.updatedAt =
-          connection.outbound?.updatedAt ??
-          connection.inbound?.updatedAt ??
+          updatedOutbound.updatedAt ??
+          updatedInbound.updatedAt ??
           thread.updatedAt ??
           null;
         threadMap.set(thread.username, thread);
         const summary = threads.find((entry) => entry.username === thread.username);
         if (summary) {
-          summary.outbound = thread.outbound;
-          summary.inbound = thread.inbound;
+          summary.outbound = updatedOutbound;
+          summary.inbound = updatedInbound;
           summary.updatedAt = thread.updatedAt;
         }
         renderThreadView(context, thread);
@@ -948,13 +1082,22 @@ async function initMessages() {
           ? "Log in to update your anonymity."
           : error?.message || "We couldn't update anonymity right now.";
       window.alert(message);
+      thread.outbound = originalOutbound;
+      thread.inbound = originalInbound;
+      const summary = threads.find((entry) => entry.username === thread.username);
+      if (summary) {
+        summary.outbound = originalOutbound;
+        summary.inbound = originalInbound;
+      }
       renderThreadView(context, thread);
       attachThreadControls(thread);
+      renderList();
     }
   };
 
   const attachThreadControls = (thread) => {
-    const outbound = thread.outbound ?? { ...DEFAULT_CONNECTION };
+    const outbound = normalizeConnectionState(thread.outbound);
+    thread.outbound = outbound;
     const canReveal = outbound.status === "want" || outbound.status === "both";
     if (revealToggle) {
       revealToggle.onchange = () => {
@@ -965,7 +1108,7 @@ async function initMessages() {
     if (switchAnon) {
       switchAnon.onclick = () => {
         if (!canReveal) return;
-        const latest = thread.outbound ?? { ...DEFAULT_CONNECTION };
+        const latest = normalizeConnectionState(thread.outbound);
         updateOutbound(thread, !latest.anonymous);
       };
     }
@@ -1167,7 +1310,8 @@ async function initProfile() {
         const li = document.createElement("li");
         const info = document.createElement("div");
         const name = document.createElement("h3");
-        name.textContent = entry.fullName ?? entry.username;
+        const displayName = entry.alias?.trim() || entry.fullName || entry.username;
+        name.textContent = displayName;
         const meta = document.createElement("p");
         meta.className = "profile-list__meta";
         const statusName = STATUS_NAMES[entry.status] ?? entry.status;
@@ -1200,7 +1344,8 @@ async function initProfile() {
         const li = document.createElement("li");
         const info = document.createElement("div");
         const name = document.createElement("h3");
-        name.textContent = entry.fullName ?? entry.username;
+        const displayName = entry.alias?.trim() || entry.fullName || entry.username;
+        name.textContent = displayName;
         const meta = document.createElement("p");
         meta.className = "profile-list__meta";
         const statusName = STATUS_NAMES[entry.status] ?? entry.status;
