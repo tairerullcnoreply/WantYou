@@ -550,6 +550,75 @@ function conversationMetaKey(id) {
   return `conversation:${id}:meta`;
 }
 
+function upgradeConversationMeta(meta) {
+  const safe = {
+    lastMessage: null,
+    updatedAt: null,
+    unread: {},
+    readAt: {},
+    totalMessages: 0,
+  };
+  if (!meta || typeof meta !== "object") {
+    return safe;
+  }
+
+  if (meta.lastMessage && typeof meta.lastMessage === "object") {
+    const { id, sender, text, createdAt } = meta.lastMessage;
+    if (id && sender && createdAt) {
+      safe.lastMessage = {
+        id,
+        sender,
+        text: typeof text === "string" ? text : "",
+        createdAt,
+      };
+    }
+  }
+
+  if (meta.updatedAt) {
+    safe.updatedAt = meta.updatedAt;
+  }
+
+  const rawCount = Number(meta.totalMessages ?? meta.messageCount ?? 0);
+  if (Number.isFinite(rawCount) && rawCount >= 0) {
+    safe.totalMessages = Math.floor(rawCount);
+  }
+
+  if (meta.unread && typeof meta.unread === "object") {
+    Object.entries(meta.unread).forEach(([username, count]) => {
+      const normalized = normalizeUsername(username);
+      if (!normalized) return;
+      const numeric = Number(count);
+      safe.unread[normalized] = Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+    });
+  }
+
+  if (meta.readAt && typeof meta.readAt === "object") {
+    Object.entries(meta.readAt).forEach(([username, iso]) => {
+      const normalized = normalizeUsername(username);
+      if (!normalized) return;
+      if (typeof iso === "string" && iso.trim()) {
+        safe.readAt[normalized] = iso;
+      }
+    });
+  }
+
+  if (Array.isArray(meta.participants)) {
+    safe.participants = meta.participants
+      .map((username) => normalizeUsername(username))
+      .filter(Boolean);
+  }
+
+  return safe;
+}
+
+async function getConversationMeta(usernameA, usernameB) {
+  const id = conversationId(usernameA, usernameB);
+  if (!id) return null;
+  const raw = await redisCommand(["GET", conversationMetaKey(id)]);
+  if (!raw) return null;
+  return upgradeConversationMeta(parseJsonSafe(raw, null));
+}
+
 function userEventsKey(username) {
   return `user:${username}:events`;
 }
@@ -804,7 +873,7 @@ async function migrateConversationRecords(oldUsername, newUsername, allUsernames
       if (!oldId || !newId || oldId === newId) {
         return;
       }
-      const messages = await getConversationMessages(oldUsername, otherUsername);
+      const { messages } = await getConversationMessages(oldUsername, otherUsername);
       if (messages.length) {
         const updatedMessages = messages.map((message) => {
           if (message?.sender === oldUsername) {
@@ -820,10 +889,30 @@ async function migrateConversationRecords(oldUsername, newUsername, allUsernames
 
       const rawMeta = await redisCommand(["GET", conversationMetaKey(oldId)]);
       if (rawMeta) {
-        const parsedMeta = parseJsonSafe(rawMeta, null);
+        const parsedMeta = upgradeConversationMeta(parseJsonSafe(rawMeta, null));
         if (parsedMeta?.lastMessage?.sender === oldUsername) {
           parsedMeta.lastMessage = { ...parsedMeta.lastMessage, sender: newUsername };
         }
+        if (parsedMeta?.unread) {
+          parsedMeta.unread = Object.fromEntries(
+            Object.entries(parsedMeta.unread).map(([username, count]) => {
+              const normalized = username === oldUsername ? newUsername : username;
+              return [normalized, count];
+            })
+          );
+        }
+        if (parsedMeta?.readAt) {
+          parsedMeta.readAt = Object.fromEntries(
+            Object.entries(parsedMeta.readAt).map(([username, iso]) => {
+              const normalized = username === oldUsername ? newUsername : username;
+              return [normalized, iso];
+            })
+          );
+        }
+        parsedMeta.participants = (parsedMeta.participants || []).map((username) =>
+          username === oldUsername ? newUsername : username
+        );
+        parsedMeta.messageCount = parsedMeta.totalMessages;
         await redisPipeline([
           ["SET", conversationMetaKey(newId), JSON.stringify(parsedMeta ?? {})],
           ["DEL", conversationMetaKey(oldId)],
@@ -1261,16 +1350,42 @@ function formatAliasForCurrentUser(currentUser, outbound) {
   return currentUser.fullName;
 }
 
-async function getConversationMessages(usernameA, usernameB) {
+async function getConversationMessages(usernameA, usernameB, options = {}) {
+  const { cursor, limit } = options;
   const id = conversationId(usernameA, usernameB);
-  if (!id) return [];
+  if (!id) {
+    return { messages: [], hasMore: false, previousCursor: null, total: 0 };
+  }
   const rawMessages = await redisCommand(["LRANGE", conversationMessagesKey(id), "0", "-1"]);
   if (!Array.isArray(rawMessages)) {
-    return [];
+    return { messages: [], hasMore: false, previousCursor: null, total: 0 };
   }
-  return rawMessages
+  const parsed = rawMessages
     .map((entry) => parseJsonSafe(entry, null))
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((a, b) => timestampScore(a?.createdAt) - timestampScore(b?.createdAt));
+
+  let filtered = parsed;
+  const cursorTime = cursor ? timestampScore(cursor) : null;
+  if (cursorTime) {
+    filtered = parsed.filter((message) => timestampScore(message?.createdAt) < cursorTime);
+  }
+
+  let selected = filtered;
+  let hasMore = false;
+  if (Number.isFinite(limit) && limit > 0 && filtered.length > limit) {
+    hasMore = true;
+    selected = filtered.slice(filtered.length - limit);
+  }
+
+  const previousCursor = hasMore && selected.length ? selected[0].createdAt ?? null : null;
+
+  return {
+    messages: selected,
+    hasMore,
+    previousCursor,
+    total: parsed.length,
+  };
 }
 
 async function appendConversationMessage(from, to, text) {
@@ -1278,16 +1393,41 @@ async function appendConversationMessage(from, to, text) {
   if (!id) {
     throw new Error("Conversation participants are required");
   }
+  const sender = normalizeUsername(from);
+  const recipient = normalizeUsername(to);
+  const existingMeta = upgradeConversationMeta(
+    parseJsonSafe(await redisCommand(["GET", conversationMetaKey(id)]), null)
+  );
   const message = {
     id: crypto.randomUUID(),
-    sender: normalizeUsername(from),
+    sender,
     text,
     createdAt: new Date().toISOString(),
   };
+  const unread = { ...existingMeta.unread };
+  if (sender) {
+    unread[sender] = 0;
+  }
+  if (recipient) {
+    unread[recipient] = Math.max(0, (unread[recipient] ?? 0) + 1);
+  }
+  const readAt = { ...existingMeta.readAt };
+  if (sender) {
+    readAt[sender] = message.createdAt;
+  }
   const meta = {
     lastMessage: message,
     updatedAt: message.createdAt,
+    unread,
+    readAt,
+    totalMessages: existingMeta.totalMessages + 1,
   };
+  if (existingMeta.participants?.length) {
+    meta.participants = existingMeta.participants;
+  } else {
+    meta.participants = [sender, recipient].filter(Boolean);
+  }
+  meta.messageCount = meta.totalMessages;
   await redisPipeline([
     ["RPUSH", conversationMessagesKey(id), JSON.stringify(message)],
     ["SET", conversationMetaKey(id), JSON.stringify(meta)],
@@ -1307,8 +1447,26 @@ async function getConversationMetaRecords(currentUsername, people) {
   const meta = new Map();
   results.forEach((raw, index) => {
     const person = people[index];
-    meta.set(person.username, parseJsonSafe(raw, null));
+    meta.set(person.username, upgradeConversationMeta(parseJsonSafe(raw, null)));
   });
+  return meta;
+}
+
+async function markConversationRead(usernameA, usernameB) {
+  const id = conversationId(usernameA, usernameB);
+  if (!id) return null;
+  const raw = await redisCommand(["GET", conversationMetaKey(id)]);
+  if (!raw) {
+    return null;
+  }
+  const meta = upgradeConversationMeta(parseJsonSafe(raw, null));
+  const currentUser = normalizeUsername(usernameA);
+  if (currentUser) {
+    meta.unread[currentUser] = 0;
+    meta.readAt[currentUser] = new Date().toISOString();
+  }
+  meta.messageCount = meta.totalMessages;
+  await redisCommand(["SET", conversationMetaKey(id), JSON.stringify(meta)]);
   return meta;
 }
 
@@ -1917,6 +2075,8 @@ function createApp() {
                 }
               : null,
             updatedAt,
+            unreadCount: meta?.unread?.[req.user.username] ?? 0,
+            totalMessages: meta?.totalMessages ?? 0,
           };
         })
         .filter((thread) => Boolean(thread.lastMessage));
@@ -1942,11 +2102,17 @@ function createApp() {
       if (!targetUser) {
         return res.status(404).json({ message: "User not found" });
       }
-      const [incoming, outgoing, messages] = await Promise.all([
-        getIncomingConnections(req.user.username),
-        getOutgoingConnections(req.user.username),
-        getConversationMessages(req.user.username, normalizedTarget),
-      ]);
+      const limit = Number.parseInt(req.query.limit, 10);
+      const [{ messages, hasMore, previousCursor, total }, incoming, outgoing, meta] =
+        await Promise.all([
+          getConversationMessages(req.user.username, normalizedTarget, {
+            cursor: req.query.cursor,
+            limit: Number.isFinite(limit) && limit > 0 ? limit : 50,
+          }),
+          getIncomingConnections(req.user.username),
+          getOutgoingConnections(req.user.username),
+          getConversationMeta(req.user.username, normalizedTarget),
+        ]);
       const inbound = connectionStateFor(normalizedTarget, incoming);
       const outbound = connectionStateFor(normalizedTarget, outgoing);
       const thread = {
@@ -1964,6 +2130,10 @@ function createApp() {
           text: message.text,
           createdAt: message.createdAt,
         })),
+        hasMore,
+        previousCursor,
+        totalMessages: Number.isFinite(total) ? total : messages.length,
+        unreadCount: meta?.unread?.[req.user.username] ?? 0,
       };
       res.json({ thread });
     } catch (error) {
@@ -2003,6 +2173,20 @@ function createApp() {
     } catch (error) {
       console.error("Failed to save message", error);
       res.status(500).json({ message: "Unable to send message" });
+    }
+  });
+
+  app.post("/api/messages/thread/:username/read", authenticate, async (req, res) => {
+    const normalizedTarget = normalizeUsername(req.params.username);
+    if (!normalizedTarget) {
+      return res.status(400).json({ message: "A valid username is required" });
+    }
+    try {
+      const meta = await markConversationRead(req.user.username, normalizedTarget);
+      res.json({ unreadCount: meta?.unread?.[req.user.username] ?? 0 });
+    } catch (error) {
+      console.error("Failed to mark conversation read", error);
+      res.status(500).json({ message: "Unable to update read state" });
     }
   });
 

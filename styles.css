@@ -881,6 +881,11 @@ img {
   box-shadow: 0 12px 24px rgba(255, 122, 0, 0.14);
 }
 
+.messages-list__item--unread {
+  border-color: rgba(255, 122, 0, 0.6);
+  box-shadow: 0 10px 24px rgba(255, 122, 0, 0.18);
+}
+
 .messages-list__status {
   font-size: 0.75rem;
 }
@@ -899,9 +904,43 @@ img {
   margin-top: 0;
 }
 
+.messages-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.messages-list__row--bottom {
+  align-items: flex-end;
+}
+
 .messages-list__preview {
   color: var(--color-muted);
   font-size: 0.9rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.messages-list__time {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.messages-list__unread {
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  min-width: 1.75rem;
+  text-align: center;
+}
+
+.messages-list__unread[hidden] {
+  display: none;
 }
 
 .messages-thread {
@@ -949,6 +988,14 @@ img {
   flex-direction: column;
   gap: 0.5rem;
   align-items: flex-start;
+}
+
+.messages-thread__load-more {
+  justify-self: flex-start;
+}
+
+.messages-thread__load-more[hidden] {
+  display: none;
 }
 
 .messages {
