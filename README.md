@@ -27,3 +27,4 @@ You can chat with others without being anonymous.
 * [11/08/2025; 4:55 PM UTC] Finished dynamic lookup, messaging, and profile experiences with real user data flows
 * [11/09/2025; 10:30 AM UTC] Added resilient chat storage fallback, anonymous nickname support, and privacy fixes for hidden Want Yous
 * [11/07/2025; 2:57 AM UTC] Expanded profiles with media uploads, events, posts, and cross-profile viewing while hardening messaging fetches
+* [11/09/2025; 5:45 PM UTC] Introduced WantYou and Verified badges with owner-managed verification controls across profiles and chats

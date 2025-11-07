@@ -34,6 +34,7 @@
           <div class="profile-summary__meta">
             <h1 data-profile-name>Loading…</h1>
             <p data-profile-username></p>
+            <div class="profile-summary__badges user-badges" data-profile-badges hidden></div>
             <p class="profile-summary__tagline" data-profile-tagline>
               Tell people what you're about.
             </p>
@@ -47,6 +48,9 @@
             </button>
             <button class="button button--ghost" data-action="change-avatar">
               Change photo
+            </button>
+            <button class="button button--ghost" data-action="toggle-verified" hidden>
+              Verify user
             </button>
           </div>
           <input type="file" accept="image/*" data-avatar-input hidden />
