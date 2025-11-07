@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WantYou | Know who wants you</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="landing">
+    <header class="site-header">
+      <div class="site-header__inner container">
+        <a href="index.html" class="brand">WantYou</a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="#how-it-works">How it works</a>
+          <a href="#statuses">Statuses</a>
+          <a href="#privacy">Privacy</a>
+        </nav>
+        <div class="site-header__actions">
+          <a class="button button--ghost" href="signup.html">Log in</a>
+          <a class="button" href="signup.html">Create account</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero hero--landing">
+        <div class="container hero__grid hero__grid--landing">
+          <div class="hero__copy">
+            <h1>Find out who knows you, who wants you, and who is both.</h1>
+            <p>
+              WantYou is a private lookup for the people already in your orbit.
+              Search anyone by full name or username, mark how you feel, and let
+              the connection grow at your pace.
+            </p>
+            <div class="hero__cta">
+              <a class="button" href="feed.html">Look up someone</a>
+              <a class="button button--ghost" href="messages.html"
+                >Continue a chat</a
+              >
+            </div>
+          </div>
+          <div class="hero__card hero-card" id="hero-card"></div>
+        </div>
+      </section>
+
+      <section class="panel panel--light" id="how-it-works">
+        <div class="container steps">
+          <article class="step">
+            <span class="step__number">1</span>
+            <h2>Create your account</h2>
+            <p>
+              Securely sign up with your email, then import your contacts or add
+              them one by one.
+            </p>
+          </article>
+          <article class="step">
+            <span class="step__number">2</span>
+            <h2>Look them up</h2>
+            <p>
+              Use the WantYou directory to search by full name or username and
+              see how they have marked you.
+            </p>
+          </article>
+          <article class="step">
+            <span class="step__number">3</span>
+            <h2>Choose your status</h2>
+            <p>
+              Set whether they know you, want you, or both. You can keep your
+              Want You private until you are ready to reveal it.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel" id="statuses">
+        <div class="container statuses">
+          <header class="section-header">
+            <h2>Three simple statuses</h2>
+            <p>
+              Every interaction in WantYou starts with a clear headline so both
+              people know where they stand.
+            </p>
+          </header>
+          <div class="status-grid">
+            <article class="status-card">
+              <h3>Know you</h3>
+              <p>
+                Let someone know you recognize them. Chats that begin here read
+                “This user knows you”.
+              </p>
+            </article>
+            <article class="status-card">
+              <h3>Want you</h3>
+              <p>
+                Share your interest silently. Until you reveal yourself, their
+                chat shows “This user wants you”.
+              </p>
+            </article>
+            <article class="status-card">
+              <h3>Both</h3>
+              <p>
+                Confirm the spark goes both ways. Conversations open with “This
+                user both knows and wants you”.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel--light" id="privacy">
+        <div class="container privacy">
+          <div class="privacy__copy">
+            <h2>Your interest, your rules</h2>
+            <p>
+              Keep a Want You anonymous for as long as you like. They can chat,
+              get to know you, and request a reveal. You decide when to make it
+              public.
+            </p>
+            <ul class="checklist">
+              <li>Anonymous chats use private profiles and safe display names.</li>
+              <li>
+                Revealing is a one-tap action—no pressure and no accidental
+                reveals.
+              </li>
+              <li>
+                Switch to a regular chat at any time if you feel comfortable
+                being known.
+              </li>
+            </ul>
+          </div>
+          <div class="privacy__card">
+            <h3>Anonymous preview</h3>
+            <p class="privacy__note">Seen by the person you marked:</p>
+            <div class="privacy__message">
+              <span class="tag tag--accent">Private</span>
+              <p>“This user wants you”</p>
+              <p class="privacy__sub">Ask them to reveal when you are ready.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel--cta">
+        <div class="container cta">
+          <div>
+            <h2>Ready to say Want You?</h2>
+            <p>Join WantYou today and see who is already cheering you on.</p>
+          </div>
+          <form class="cta__form" id="request-access">
+            <label class="form__field">
+              <span class="visually-hidden">Email</span>
+              <input type="email" placeholder="you@example.com" required />
+            </label>
+            <button type="submit" class="button">Request invite</button>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container site-footer__inner">
+        <p>© <span id="year"></span> WantYou. Built for mutual connections.</p>
+        <nav aria-label="Footer navigation">
+          <a href="feed.html">Lookup</a>
+          <a href="messages.html">Messages</a>
+          <a href="profile.html">Profile</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

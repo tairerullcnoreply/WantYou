@@ -18,3 +18,6 @@ All of the above are headers a conversation, be it anonymous or not, have.
 You can chat with others without being anonymous.
 ## Log
 * [11/06/2025; 5:01 PM] Repo creation
+* [11/07/2025; 10:15 AM] Implemented WantYou landing experience with interactive discovery and messaging demo
+* [11/07/2025; 1:11 AM UTC] Rebuilt WantYou as a multi-page social platform with an orange and white theme
+* [11/07/2025; 3:25 PM UTC] Refocused WantYou on lookup statuses, anonymous reveals, and conversation headers

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WantYou | Profile</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="profile">
+    <header class="app-header">
+      <div class="app-header__inner container">
+        <a href="index.html" class="brand">WantYou</a>
+        <nav class="app-nav" aria-label="App navigation">
+          <a href="feed.html">Lookup</a>
+          <a href="messages.html">Messages</a>
+          <a href="profile.html" aria-current="page">Profile</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container profile-layout">
+      <section class="card profile-summary">
+        <header class="profile-summary__header">
+          <img src="https://i.pravatar.cc/96?img=5" alt="Jordan Lee" />
+          <div>
+            <h1>Jordan Lee</h1>
+            <p>@jordanlee</p>
+            <p class="profile-summary__tagline">
+              "Here to cheer loudly and keep the connections bright."
+            </p>
+          </div>
+          <button class="button button--ghost" data-action="edit-profile">
+            Edit profile
+          </button>
+        </header>
+
+        <dl class="profile-summary__stats">
+          <div>
+            <dt>Know you</dt>
+            <dd id="stat-know">12</dd>
+          </div>
+          <div>
+            <dt>Want you</dt>
+            <dd id="stat-want">7</dd>
+          </div>
+          <div>
+            <dt>Both</dt>
+            <dd id="stat-both">5</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="card profile-section">
+        <header class="profile-section__header">
+          <h2>Anonymous Want Yous</h2>
+          <p>You are currently hidden from these people.</p>
+        </header>
+        <ul class="profile-list" id="profile-anon-list">
+          <li>
+            <div>
+              <h3>Brandon Ortiz</h3>
+              <p class="profile-list__meta">@brandon.o · Cycling club</p>
+            </div>
+            <div class="profile-list__actions">
+              <button class="chip chip--active" data-action="reveal">Reveal</button>
+              <button class="button button--ghost" data-action="open-chat">
+                Chat
+              </button>
+            </div>
+          </li>
+          <li>
+            <div>
+              <h3>Imani Singh</h3>
+              <p class="profile-list__meta">@imanisingh · Study partner</p>
+            </div>
+            <div class="profile-list__actions">
+              <button class="chip" data-action="keep-anon">Stay hidden</button>
+              <button class="button button--ghost" data-action="open-chat">
+                Chat
+              </button>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="card profile-section">
+        <header class="profile-section__header">
+          <h2>Recently updated</h2>
+          <p>A quick glance at the latest statuses you've changed.</p>
+        </header>
+        <ul class="profile-list" id="profile-recent-list">
+          <li>
+            <div>
+              <h3>Carmen Diaz</h3>
+              <p class="profile-list__meta">Marked as “Know you” · 2h ago</p>
+            </div>
+            <span class="tag tag--ghost">Know you</span>
+          </li>
+          <li>
+            <div>
+              <h3>Zahra Patel</h3>
+              <p class="profile-list__meta">Marked as “Want you” · Yesterday</p>
+            </div>
+            <span class="tag">Want you</span>
+          </li>
+          <li>
+            <div>
+              <h3>Avery Chen</h3>
+              <p class="profile-list__meta">Marked as “Both” · 3 days ago</p>
+            </div>
+            <span class="tag tag--accent">Both</span>
+          </li>
+        </ul>
+      </section>
+    </main>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

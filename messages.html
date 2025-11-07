@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WantYou | Messages</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="messages">
+    <header class="app-header">
+      <div class="app-header__inner container">
+        <a href="index.html" class="brand">WantYou</a>
+        <form class="app-search" role="search">
+          <input type="search" placeholder="Search messages" />
+        </form>
+        <nav class="app-nav" aria-label="App navigation">
+          <a href="feed.html">Lookup</a>
+          <a href="messages.html" aria-current="page">Messages</a>
+          <a href="profile.html">Profile</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container messages-layout">
+      <aside class="messages-list" aria-label="Conversation list">
+        <header class="messages-list__header">
+          <h1>Chats</h1>
+          <button class="button button--ghost" data-action="new-chat">
+            New chat
+          </button>
+        </header>
+        <ul id="conversation-list">
+          <li>
+            <button
+              class="messages-list__item"
+              data-thread="brandon"
+              data-person="brandon.o"
+              aria-current="true"
+            >
+              <span class="messages-list__status tag">This user wants you</span>
+              <span class="messages-list__name">Anonymous cyclist</span>
+              <span class="messages-list__preview">“Can we keep chatting here?”</span>
+            </button>
+          </li>
+          <li>
+            <button
+              class="messages-list__item"
+              data-thread="imani"
+              data-person="imanisingh"
+            >
+              <span class="messages-list__status tag tag--accent"
+                >This user both knows and wants you</span
+              >
+              <span class="messages-list__name">Imani Singh</span>
+              <span class="messages-list__preview">“Study break later?”</span>
+            </button>
+          </li>
+          <li>
+            <button
+              class="messages-list__item"
+              data-thread="avery"
+              data-person="averyc"
+            >
+              <span class="messages-list__status tag tag--ghost"
+                >This user knows you</span
+              >
+              <span class="messages-list__name">Avery Chen</span>
+              <span class="messages-list__preview">“Send me the deck?”</span>
+            </button>
+          </li>
+        </ul>
+      </aside>
+
+      <section class="messages-thread" id="messages-thread" aria-live="polite">
+        <header class="messages-thread__header" data-status-bar>
+          <div>
+            <p class="messages-thread__status">This user wants you</p>
+            <h2 class="messages-thread__title">Brandon Ortiz</h2>
+            <p class="messages-thread__note" data-alias>
+              You appear as <strong>Anonymous cyclist</strong>
+            </p>
+          </div>
+          <div class="messages-thread__actions">
+            <label class="toggle">
+              <input type="checkbox" id="reveal-toggle" />
+              <span>Reveal who you are</span>
+            </label>
+            <button class="button button--ghost" data-action="switch-anon">
+              Stay anonymous
+            </button>
+          </div>
+        </header>
+
+        <ul class="messages" id="message-log">
+          <li class="message message--incoming">
+            <span class="message__meta">Anonymous cyclist · 8:21 PM</span>
+            <p>Hey! I love your route picks. Want to plan next Sunday's ride?</p>
+          </li>
+          <li class="message message--outgoing">
+            <span class="message__meta">You · 8:24 PM</span>
+            <p>Yes! I know a trail with the best sunrise. Want me to drop the map?</p>
+          </li>
+          <li class="message message--incoming">
+            <span class="message__meta">Anonymous cyclist · 8:25 PM</span>
+            <p>Absolutely. Also… I'd love to know who you are when you're ready.</p>
+          </li>
+        </ul>
+
+        <form class="composer composer--messages" id="message-composer">
+          <label class="form__field">
+            <span class="visually-hidden">Your message</span>
+            <textarea id="message-input" rows="3" placeholder="Send a reply" required></textarea>
+          </label>
+          <div class="composer__actions">
+            <button type="button" class="button button--ghost" data-action="request-reveal">
+              Ask to reveal
+            </button>
+            <button type="submit" class="button">Send</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

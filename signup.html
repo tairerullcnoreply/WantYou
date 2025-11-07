@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WantYou | Join or log in</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="signup">
+    <header class="site-header">
+      <div class="site-header__inner container">
+        <a href="index.html" class="brand">WantYou</a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="index.html#how-it-works">How it works</a>
+          <a href="index.html#statuses">Statuses</a>
+          <a href="index.html#privacy">Privacy</a>
+        </nav>
+        <div class="site-header__actions">
+          <a class="button button--ghost" href="signup.html" aria-current="page"
+            >Log in</a
+          >
+          <a class="button" href="signup.html">Create account</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="signup container">
+      <section class="card signup-card">
+        <h1>Get started on WantYou</h1>
+        <p class="signup__subtitle">
+          One home for the people who know you, want you, or both.
+        </p>
+        <div class="signup__tabs" role="tablist">
+          <button class="signup__tab signup__tab--active" data-tab="create" role="tab">
+            Create account
+          </button>
+          <button class="signup__tab" data-tab="login" role="tab">Log in</button>
+        </div>
+        <form class="signup__form" id="signup-form" data-form="create" role="tabpanel">
+          <label class="form__field">
+            <span>Full name</span>
+            <input type="text" name="fullName" required />
+          </label>
+          <label class="form__field">
+            <span>Username</span>
+            <input type="text" name="username" required />
+          </label>
+          <label class="form__field">
+            <span>Email</span>
+            <input type="email" name="email" required />
+          </label>
+          <label class="form__field">
+            <span>Password</span>
+            <input type="password" name="password" minlength="6" required />
+          </label>
+          <button type="submit" class="button">Create account</button>
+        </form>
+
+        <form class="signup__form signup__form--hidden" id="login-form" data-form="login" role="tabpanel">
+          <label class="form__field">
+            <span>Email or username</span>
+            <input type="text" name="identifier" required />
+          </label>
+          <label class="form__field">
+            <span>Password</span>
+            <input type="password" name="password" minlength="6" required />
+          </label>
+          <div class="signup__actions">
+            <label class="toggle">
+              <input type="checkbox" name="remember" />
+              <span>Stay signed in</span>
+            </label>
+            <a class="signup__link" href="#">Forgot password?</a>
+          </div>
+          <button type="submit" class="button">Log in</button>
+        </form>
+
+        <p class="signup__meta">
+          Curious first? <a href="feed.html">Search the directory</a> or
+          <a href="messages.html">check your chats</a>.
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container site-footer__inner">
+        <p>© <span id="signup-year"></span> WantYou</p>
+        <nav aria-label="Footer navigation">
+          <a href="feed.html">Lookup</a>
+          <a href="messages.html">Messages</a>
+          <a href="profile.html">Profile</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
