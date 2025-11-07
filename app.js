@@ -5,6 +5,20 @@ const STATUS_LABELS = {
   both: "This user both knows and wants you",
 };
 
+function formatFileSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
 const STATUS_NAMES = {
   none: "None",
   know: "Know you",
@@ -162,6 +176,28 @@ function escapeHtml(value = "") {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function createMediaFragment(attachments = []) {
+  const fragment = document.createDocumentFragment();
+  attachments.forEach((attachment) => {
+    if (!attachment?.url) {
+      return;
+    }
+    if (attachment.type === "video") {
+      const video = document.createElement("video");
+      video.controls = true;
+      video.src = attachment.url;
+      video.preload = "metadata";
+      fragment.appendChild(video);
+    } else {
+      const img = document.createElement("img");
+      img.src = attachment.url;
+      img.alt = attachment.originalName || "";
+      fragment.appendChild(img);
+    }
+  });
+  return fragment;
 }
 
 async function loadSession() {
@@ -549,17 +585,18 @@ async function initLookup() {
       const avatarUrl = `https://api.dicebear.com/6.x/initials/svg?seed=${encodeURIComponent(
         person.username
       )}`;
+      const profileHref = `profile.html?user=${encodeURIComponent(person.username)}`;
       card.innerHTML = `
         <header class="connection__header">
           <img src="${avatarUrl}" alt="${escapeHtml(person.fullName)}" />
           <div>
-            <h3>${escapeHtml(person.fullName)}</h3>
+            <h3><a href="${profileHref}">${escapeHtml(person.fullName)}</a></h3>
             <p>@${escapeHtml(person.username)}</p>
           </div>
           <span class="connection__badge" data-badge></span>
         </header>
         <p class="connection__bio">${
-          person.tagline ? escapeHtml(person.tagline) : "No bio yet."
+          person.tagline ? escapeHtml(person.tagline) : "No tagline yet."
         }</p>
         <p class="connection__note" data-outbound-note></p>
         <div class="connection__actions">
@@ -1246,158 +1283,603 @@ async function initProfile() {
   const nameEl = document.querySelector("[data-profile-name]");
   const usernameEl = document.querySelector("[data-profile-username]");
   const taglineEl = document.querySelector("[data-profile-tagline]");
-  const avatarEl = document.querySelector("[data-profile-avatar]");
+  const bioEl = document.querySelector("[data-profile-bio]");
+  const avatarImg = document.querySelector("[data-profile-avatar]");
+  const avatarButton = document.querySelector(".profile-summary__avatar");
+  const eventRing = document.querySelector("[data-event-ring]");
   const statKnow = document.getElementById("stat-know");
   const statWant = document.getElementById("stat-want");
   const statBoth = document.getElementById("stat-both");
+  const statsContainer = document.querySelector("[data-profile-stats]");
+  const actionsContainer = document.querySelector("[data-profile-actions]");
   const anonList = document.getElementById("profile-anon-list");
   const recentList = document.getElementById("profile-recent-list");
+  const eventList = document.getElementById("profile-events");
+  const eventEmpty = document.querySelector("[data-events-empty]");
+  const postList = document.getElementById("profile-posts");
+  const postEmpty = document.querySelector("[data-posts-empty]");
   const editButton = document.querySelector('[data-action="edit-profile"]');
+  const avatarInput = document.querySelector("[data-avatar-input]");
+  const changeAvatarButton = document.querySelector('[data-action="change-avatar"]');
+  const addEventButton = document.querySelector('[data-action="add-event"]');
+  const addPostButton = document.querySelector('[data-action="add-post"]');
+  const eventModal = document.querySelector("[data-events-modal]");
+  const eventModalList = eventModal?.querySelector("[data-events-modal-list]");
+  const eventModalEmpty = eventModal?.querySelector("[data-events-modal-empty]");
+  const profileDialog = document.querySelector("[data-profile-dialog]");
+  const eventDialog = document.querySelector("[data-event-dialog]");
+  const postDialog = document.querySelector("[data-post-dialog]");
+  const eventLimitNote = document.querySelector("[data-event-limit]");
+  const postLimitNote = document.querySelector("[data-post-limit]");
+  const ownOnlySections = document.querySelectorAll("[data-own-only]");
 
-  if (
-    !nameEl ||
-    !usernameEl ||
-    !taglineEl ||
-    !statKnow ||
-    !statWant ||
-    !statBoth ||
-    !anonList ||
-    !recentList
-  ) {
+  if (!nameEl || !usernameEl || !taglineEl || !bioEl || !avatarImg || !statKnow || !statWant || !statBoth) {
     return;
   }
 
+  const params = new URLSearchParams(window.location.search);
+  const requestedUser = params.get("user");
+
   nameEl.textContent = "Loading…";
   taglineEl.textContent = "Tell people what you're about.";
+  bioEl.textContent = "Add more about yourself so people can get to know you.";
 
   let profileData = null;
 
-  const renderProfile = (data) => {
-    if (!data) return;
-    profileData = data;
-    const user = data.user ?? sessionUser ?? {};
-    sessionUser = { ...sessionUser, ...user };
-
-    nameEl.textContent = user.fullName ?? "Your profile";
-    usernameEl.textContent = user.username ? `@${user.username}` : "";
-    taglineEl.textContent = user.tagline ? user.tagline : "Tell people what you're about.";
-    taglineEl.classList.toggle("profile-summary__tagline--empty", !user.tagline);
-
-    if (avatarEl) {
-      if (user.username) {
-        avatarEl.src = `https://api.dicebear.com/6.x/initials/svg?seed=${encodeURIComponent(
-          user.username
-        )}`;
-        avatarEl.alt = user.fullName ? `${user.fullName}'s avatar` : "Profile avatar";
-      } else {
-        avatarEl.removeAttribute("src");
-        avatarEl.alt = "Profile avatar";
-      }
+  const toggleOwnVisibility = (canEdit) => {
+    ownOnlySections.forEach((section) => {
+      section.hidden = !canEdit;
+    });
+    if (actionsContainer) {
+      actionsContainer.hidden = !canEdit;
     }
+    if (addEventButton) {
+      addEventButton.hidden = !canEdit;
+    }
+    if (addPostButton) {
+      addPostButton.hidden = !canEdit;
+    }
+    if (!canEdit && statsContainer) {
+      statsContainer.hidden = !profileData?.stats;
+    } else if (statsContainer) {
+      statsContainer.hidden = false;
+    }
+  };
 
-    statKnow.textContent = String(data.stats?.know ?? 0);
-    statWant.textContent = String(data.stats?.want ?? 0);
-    statBoth.textContent = String(data.stats?.both ?? 0);
+  const applyAvatar = (user, events) => {
+    const hasCustomAvatar = Boolean(user.profilePicture);
+    const source = hasCustomAvatar
+      ? user.profilePicture
+      : user.username
+      ? `https://api.dicebear.com/6.x/initials/svg?seed=${encodeURIComponent(user.username)}`
+      : "";
+    if (source) {
+      avatarImg.src = source;
+    } else {
+      avatarImg.removeAttribute("src");
+    }
+    avatarImg.alt = user.fullName ? `${user.fullName}'s avatar` : "Profile avatar";
+    if (avatarButton) {
+      avatarButton.classList.toggle(
+        "profile-summary__avatar--has-events",
+        Boolean(events?.length)
+      );
+    }
+    if (eventRing) {
+      eventRing.hidden = !events?.length;
+    }
+  };
 
+  const renderAnonymous = (data) => {
+    if (!anonList) return;
     anonList.innerHTML = "";
-    if (!data.anonymous?.length) {
+    if (!data?.anonymous?.length) {
       const emptyItem = document.createElement("li");
       emptyItem.dataset.emptyAnon = "true";
       emptyItem.textContent = "No anonymous Want Yous yet.";
       anonList.appendChild(emptyItem);
-    } else {
-      data.anonymous.forEach((entry) => {
-        const li = document.createElement("li");
-        const info = document.createElement("div");
-        const name = document.createElement("h3");
-        const displayName = entry.alias?.trim() || entry.fullName || entry.username;
-        name.textContent = displayName;
-        const meta = document.createElement("p");
-        meta.className = "profile-list__meta";
-        const statusName = STATUS_NAMES[entry.status] ?? entry.status;
-        const when = formatRelativeTime(entry.updatedAt);
-        meta.textContent = when ? `${statusName} · ${when}` : statusName;
-        info.appendChild(name);
-        info.appendChild(meta);
-        const tag = document.createElement("span");
-        tag.className =
-          entry.status === "both"
-            ? "tag tag--accent"
-            : entry.status === "know"
-            ? "tag tag--ghost"
-            : "tag";
-        tag.textContent = STATUS_NAMES[entry.status] ?? entry.status;
-        li.appendChild(info);
-        li.appendChild(tag);
-        anonList.appendChild(li);
-      });
+      return;
     }
+    data.anonymous.forEach((entry) => {
+      const li = document.createElement("li");
+      const info = document.createElement("div");
+      const name = document.createElement("h3");
+      const displayName = entry.alias?.trim() || entry.fullName || entry.username;
+      name.textContent = displayName;
+      const meta = document.createElement("p");
+      meta.className = "profile-list__meta";
+      const statusName = STATUS_NAMES[entry.status] ?? entry.status;
+      const when = formatRelativeTime(entry.updatedAt);
+      meta.textContent = when ? `${statusName} · ${when}` : statusName;
+      info.appendChild(name);
+      info.appendChild(meta);
+      const tag = document.createElement("span");
+      tag.className =
+        entry.status === "both"
+          ? "tag tag--accent"
+          : entry.status === "know"
+          ? "tag tag--ghost"
+          : "tag";
+      tag.textContent = STATUS_NAMES[entry.status] ?? entry.status;
+      li.appendChild(info);
+      li.appendChild(tag);
+      anonList.appendChild(li);
+    });
+  };
 
+  const renderRecent = (data) => {
+    if (!recentList) return;
     recentList.innerHTML = "";
-    if (!data.recent?.length) {
+    if (!data?.recent?.length) {
       const emptyItem = document.createElement("li");
       emptyItem.dataset.emptyRecent = "true";
       emptyItem.textContent = "No recent updates yet.";
       recentList.appendChild(emptyItem);
-    } else {
-      data.recent.forEach((entry) => {
-        const li = document.createElement("li");
-        const info = document.createElement("div");
-        const name = document.createElement("h3");
-        const displayName = entry.alias?.trim() || entry.fullName || entry.username;
-        name.textContent = displayName;
-        const meta = document.createElement("p");
-        meta.className = "profile-list__meta";
-        const statusName = STATUS_NAMES[entry.status] ?? entry.status;
-        const when = formatRelativeTime(entry.updatedAt);
-        const directionText =
-          entry.direction === "inbound"
-            ? `They marked you as “${statusName}”`
-            : `You marked them as “${statusName}”`;
-        meta.textContent = when ? `${directionText} · ${when}` : directionText;
-        info.appendChild(name);
-        info.appendChild(meta);
-        const tag = document.createElement("span");
-        tag.className =
-          entry.status === "both"
-            ? "tag tag--accent"
-            : entry.status === "know"
-            ? "tag tag--ghost"
-            : "tag";
-        tag.textContent = STATUS_NAMES[entry.status] ?? entry.status;
-        li.appendChild(info);
-        li.appendChild(tag);
-        recentList.appendChild(li);
-      });
+      return;
     }
+    data.recent.forEach((entry) => {
+      const li = document.createElement("li");
+      const info = document.createElement("div");
+      const name = document.createElement("h3");
+      const displayName = entry.alias?.trim() || entry.fullName || entry.username;
+      name.textContent = displayName;
+      const meta = document.createElement("p");
+      meta.className = "profile-list__meta";
+      const statusName = STATUS_NAMES[entry.status] ?? entry.status;
+      const when = formatRelativeTime(entry.updatedAt);
+      const directionText =
+        entry.direction === "inbound"
+          ? `They marked you as “${statusName}”`
+          : `You marked them as “${statusName}”`;
+      meta.textContent = when ? `${directionText} · ${when}` : directionText;
+      info.appendChild(name);
+      info.appendChild(meta);
+      const tag = document.createElement("span");
+      tag.className =
+        entry.status === "both"
+          ? "tag tag--accent"
+          : entry.status === "know"
+          ? "tag tag--ghost"
+          : "tag";
+      tag.textContent = STATUS_NAMES[entry.status] ?? entry.status;
+      li.appendChild(info);
+      li.appendChild(meta);
+      li.appendChild(tag);
+      recentList.appendChild(li);
+    });
+  };
+
+  const renderEvents = () => {
+    if (!eventList || !eventEmpty || !eventModalList || !eventModalEmpty) return;
+    const events = profileData?.events ?? [];
+    eventList.innerHTML = "";
+    eventModalList.innerHTML = "";
+    const hasEvents = Boolean(events.length);
+    eventEmpty.hidden = hasEvents;
+    eventModalEmpty.hidden = hasEvents;
+    if (avatarButton) {
+      avatarButton.classList.toggle("profile-summary__avatar--has-events", hasEvents);
+    }
+    if (eventRing) {
+      eventRing.hidden = !hasEvents;
+    }
+
+    if (!hasEvents) {
+      return;
+    }
+
+    events.forEach((event) => {
+      const item = document.createElement("li");
+      item.className = "profile-event";
+      const header = document.createElement("div");
+      header.className = "profile-event__header";
+      const title = document.createElement("strong");
+      title.textContent = event.text || "Event";
+      const time = document.createElement("p");
+      time.className = "profile-event__timestamp";
+      time.textContent = formatRelativeTime(event.createdAt) || "Just now";
+      header.appendChild(title);
+      header.appendChild(time);
+      item.appendChild(header);
+
+      if (event.attachments?.length) {
+        const media = document.createElement("div");
+        media.className = "profile-event__media";
+        media.appendChild(createMediaFragment(event.attachments));
+        item.appendChild(media);
+      }
+
+      if (profileData?.canEdit) {
+        const actions = document.createElement("div");
+        actions.className = "profile-event__actions";
+        const deleteButton = document.createElement("button");
+        deleteButton.className = "button button--ghost";
+        deleteButton.type = "button";
+        deleteButton.textContent = "Remove";
+        deleteButton.addEventListener("click", async () => {
+          if (!window.confirm("Remove this event?")) return;
+          try {
+            await apiRequest(`/events/${encodeURIComponent(event.id)}`, { method: "DELETE" });
+            profileData.events = profileData.events.filter((entry) => entry.id !== event.id);
+            renderEvents();
+          } catch (error) {
+            window.alert(error?.message || "We couldn't remove that event.");
+          }
+        });
+        actions.appendChild(deleteButton);
+        item.appendChild(actions);
+      }
+
+      eventList.appendChild(item);
+
+      const modalItem = document.createElement("li");
+      modalItem.className = "events-modal__item";
+      if (event.text) {
+        const text = document.createElement("p");
+        text.textContent = event.text;
+        modalItem.appendChild(text);
+      }
+      if (event.attachments?.length) {
+        const media = document.createElement("div");
+        media.className = "events-modal__media";
+        media.appendChild(createMediaFragment(event.attachments));
+        modalItem.appendChild(media);
+      }
+      const meta = document.createElement("p");
+      meta.className = "profile-event__timestamp";
+      meta.textContent = formatRelativeTime(event.createdAt) || "Just now";
+      modalItem.appendChild(meta);
+      eventModalList.appendChild(modalItem);
+    });
+  };
+
+  const renderPosts = () => {
+    if (!postList || !postEmpty) return;
+    const posts = profileData?.posts ?? [];
+    postList.innerHTML = "";
+    const hasPosts = Boolean(posts.length);
+    postEmpty.hidden = hasPosts;
+    if (!hasPosts) {
+      return;
+    }
+    posts.forEach((post) => {
+      const item = document.createElement("li");
+      item.className = "profile-post";
+      const header = document.createElement("div");
+      header.className = "profile-post__header";
+      const title = document.createElement("p");
+      title.textContent = post.text || "Shared an update";
+      header.appendChild(title);
+      const time = document.createElement("p");
+      time.className = "profile-post__timestamp";
+      time.textContent = formatRelativeTime(post.createdAt) || "Just now";
+      header.appendChild(time);
+      item.appendChild(header);
+
+      if (post.attachments?.length) {
+        const media = document.createElement("div");
+        media.className = "profile-post__media";
+        media.appendChild(createMediaFragment(post.attachments));
+        item.appendChild(media);
+      }
+
+      if (profileData?.canEdit) {
+        const actions = document.createElement("div");
+        actions.className = "profile-post__actions";
+        const deleteButton = document.createElement("button");
+        deleteButton.className = "button button--ghost";
+        deleteButton.type = "button";
+        deleteButton.textContent = "Delete";
+        deleteButton.addEventListener("click", async () => {
+          if (!window.confirm("Delete this post?")) return;
+          try {
+            await apiRequest(`/posts/${encodeURIComponent(post.id)}`, { method: "DELETE" });
+            profileData.posts = profileData.posts.filter((entry) => entry.id !== post.id);
+            renderPosts();
+          } catch (error) {
+            window.alert(error?.message || "We couldn't delete that post.");
+          }
+        });
+        actions.appendChild(deleteButton);
+        item.appendChild(actions);
+      }
+
+      postList.appendChild(item);
+    });
+  };
+
+  const renderProfile = (data) => {
+    if (!data) return;
+    profileData = data;
+    const user = data.user ?? {};
+    if (data.canEdit) {
+      sessionUser = { ...sessionUser, ...user };
+    }
+
+    nameEl.textContent = user.fullName ?? "Profile";
+    usernameEl.textContent = user.username ? `@${user.username}` : "";
+    const taglineFallback = data.canEdit
+      ? "Tell people what you're about."
+      : "No tagline yet.";
+    taglineEl.textContent = user.tagline ? user.tagline : taglineFallback;
+    taglineEl.classList.toggle("profile-summary__tagline--empty", !user.tagline);
+    const bioFallback = data.canEdit
+      ? "Add more about yourself so people can get to know you."
+      : "No bio yet.";
+    bioEl.textContent = user.bio ? user.bio : bioFallback;
+    bioEl.classList.toggle("profile-summary__tagline--empty", !user.bio);
+
+    applyAvatar(user, data.events);
+
+    if (data.stats) {
+      statKnow.textContent = String(data.stats.know ?? 0);
+      statWant.textContent = String(data.stats.want ?? 0);
+      statBoth.textContent = String(data.stats.both ?? 0);
+      if (statsContainer) {
+        statsContainer.hidden = false;
+      }
+    } else if (statsContainer) {
+      statsContainer.hidden = true;
+    }
+
+    toggleOwnVisibility(Boolean(data.canEdit));
+    renderAnonymous(data);
+    renderRecent(data);
+    renderEvents();
+    renderPosts();
+
+    if (eventLimitNote && Number.isFinite(data.maxUploadSize)) {
+      eventLimitNote.textContent = `Max file size per upload: ${formatFileSize(
+        data.maxUploadSize
+      )}.`;
+    }
+    if (postLimitNote && Number.isFinite(data.maxUploadSize)) {
+      postLimitNote.textContent = `Max file size per upload: ${formatFileSize(
+        data.maxUploadSize
+      )}.`;
+    }
+  };
+
+  const buildProfileUrl = () => {
+    if (requestedUser) {
+      return `/profile?user=${encodeURIComponent(requestedUser)}`;
+    }
+    return "/profile";
   };
 
   try {
     await requireSession();
-    const data = await apiRequest("/profile");
+    const data = await apiRequest(buildProfileUrl());
     renderProfile(data);
   } catch (error) {
     console.error("Unable to load profile", error);
-    taglineEl.textContent =
-      error?.message || "We couldn't load your profile right now.";
+    taglineEl.textContent = error?.message || "We couldn't load this profile right now.";
   }
 
-  editButton?.addEventListener("click", async () => {
-    if (!profileData?.user) return;
-    const currentTagline = profileData.user.tagline ?? "";
-    const nextTagline = window.prompt("Update your tagline", currentTagline);
-    if (nextTagline === null) {
+  const openDialog = (dialog) => {
+    if (!dialog) return false;
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+      return true;
+    }
+    return false;
+  };
+
+  editButton?.addEventListener("click", () => {
+    if (!profileData?.canEdit || !profileData.user) return;
+    if (!openDialog(profileDialog)) {
+      const nextTagline = window.prompt(
+        "Update your tagline",
+        profileData.user.tagline ?? ""
+      );
+      if (nextTagline === null) return;
+      const nextBio = window.prompt("Update your bio", profileData.user.bio ?? "");
+      if (nextBio === null) return;
+      (async () => {
+        try {
+          const response = await apiRequest("/profile", {
+            method: "PUT",
+            body: JSON.stringify({ tagline: nextTagline, bio: nextBio }),
+          });
+          profileData.user = response?.user ?? profileData.user;
+          renderProfile(profileData);
+        } catch (error) {
+          window.alert(error?.message || "We couldn't update your profile right now.");
+        }
+      })();
+    } else if (profileDialog) {
+      const form = profileDialog.querySelector("form");
+      if (form) {
+        form.elements.tagline.value = profileData.user.tagline ?? "";
+        form.elements.bio.value = profileData.user.bio ?? "";
+      }
+    }
+  });
+
+  profileDialog?.addEventListener("close", async () => {
+    if (!profileData?.canEdit || profileDialog.returnValue !== "save") {
       return;
     }
+    const form = profileDialog.querySelector("form");
+    if (!form) return;
+    const formData = new FormData(form);
+    const nextTagline = formData.get("tagline") ?? "";
+    const nextBio = formData.get("bio") ?? "";
     try {
       const response = await apiRequest("/profile", {
         method: "PUT",
-        body: JSON.stringify({ tagline: nextTagline }),
+        body: JSON.stringify({ tagline: String(nextTagline), bio: String(nextBio) }),
       });
       profileData.user = response?.user ?? profileData.user;
       renderProfile(profileData);
     } catch (error) {
       window.alert(error?.message || "We couldn't update your profile right now.");
+    }
+  });
+
+  changeAvatarButton?.addEventListener("click", () => {
+    if (!profileData?.canEdit || !avatarInput) return;
+    avatarInput.click();
+  });
+
+  avatarInput?.addEventListener("change", async () => {
+    if (!profileData?.canEdit || !avatarInput?.files?.length) return;
+    const file = avatarInput.files[0];
+    const form = new FormData();
+    form.append("avatar", file);
+    try {
+      const response = await apiRequest("/profile/avatar", {
+        method: "POST",
+        body: form,
+      });
+      profileData.user = response?.user ?? profileData.user;
+      renderProfile(profileData);
+    } catch (error) {
+      window.alert(error?.message || "We couldn't update your photo right now.");
+    } finally {
+      avatarInput.value = "";
+    }
+  });
+
+  const submitEventForm = async () => {
+    if (!profileData?.canEdit || !eventDialog) return;
+    const form = eventDialog.querySelector("form");
+    if (!form) return;
+    const payload = new FormData(form);
+    const textValue = (payload.get("text") ?? "").toString().trim();
+    const mediaInput = form.querySelector('input[name="media"]');
+    const hasFiles = mediaInput?.files?.length > 0;
+    if (!textValue && !hasFiles) {
+      window.alert("Add text or media before sharing an event.");
+      return;
+    }
+    try {
+      const response = await apiRequest("/events", {
+        method: "POST",
+        body: payload,
+      });
+      if (response?.event) {
+        profileData.events = [response.event, ...(profileData.events ?? [])];
+        renderEvents();
+      }
+    } catch (error) {
+      window.alert(error?.message || "We couldn't share that event.");
+    } finally {
+      form.reset();
+    }
+  };
+
+  const submitPostForm = async () => {
+    if (!profileData?.canEdit || !postDialog) return;
+    const form = postDialog.querySelector("form");
+    if (!form) return;
+    const payload = new FormData(form);
+    const textValue = (payload.get("text") ?? "").toString().trim();
+    const mediaInput = form.querySelector('input[name="media"]');
+    const hasFiles = mediaInput?.files?.length > 0;
+    if (!textValue && !hasFiles) {
+      window.alert("Add text or media before publishing a post.");
+      return;
+    }
+    try {
+      const response = await apiRequest("/posts", {
+        method: "POST",
+        body: payload,
+      });
+      if (response?.post) {
+        profileData.posts = [response.post, ...(profileData.posts ?? [])];
+        renderPosts();
+      }
+    } catch (error) {
+      window.alert(error?.message || "We couldn't publish that post.");
+    } finally {
+      form.reset();
+    }
+  };
+
+  eventDialog?.addEventListener("close", () => {
+    if (eventDialog.returnValue === "save") {
+      submitEventForm();
+    }
+  });
+
+  postDialog?.addEventListener("close", () => {
+    if (postDialog.returnValue === "save") {
+      submitPostForm();
+    }
+  });
+
+  addEventButton?.addEventListener("click", () => {
+    if (!profileData?.canEdit) return;
+    if (!openDialog(eventDialog)) {
+      const text = window.prompt("Share an event (24h)");
+      if (text === null) return;
+      (async () => {
+        const payload = new FormData();
+        payload.append("text", text);
+        try {
+          const response = await apiRequest("/events", { method: "POST", body: payload });
+          if (response?.event) {
+            profileData.events = [response.event, ...(profileData.events ?? [])];
+            renderEvents();
+          }
+        } catch (error) {
+          window.alert(error?.message || "We couldn't share that event.");
+        }
+      })();
+    }
+  });
+
+  addPostButton?.addEventListener("click", () => {
+    if (!profileData?.canEdit) return;
+    if (!openDialog(postDialog)) {
+      const text = window.prompt("Write a post");
+      if (text === null) return;
+      (async () => {
+        const payload = new FormData();
+        payload.append("text", text);
+        try {
+          const response = await apiRequest("/posts", { method: "POST", body: payload });
+          if (response?.post) {
+            profileData.posts = [response.post, ...(profileData.posts ?? [])];
+            renderPosts();
+          }
+        } catch (error) {
+          window.alert(error?.message || "We couldn't publish that post.");
+        }
+      })();
+    }
+  });
+
+  const closeEventsModal = () => {
+    if (!eventModal) return;
+    eventModal.classList.remove("events-modal--open");
+    eventModal.hidden = true;
+  };
+
+  const openEventsModal = () => {
+    if (!eventModal) return;
+    eventModal.hidden = false;
+    eventModal.classList.add("events-modal--open");
+  };
+
+  avatarButton?.addEventListener("click", () => {
+    if (!profileData?.events?.length && !profileData?.canEdit) {
+      return;
+    }
+    openEventsModal();
+  });
+
+  eventModal?.addEventListener("click", (event) => {
+    const action = event.target?.dataset?.action;
+    if (action === "close-events") {
+      closeEventsModal();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeEventsModal();
     }
   });
 }

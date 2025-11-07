@@ -1,6 +1,9 @@
 const path = require("path");
+const fs = require("fs");
+const fsp = require("fs/promises");
 const crypto = require("crypto");
 const express = require("express");
+const multer = require("multer");
 
 const UPSTASH_REST_URL = process.env.KV_REST_API_URL;
 const UPSTASH_REST_TOKEN = process.env.KV_REST_API_TOKEN;
@@ -12,6 +15,98 @@ const DEFAULT_CONNECTION_STATE = Object.freeze({
   alias: "",
   updatedAt: null,
 });
+
+const MAX_MEDIA_FILE_SIZE = 100 * 1024 * 1024; // 100 MB per GitHub upload limit
+const UPLOAD_ROOT = path.resolve(__dirname, "..", "uploads");
+const AVATAR_UPLOAD_DIR = path.join(UPLOAD_ROOT, "avatars");
+const POST_UPLOAD_DIR = path.join(UPLOAD_ROOT, "posts");
+const EVENT_UPLOAD_DIR = path.join(UPLOAD_ROOT, "events");
+
+function ensureDirectory(directory) {
+  try {
+    fs.mkdirSync(directory, { recursive: true });
+  } catch (error) {
+    console.warn(`Unable to ensure upload directory ${directory}`, error);
+  }
+}
+
+ensureDirectory(UPLOAD_ROOT);
+ensureDirectory(AVATAR_UPLOAD_DIR);
+ensureDirectory(POST_UPLOAD_DIR);
+ensureDirectory(EVENT_UPLOAD_DIR);
+
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
+const ALLOWED_VIDEO_TYPES = new Set(["video/mp4", "video/webm"]);
+
+function isAllowedMediaType(mime) {
+  return ALLOWED_IMAGE_TYPES.has(mime) || ALLOWED_VIDEO_TYPES.has(mime);
+}
+
+const uploadStorage = multer.diskStorage({
+  destination(req, file, cb) {
+    const target = req.uploadTarget;
+    let directory = POST_UPLOAD_DIR;
+    if (target === "avatar") {
+      directory = AVATAR_UPLOAD_DIR;
+    } else if (target === "event") {
+      directory = EVENT_UPLOAD_DIR;
+    }
+    ensureDirectory(directory);
+    cb(null, directory);
+  },
+  filename(req, file, cb) {
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    const unique = `${Date.now()}-${crypto.randomUUID()}${ext}`;
+    cb(null, unique);
+  },
+});
+
+const uploadMiddleware = multer({
+  storage: uploadStorage,
+  limits: { fileSize: MAX_MEDIA_FILE_SIZE },
+  fileFilter(req, file, cb) {
+    if (!file.mimetype) {
+      cb(new Error("Unsupported file type"));
+      return;
+    }
+    if (req.uploadTarget === "avatar") {
+      if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
+        cb(new Error("Profile pictures must be an image"));
+        return;
+      }
+    } else if (!isAllowedMediaType(file.mimetype)) {
+      cb(new Error("Only JPG, PNG, GIF, WEBP, MP4, or WEBM files are allowed"));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
+async function removeFileSafe(filePath) {
+  if (!filePath) return;
+  try {
+    await fsp.unlink(filePath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      console.warn(`Unable to remove file at ${filePath}`, error);
+    }
+  }
+}
+
+function uploadErrorResponse(res, error) {
+  if (error?.code === "LIMIT_FILE_SIZE") {
+    return res
+      .status(413)
+      .json({ message: "Files must be 100 MB or smaller." });
+  }
+  return res.status(400).json({ message: error?.message || "Unable to process upload" });
+}
 
 let upstashUnavailable = false;
 
@@ -312,6 +407,14 @@ function conversationMetaKey(id) {
   return `conversation:${id}:meta`;
 }
 
+function userEventsKey(username) {
+  return `user:${username}:events`;
+}
+
+function userPostsKey(username) {
+  return `user:${username}:posts`;
+}
+
 function normalizeUsername(username = "") {
   return username.trim().toLowerCase();
 }
@@ -329,6 +432,35 @@ function parseJsonSafe(raw, fallback = null) {
   }
 }
 
+function relativeUploadPath(filePath) {
+  if (!filePath) return null;
+  const projectRoot = path.resolve(__dirname, "..");
+  const relative = path.relative(projectRoot, filePath);
+  if (!relative) return null;
+  return `/${relative.split(path.sep).join("/")}`;
+}
+
+function describeAttachment(file) {
+  if (!file) return null;
+  const type = ALLOWED_VIDEO_TYPES.has(file.mimetype) ? "video" : "image";
+  return {
+    id: crypto.randomUUID(),
+    type,
+    url: relativeUploadPath(file.path),
+    originalName: file.originalname ?? "",
+    size: file.size ?? 0,
+    mimeType: file.mimetype,
+  };
+}
+
+function absoluteUploadPath(relativePath) {
+  if (!relativePath) return null;
+  const normalized = relativePath.startsWith("/")
+    ? relativePath.slice(1)
+    : relativePath;
+  return path.resolve(__dirname, "..", normalized);
+}
+
 async function getUser(username) {
   const normalized = normalizeUsername(username);
   if (!normalized) return null;
@@ -341,6 +473,8 @@ async function getUser(username) {
     username: record.username ?? normalized,
     passwordHash: record.passwordHash,
     tagline: record.tagline ?? "",
+    bio: record.bio ?? "",
+    profilePicturePath: record.profilePicturePath ?? "",
   };
 }
 
@@ -351,6 +485,8 @@ async function saveUser({ fullName, username, password }) {
     username: normalized,
     passwordHash: hashPassword(password),
     tagline: "",
+    bio: "",
+    profilePicturePath: "",
   };
   await redisPipeline([
     ["SET", userKey(normalized), JSON.stringify(record)],
@@ -682,12 +818,115 @@ async function getConversationMetaRecords(currentUsername, people) {
   return meta;
 }
 
+async function rewriteList(key, entries) {
+  const commands = [["DEL", key]];
+  if (entries.length) {
+    entries.forEach((entry) => {
+      commands.push(["RPUSH", key, JSON.stringify(entry)]);
+    });
+  }
+  await redisPipeline(commands);
+}
+
+function sortByNewest(records) {
+  return records.slice().sort((a, b) => {
+    const scoreA = timestampScore(a?.createdAt);
+    const scoreB = timestampScore(b?.createdAt);
+    return scoreB - scoreA;
+  });
+}
+
+async function listUserEvents(username) {
+  const key = userEventsKey(username);
+  const raw = await redisCommand(["LRANGE", key, "0", "-1"]);
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const nowIso = Date.now();
+  const events = [];
+  let changed = false;
+  raw.forEach((item) => {
+    const parsed = parseJsonSafe(item, null);
+    if (!parsed) {
+      changed = true;
+      return;
+    }
+    const expires = parsed.expiresAt ? Date.parse(parsed.expiresAt) : null;
+    if (expires && expires <= nowIso) {
+      changed = true;
+      return;
+    }
+    events.push(parsed);
+  });
+  if (changed) {
+    await rewriteList(key, sortByNewest(events));
+  }
+  return sortByNewest(events);
+}
+
+async function saveUserEvent(username, event) {
+  const key = userEventsKey(username);
+  await redisCommand(["LPUSH", key, JSON.stringify(event)]);
+  return event;
+}
+
+async function deleteUserEvent(username, eventId) {
+  const events = await listUserEvents(username);
+  const filtered = events.filter((event) => event.id !== eventId);
+  if (filtered.length !== events.length) {
+    await rewriteList(userEventsKey(username), sortByNewest(filtered));
+  }
+}
+
+async function listUserPosts(username) {
+  const key = userPostsKey(username);
+  const raw = await redisCommand(["LRANGE", key, "0", "-1"]);
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const posts = raw
+    .map((item) => parseJsonSafe(item, null))
+    .filter(Boolean)
+    .map((post) => ({ ...post, attachments: Array.isArray(post.attachments) ? post.attachments : [] }));
+  return sortByNewest(posts);
+}
+
+async function saveUserPost(username, post) {
+  await redisCommand(["LPUSH", userPostsKey(username), JSON.stringify(post)]);
+  return post;
+}
+
+async function deleteUserPost(username, postId) {
+  const posts = await listUserPosts(username);
+  const filtered = posts.filter((post) => post.id !== postId);
+  if (filtered.length !== posts.length) {
+    await rewriteList(userPostsKey(username), sortByNewest(filtered));
+  }
+  return posts.find((post) => post.id === postId) ?? null;
+}
+
 function publicUser(user) {
   return {
     fullName: user.fullName,
     username: user.username,
     tagline: user.tagline ?? "",
+    bio: user.bio ?? "",
+    profilePicture: user.profilePicturePath ? user.profilePicturePath : "",
   };
+}
+
+function normalizeAttachments(attachments) {
+  if (!Array.isArray(attachments)) return [];
+  return attachments
+    .map((attachment) => ({
+      id: attachment.id,
+      type: attachment.type,
+      url: attachment.url,
+      originalName: attachment.originalName ?? "",
+      mimeType: attachment.mimeType ?? "",
+      size: attachment.size ?? 0,
+    }))
+    .filter((attachment) => Boolean(attachment.url));
 }
 
 async function authenticate(req, res, next) {
@@ -1023,21 +1262,49 @@ function createApp() {
 
   app.get("/api/profile", authenticate, async (req, res) => {
     try {
-      const [incoming, outgoing, users] = await Promise.all([
-        getIncomingConnections(req.user.username),
-        getOutgoingConnections(req.user.username),
-        listUsers(),
+      const requested = normalizeUsername(req.query.user) || req.user.username;
+      const targetUser = await getUser(requested);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const isSelf = requested === req.user.username;
+      const [events, posts] = await Promise.all([
+        listUserEvents(requested),
+        listUserPosts(requested),
       ]);
-      const userMap = new Map(users.map((user) => [user.username, user]));
-      const stats = countStatuses(incoming);
-      const anonymous = buildAnonymousList({ incoming, userMap });
-      const recent = buildRecentUpdates({ incoming, outgoing, userMap });
-      res.json({
-        user: req.user,
-        stats,
-        anonymous,
-        recent,
-      });
+      const response = {
+        user: publicUser({ ...targetUser }),
+        events: events.map((event) => ({
+          id: event.id,
+          text: event.text ?? "",
+          attachments: normalizeAttachments(event.attachments),
+          createdAt: event.createdAt,
+          expiresAt: event.expiresAt,
+        })),
+        posts: posts.map((post) => ({
+          id: post.id,
+          text: post.text ?? "",
+          attachments: normalizeAttachments(post.attachments),
+          createdAt: post.createdAt,
+          visibility: post.visibility ?? "public",
+        })),
+        canEdit: isSelf,
+        maxUploadSize: MAX_MEDIA_FILE_SIZE,
+      };
+
+      if (isSelf) {
+        const [incoming, outgoing, users] = await Promise.all([
+          getIncomingConnections(req.user.username),
+          getOutgoingConnections(req.user.username),
+          listUsers(),
+        ]);
+        const userMap = new Map(users.map((user) => [user.username, user]));
+        response.stats = countStatuses(incoming);
+        response.anonymous = buildAnonymousList({ incoming, userMap });
+        response.recent = buildRecentUpdates({ incoming, outgoing, userMap });
+      }
+
+      res.json(response);
     } catch (error) {
       console.error("Failed to load profile", error);
       res.status(500).json({ message: "Unable to load profile" });
@@ -1045,34 +1312,226 @@ function createApp() {
   });
 
   app.put("/api/profile", authenticate, async (req, res) => {
-    const { fullName, tagline } = req.body ?? {};
+    const { tagline, bio } = req.body ?? {};
     const updates = {};
-    if (fullName !== undefined) {
-      if (!fullName || !fullName.trim()) {
-        return res.status(400).json({ message: "Full name cannot be empty" });
+    if (typeof tagline === "string") {
+      if (tagline.length > 160) {
+        return res.status(400).json({ message: "Tagline must be 160 characters or fewer" });
       }
-      updates.fullName = fullName.trim();
-    }
-    if (tagline !== undefined) {
       updates.tagline = tagline.trim();
     }
-    if (!Object.keys(updates).length) {
-      return res.status(400).json({ message: "No updates provided" });
+    if (typeof bio === "string") {
+      if (bio.length > 500) {
+        return res.status(400).json({ message: "Bio must be 500 characters or fewer" });
+      }
+      updates.bio = bio.trim();
     }
-    if (updates.tagline && updates.tagline.length > 160) {
-      return res.status(400).json({ message: "Tagline must be 160 characters or fewer" });
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ message: "Nothing to update" });
     }
     try {
       const updated = await updateUserProfile(req.user.username, updates);
       if (!updated) {
-        return res.status(404).json({ message: "Account missing" });
+        return res.status(404).json({ message: "User not found" });
       }
-      req.user.fullName = updated.fullName;
-      req.user.tagline = updated.tagline ?? "";
-      res.json({ user: req.user });
+      const user = publicUser(updated);
+      res.json({ user });
     } catch (error) {
       console.error("Failed to update profile", error);
       res.status(500).json({ message: "Unable to update profile" });
+    }
+  });
+
+  app.post("/api/profile/avatar", authenticate, (req, res) => {
+    req.uploadTarget = "avatar";
+    uploadMiddleware.single("avatar")(req, res, async (error) => {
+      if (error) {
+        return uploadErrorResponse(res, error);
+      }
+      if (!req.file) {
+        return res.status(400).json({ message: "Select an image to upload" });
+      }
+      try {
+        const user = await getUser(req.user.username);
+        if (!user) {
+          await removeFileSafe(req.file.path);
+          return res.status(404).json({ message: "User not found" });
+        }
+        const previousPath = user.profilePicturePath
+          ? absoluteUploadPath(user.profilePicturePath)
+          : null;
+        const pictureUrl = relativeUploadPath(req.file.path);
+        const updated = await updateUserProfile(req.user.username, {
+          profilePicturePath: pictureUrl,
+        });
+        if (previousPath && previousPath !== req.file.path) {
+          await removeFileSafe(previousPath);
+        }
+        res.status(201).json({ user: publicUser(updated) });
+      } catch (err) {
+        console.error("Failed to upload profile picture", err);
+        await removeFileSafe(req.file.path);
+        res.status(500).json({ message: "Unable to update profile picture" });
+      }
+    });
+  });
+
+  app.post("/api/events", authenticate, (req, res) => {
+    req.uploadTarget = "event";
+    uploadMiddleware.array("media", 4)(req, res, async (error) => {
+      if (error) {
+        return uploadErrorResponse(res, error);
+      }
+      const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+      const attachments = Array.isArray(req.files)
+        ? req.files.map((file) => describeAttachment(file)).filter(Boolean)
+        : [];
+      if (!text && !attachments.length) {
+        await Promise.all(
+          attachments.map((attachment) => {
+            const abs = absoluteUploadPath(attachment.url);
+            return abs ? removeFileSafe(abs) : Promise.resolve();
+          })
+        );
+        return res.status(400).json({ message: "Add text or media to your event" });
+      }
+      try {
+        const now = new Date();
+        const event = {
+          id: crypto.randomUUID(),
+          text,
+          attachments,
+          createdAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+        };
+        await saveUserEvent(req.user.username, event);
+        res.status(201).json({
+          event: {
+            id: event.id,
+            text: event.text,
+            attachments: normalizeAttachments(event.attachments),
+            createdAt: event.createdAt,
+            expiresAt: event.expiresAt,
+          },
+        });
+      } catch (err) {
+        console.error("Failed to save event", err);
+        await Promise.all(
+          attachments.map((attachment) => {
+            const abs = absoluteUploadPath(attachment.url);
+            return abs ? removeFileSafe(abs) : Promise.resolve();
+          })
+        );
+        res.status(500).json({ message: "Unable to publish event" });
+      }
+    });
+  });
+
+  app.delete("/api/events/:id", authenticate, async (req, res) => {
+    const eventId = req.params.id;
+    if (!eventId) {
+      return res.status(400).json({ message: "Event id required" });
+    }
+    try {
+      const events = await listUserEvents(req.user.username);
+      const target = events.find((event) => event.id === eventId);
+      if (!target) {
+        return res.status(404).json({ message: "Event not found" });
+      }
+      await deleteUserEvent(req.user.username, eventId);
+      if (Array.isArray(target.attachments)) {
+        await Promise.all(
+          target.attachments.map(async (attachment) => {
+            const abs = absoluteUploadPath(attachment.url);
+            if (abs) {
+              await removeFileSafe(abs);
+            }
+          })
+        );
+      }
+      res.status(204).end();
+    } catch (error) {
+      console.error("Failed to delete event", error);
+      res.status(500).json({ message: "Unable to delete event" });
+    }
+  });
+
+  app.post("/api/posts", authenticate, (req, res) => {
+    req.uploadTarget = "post";
+    uploadMiddleware.array("media", 6)(req, res, async (error) => {
+      if (error) {
+        return uploadErrorResponse(res, error);
+      }
+      const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+      const attachments = Array.isArray(req.files)
+        ? req.files.map((file) => describeAttachment(file)).filter(Boolean)
+        : [];
+      if (!text && !attachments.length) {
+        await Promise.all(
+          attachments.map((attachment) => {
+            const abs = absoluteUploadPath(attachment.url);
+            return abs ? removeFileSafe(abs) : Promise.resolve();
+          })
+        );
+        return res.status(400).json({ message: "Posts must include text or media" });
+      }
+      try {
+        const post = {
+          id: crypto.randomUUID(),
+          text,
+          attachments,
+          createdAt: new Date().toISOString(),
+          visibility: "public",
+        };
+        await saveUserPost(req.user.username, post);
+        res.status(201).json({
+          post: {
+            id: post.id,
+            text: post.text,
+            attachments: normalizeAttachments(post.attachments),
+            createdAt: post.createdAt,
+            visibility: post.visibility,
+          },
+        });
+      } catch (err) {
+        console.error("Failed to create post", err);
+        await Promise.all(
+          attachments.map((attachment) => {
+            const abs = absoluteUploadPath(attachment.url);
+            return abs ? removeFileSafe(abs) : Promise.resolve();
+          })
+        );
+        res.status(500).json({ message: "Unable to publish post" });
+      }
+    });
+  });
+
+  app.delete("/api/posts/:id", authenticate, async (req, res) => {
+    const postId = req.params.id;
+    if (!postId) {
+      return res.status(400).json({ message: "Post id required" });
+    }
+    try {
+      const posts = await listUserPosts(req.user.username);
+      const target = posts.find((post) => post.id === postId);
+      if (!target) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      await deleteUserPost(req.user.username, postId);
+      if (Array.isArray(target.attachments)) {
+        await Promise.all(
+          target.attachments.map(async (attachment) => {
+            const abs = absoluteUploadPath(attachment.url);
+            if (abs) {
+              await removeFileSafe(abs);
+            }
+          })
+        );
+      }
+      res.status(204).end();
+    } catch (error) {
+      console.error("Failed to delete post", error);
+      res.status(500).json({ message: "Unable to delete post" });
     }
   });
 
