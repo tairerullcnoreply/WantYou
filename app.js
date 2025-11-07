@@ -26,6 +26,13 @@ const STATUS_NAMES = {
   both: "Both",
 };
 
+const USER_BADGE_DEFINITIONS = Object.freeze({
+  WantYou: { label: "WantYou", variant: "wantyou", icon: "★" },
+  Verified: { label: "Verified", variant: "verified", icon: "✔" },
+});
+
+const USER_BADGE_ORDER = Object.freeze(["WantYou", "Verified"]);
+
 const HERO_CARDS = [
   {
     heading: "Know you",
@@ -147,6 +154,41 @@ function normalizeThread(thread) {
   };
 }
 
+function getDisplayBadges(badges) {
+  if (!Array.isArray(badges)) {
+    return [];
+  }
+  const unique = new Set();
+  badges.forEach((badge) => {
+    if (USER_BADGE_DEFINITIONS[badge]) {
+      unique.add(badge);
+    }
+  });
+  return USER_BADGE_ORDER.filter((badge) => unique.has(badge));
+}
+
+function renderUserBadges(container, badges) {
+  if (!container) return;
+  const visibleBadges = getDisplayBadges(badges);
+  container.innerHTML = "";
+  if (!visibleBadges.length) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  visibleBadges.forEach((badgeName) => {
+    const definition = USER_BADGE_DEFINITIONS[badgeName];
+    if (!definition) return;
+    const badge = document.createElement("span");
+    badge.className = `user-badge user-badge--${definition.variant}`;
+    if (definition.icon) {
+      badge.dataset.icon = definition.icon;
+    }
+    badge.textContent = definition.label;
+    container.appendChild(badge);
+  });
+}
+
 function promptForAlias(currentAlias = "") {
   const initial = typeof currentAlias === "string" ? currentAlias.trim() : "";
   const response = window.prompt(
@@ -228,7 +270,7 @@ async function requireSession() {
 }
 
 function connectionIsAnonymous(state) {
-  return state.status === "want" || state.status === "both";
+  return (state.status === "want" || state.status === "both") && Boolean(state.anonymous);
 }
 
 function describeOutbound(status, anonymous, alias) {
@@ -589,8 +631,9 @@ async function initLookup() {
       card.innerHTML = `
         <header class="connection__header">
           <img src="${avatarUrl}" alt="${escapeHtml(person.fullName)}" />
-          <div>
+          <div class="connection__identity">
             <h3><a href="${profileHref}">${escapeHtml(person.fullName)}</a></h3>
+            <div class="user-badges" data-user-badges hidden></div>
             <p>@${escapeHtml(person.username)}</p>
           </div>
           <span class="connection__badge" data-badge></span>
@@ -613,6 +656,7 @@ async function initLookup() {
         </button>
       `;
 
+      renderUserBadges(card.querySelector("[data-user-badges]"), person.badges);
       renderCardState(card, inbound, outbound);
 
       const usernameKey = person.username;
@@ -833,6 +877,7 @@ function renderThreadView(context, thread) {
     statusHeader,
     statusLabel,
     title,
+    threadBadges,
     aliasNote,
     revealToggle,
     switchAnon,
@@ -844,6 +889,7 @@ function renderThreadView(context, thread) {
 
   const inbound = normalizeConnectionState(thread.inbound);
   const outbound = normalizeConnectionState(thread.outbound);
+  const inboundAnonymous = connectionIsAnonymous(inbound);
 
   placeholder.hidden = true;
   statusHeader.hidden = false;
@@ -851,6 +897,14 @@ function renderThreadView(context, thread) {
 
   statusLabel.textContent = STATUS_LABELS[inbound.status] ?? STATUS_LABELS.none;
   title.textContent = thread.displayName;
+  if (threadBadges) {
+    if (inboundAnonymous) {
+      threadBadges.hidden = true;
+      threadBadges.innerHTML = "";
+    } else {
+      renderUserBadges(threadBadges, thread.badges);
+    }
+  }
 
   if (aliasNote) {
     if (outbound.status === "want" || outbound.status === "both") {
@@ -884,13 +938,9 @@ function renderThreadView(context, thread) {
     }
   }
   if (requestReveal) {
-    const inboundAnonymous =
-      (inbound.status === "want" || inbound.status === "both") && inbound.anonymous;
     requestReveal.disabled = !inboundAnonymous;
   }
 
-  const inboundAnonymous =
-    (inbound.status === "want" || inbound.status === "both") && inbound.anonymous;
   const incomingAuthor = inboundAnonymous
     ? inbound.alias?.trim() || "Anonymous"
     : thread.displayName;
@@ -930,6 +980,7 @@ async function initMessages() {
   const statusHeader = threadSection.querySelector("[data-status-bar]");
   const statusLabel = threadSection.querySelector(".messages-thread__status");
   const title = threadSection.querySelector(".messages-thread__title");
+  const threadBadges = threadSection.querySelector("[data-thread-badges]");
   const aliasNote = threadSection.querySelector("[data-alias]");
   const revealToggle = document.getElementById("reveal-toggle");
   const switchAnon = threadSection.querySelector('[data-action="switch-anon"]');
@@ -967,6 +1018,7 @@ async function initMessages() {
     statusHeader,
     statusLabel,
     title,
+    threadBadges,
     aliasNote,
     revealToggle,
     switchAnon,
@@ -1034,9 +1086,21 @@ async function initMessages() {
 
       button.innerHTML = `
         <span class="${statusClass}">${escapeHtml(statusText)}</span>
-        <span class="messages-list__name">${escapeHtml(thread.displayName)}</span>
+        <span class="messages-list__name-row">
+          <span class="messages-list__name">${escapeHtml(thread.displayName)}</span>
+          <span class="user-badges user-badges--compact" data-user-badges hidden></span>
+        </span>
         <span class="messages-list__preview">${previewText}</span>
       `;
+      const badgeContainer = button.querySelector("[data-user-badges]");
+      if (connectionIsAnonymous(inbound)) {
+        if (badgeContainer) {
+          badgeContainer.hidden = true;
+          badgeContainer.innerHTML = "";
+        }
+      } else {
+        renderUserBadges(badgeContainer, thread.badges);
+      }
       button.addEventListener("click", () => {
         if (!loadingThread) {
           selectThread(thread.username);
@@ -1213,11 +1277,13 @@ async function initMessages() {
           summary.inbound = thread.inbound;
           summary.outbound = thread.outbound;
           summary.displayName = thread.displayName;
+          summary.badges = thread.badges;
         } else {
           threads.push({
             username: thread.username,
             fullName: thread.fullName,
             displayName: thread.displayName,
+            badges: thread.badges,
             inbound: thread.inbound,
             outbound: thread.outbound,
             lastMessage: thread.messages[thread.messages.length - 1] ?? null,
@@ -1284,6 +1350,7 @@ async function initProfile() {
   const usernameEl = document.querySelector("[data-profile-username]");
   const taglineEl = document.querySelector("[data-profile-tagline]");
   const bioEl = document.querySelector("[data-profile-bio]");
+  const profileBadges = document.querySelector("[data-profile-badges]");
   const avatarImg = document.querySelector("[data-profile-avatar]");
   const avatarButton = document.querySelector(".profile-summary__avatar");
   const eventRing = document.querySelector("[data-event-ring]");
@@ -1301,6 +1368,7 @@ async function initProfile() {
   const editButton = document.querySelector('[data-action="edit-profile"]');
   const avatarInput = document.querySelector("[data-avatar-input]");
   const changeAvatarButton = document.querySelector('[data-action="change-avatar"]');
+  const verifyButton = document.querySelector('[data-action="toggle-verified"]');
   const addEventButton = document.querySelector('[data-action="add-event"]');
   const addPostButton = document.querySelector('[data-action="add-post"]');
   const eventModal = document.querySelector("[data-events-modal]");
@@ -1327,17 +1395,27 @@ async function initProfile() {
   let profileData = null;
 
   const toggleOwnVisibility = (canEdit) => {
+    const canVerify = Boolean(profileData?.canVerify);
     ownOnlySections.forEach((section) => {
       section.hidden = !canEdit;
     });
     if (actionsContainer) {
-      actionsContainer.hidden = !canEdit;
+      actionsContainer.hidden = !(canEdit || canVerify);
     }
     if (addEventButton) {
       addEventButton.hidden = !canEdit;
     }
     if (addPostButton) {
       addPostButton.hidden = !canEdit;
+    }
+    if (editButton) {
+      editButton.hidden = !canEdit;
+    }
+    if (changeAvatarButton) {
+      changeAvatarButton.hidden = !canEdit;
+    }
+    if (verifyButton) {
+      verifyButton.hidden = !canVerify;
     }
     if (!canEdit && statsContainer) {
       statsContainer.hidden = !profileData?.stats;
@@ -1590,9 +1668,16 @@ async function initProfile() {
 
   const renderProfile = (data) => {
     if (!data) return;
-    profileData = data;
-    const user = data.user ?? {};
-    if (data.canEdit) {
+    profileData = {
+      ...data,
+      canVerify: Boolean(data.canVerify),
+      user: {
+        ...(data.user ?? {}),
+      },
+    };
+    const user = profileData.user;
+    user.badges = Array.isArray(user.badges) ? user.badges : [];
+    if (profileData.canEdit) {
       sessionUser = { ...sessionUser, ...user };
     }
 
@@ -1610,6 +1695,18 @@ async function initProfile() {
     bioEl.classList.toggle("profile-summary__tagline--empty", !user.bio);
 
     applyAvatar(user, data.events);
+    renderUserBadges(profileBadges, user.badges);
+
+    if (verifyButton) {
+      if (profileData.canVerify) {
+        const isVerified = getDisplayBadges(user.badges).includes("Verified");
+        verifyButton.hidden = false;
+        verifyButton.disabled = false;
+        verifyButton.textContent = isVerified ? "Remove verification" : "Verify user";
+      } else {
+        verifyButton.hidden = true;
+      }
+    }
 
     if (data.stats) {
       statKnow.textContent = String(data.stats.know ?? 0);
@@ -1639,6 +1736,34 @@ async function initProfile() {
       )}.`;
     }
   };
+
+  verifyButton?.addEventListener("click", async () => {
+    if (!profileData?.canVerify || !profileData?.user?.username) {
+      return;
+    }
+    const currentBadges = Array.isArray(profileData.user.badges)
+      ? profileData.user.badges
+      : [];
+    const isVerified = getDisplayBadges(currentBadges).includes("Verified");
+    verifyButton.disabled = true;
+    try {
+      const response = await apiRequest("/badges/verify", {
+        method: "POST",
+        body: JSON.stringify({
+          username: profileData.user.username,
+          verified: !isVerified,
+        }),
+      });
+      if (response?.user) {
+        profileData.user = response.user;
+        renderProfile(profileData);
+      }
+    } catch (error) {
+      window.alert(error?.message || "We couldn't update verification right now.");
+    } finally {
+      verifyButton.disabled = false;
+    }
+  });
 
   const buildProfileUrl = () => {
     if (requestedUser) {

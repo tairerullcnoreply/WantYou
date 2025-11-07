@@ -482,6 +482,16 @@ img {
   box-shadow: inset 0 0 0 1px rgba(255, 122, 0, 0.4);
 }
 
+.connection__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.connection__identity .user-badges {
+  margin-top: 0;
+}
+
 .connection__bio {
   color: var(--color-muted);
   margin: 0;
@@ -517,6 +527,45 @@ img {
 .chip:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.user-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.user-badges--compact {
+  margin-top: 0;
+}
+
+.user-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(31, 31, 31, 0.08);
+  color: var(--color-text);
+}
+
+.user-badge::before {
+  content: attr(data-icon);
+  font-size: 0.85em;
+  line-height: 1;
+}
+
+.user-badge--wantyou {
+  background: rgba(255, 122, 0, 0.16);
+  color: var(--color-accent);
+}
+
+.user-badge--verified {
+  background: rgba(76, 175, 80, 0.18);
+  color: #2e7d32;
 }
 
 .toggle {
@@ -592,6 +641,16 @@ img {
   font-weight: 600;
 }
 
+.messages-list__name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.messages-list__name-row .user-badges {
+  margin-top: 0;
+}
+
 .messages-list__preview {
   color: var(--color-muted);
   font-size: 0.9rem;
@@ -616,7 +675,19 @@ img {
 }
 
 .messages-thread__title {
+  margin: 0;
+}
+
+.messages-thread__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
   margin: 0.3rem 0 0;
+}
+
+.messages-thread__title-row .user-badges {
+  margin-top: 0;
 }
 
 .messages-thread__note {
@@ -802,6 +873,10 @@ img {
 
 .profile-summary__meta {
   flex: 1;
+}
+
+.profile-summary__badges {
+  margin-top: 0.5rem;
 }
 
 .profile-summary__tagline {

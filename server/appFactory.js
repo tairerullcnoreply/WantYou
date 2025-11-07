@@ -9,6 +9,15 @@ const UPSTASH_REST_URL = process.env.KV_REST_API_URL;
 const UPSTASH_REST_TOKEN = process.env.KV_REST_API_TOKEN;
 const HAS_UPSTASH_CONFIG = Boolean(UPSTASH_REST_URL && UPSTASH_REST_TOKEN);
 
+const OWNER_USERNAME = "wantyou";
+
+const BADGE_TYPES = Object.freeze({
+  WANTYOU: "WantYou",
+  VERIFIED: "Verified",
+});
+
+const VALID_BADGES = new Set(Object.values(BADGE_TYPES));
+
 const DEFAULT_CONNECTION_STATE = Object.freeze({
   status: "none",
   anonymous: false,
@@ -34,6 +43,66 @@ ensureDirectory(UPLOAD_ROOT);
 ensureDirectory(AVATAR_UPLOAD_DIR);
 ensureDirectory(POST_UPLOAD_DIR);
 ensureDirectory(EVENT_UPLOAD_DIR);
+
+function normalizeBadgeList(badges) {
+  if (!Array.isArray(badges)) {
+    return [];
+  }
+  const seen = new Set();
+  const normalized = [];
+  badges.forEach((badge) => {
+    if (typeof badge !== "string") return;
+    const trimmed = badge.trim();
+    if (!VALID_BADGES.has(trimmed) || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  });
+  return normalized;
+}
+
+function enforceBadgeRules(username, badges) {
+  const list = normalizeBadgeList(badges);
+  if (username === OWNER_USERNAME) {
+    if (!list.includes(BADGE_TYPES.WANTYOU)) {
+      list.unshift(BADGE_TYPES.WANTYOU);
+    }
+    return list;
+  }
+  return list.filter((badge) => badge !== BADGE_TYPES.WANTYOU);
+}
+
+function sanitizeUserRecord(record) {
+  if (!record || !record.username) {
+    throw new Error("User record must include a username");
+  }
+  return {
+    fullName: typeof record.fullName === "string" ? record.fullName.trim() : "",
+    username: normalizeUsername(record.username),
+    passwordHash: record.passwordHash,
+    tagline: typeof record.tagline === "string" ? record.tagline : "",
+    bio: typeof record.bio === "string" ? record.bio : "",
+    profilePicturePath:
+      typeof record.profilePicturePath === "string" ? record.profilePicturePath : "",
+    badges: enforceBadgeRules(normalizeUsername(record.username), record.badges),
+  };
+}
+
+function buildUserSummaryPayload(user) {
+  return JSON.stringify({
+    fullName: user.fullName,
+    tagline: user.tagline ?? "",
+    badges: Array.isArray(user.badges) ? user.badges : [],
+  });
+}
+
+async function writeUserRecord(record) {
+  const sanitized = sanitizeUserRecord(record);
+  await redisPipeline([
+    ["SET", userKey(sanitized.username), JSON.stringify(sanitized)],
+    ["HSET", "users", sanitized.username, buildUserSummaryPayload(sanitized)],
+  ]);
+  return sanitized;
+}
 
 const ALLOWED_IMAGE_TYPES = new Set([
   "image/jpeg",
@@ -468,18 +537,16 @@ async function getUser(username) {
   if (!raw) return null;
   const record = parseJsonSafe(raw, null);
   if (!record) return null;
+  const sanitized = sanitizeUserRecord({ ...record, username: record.username ?? normalized });
   return {
-    fullName: record.fullName,
-    username: record.username ?? normalized,
+    ...sanitized,
     passwordHash: record.passwordHash,
-    tagline: record.tagline ?? "",
-    bio: record.bio ?? "",
-    profilePicturePath: record.profilePicturePath ?? "",
   };
 }
 
 async function saveUser({ fullName, username, password }) {
   const normalized = normalizeUsername(username);
+  const initialBadges = normalized === OWNER_USERNAME ? [BADGE_TYPES.WANTYOU] : [];
   const record = {
     fullName: fullName.trim(),
     username: normalized,
@@ -487,12 +554,9 @@ async function saveUser({ fullName, username, password }) {
     tagline: "",
     bio: "",
     profilePicturePath: "",
+    badges: initialBadges,
   };
-  await redisPipeline([
-    ["SET", userKey(normalized), JSON.stringify(record)],
-    ["HSET", "users", normalized, JSON.stringify({ fullName: record.fullName, tagline: record.tagline })],
-  ]);
-  return record;
+  return writeUserRecord(record);
 }
 
 async function updateUserProfile(username, updates) {
@@ -502,16 +566,8 @@ async function updateUserProfile(username, updates) {
     ...existing,
     ...updates,
   };
-  await redisPipeline([
-    ["SET", userKey(existing.username), JSON.stringify(next)],
-    [
-      "HSET",
-      "users",
-      existing.username,
-      JSON.stringify({ fullName: next.fullName, tagline: next.tagline ?? "" }),
-    ],
-  ]);
-  return next;
+  const saved = await writeUserRecord(next);
+  return { ...saved, passwordHash: existing.passwordHash };
 }
 
 async function listUsers() {
@@ -526,9 +582,14 @@ async function listUsers() {
     if (!username) continue;
     const parsed = parseJsonSafe(raw, null);
     if (parsed) {
-      users.push({ username, fullName: parsed.fullName, tagline: parsed.tagline ?? "" });
+      users.push({
+        username,
+        fullName: parsed.fullName,
+        tagline: parsed.tagline ?? "",
+        badges: enforceBadgeRules(username, parsed.badges),
+      });
     } else {
-      users.push({ username, fullName: raw, tagline: "" });
+      users.push({ username, fullName: raw, tagline: "", badges: [] });
     }
   }
   return users;
@@ -666,6 +727,7 @@ async function getLookupPeople(currentUsername) {
       username: user.username,
       fullName: user.fullName,
       tagline: user.tagline ?? "",
+      badges: Array.isArray(user.badges) ? user.badges : [],
       inbound: connectionStateFor(user.username, incoming),
       outbound: connectionStateFor(user.username, outgoing),
     }));
@@ -906,12 +968,14 @@ async function deleteUserPost(username, postId) {
 }
 
 function publicUser(user) {
+  const badges = enforceBadgeRules(user.username, user.badges);
   return {
     fullName: user.fullName,
     username: user.username,
     tagline: user.tagline ?? "",
     bio: user.bio ?? "",
     profilePicture: user.profilePicturePath ? user.profilePicturePath : "",
+    badges,
   };
 }
 
@@ -1163,6 +1227,7 @@ function createApp() {
           fullName: person.fullName,
           displayName: formatDisplayName(person, inbound),
           tagline: person.tagline ?? "",
+          badges: Array.isArray(person.badges) ? person.badges : [],
           inbound,
           outbound,
           lastMessage: lastMessage
@@ -1209,6 +1274,7 @@ function createApp() {
         fullName: targetUser.fullName,
         displayName: formatDisplayName(targetUser, inbound),
         tagline: targetUser.tagline ?? "",
+        badges: Array.isArray(targetUser.badges) ? targetUser.badges : [],
         inbound,
         outbound,
         alias: formatAliasForCurrentUser(req.user, outbound),
@@ -1292,6 +1358,9 @@ function createApp() {
         maxUploadSize: MAX_MEDIA_FILE_SIZE,
       };
 
+      const canVerify = req.user.username === OWNER_USERNAME && requested !== req.user.username;
+      response.canVerify = canVerify;
+
       if (isSelf) {
         const [incoming, outgoing, users] = await Promise.all([
           getIncomingConnections(req.user.username),
@@ -1339,6 +1408,41 @@ function createApp() {
     } catch (error) {
       console.error("Failed to update profile", error);
       res.status(500).json({ message: "Unable to update profile" });
+    }
+  });
+
+  app.post("/api/badges/verify", authenticate, async (req, res) => {
+    if (req.user.username !== OWNER_USERNAME) {
+      return res
+        .status(403)
+        .json({ message: "Only the WantYou owner can manage verification badges" });
+    }
+    const { username, verified } = req.body ?? {};
+    const normalizedTarget = normalizeUsername(username);
+    if (!normalizedTarget) {
+      return res.status(400).json({ message: "Username to verify is required" });
+    }
+    if (typeof verified !== "boolean") {
+      return res
+        .status(400)
+        .json({ message: "Specify whether the user should be verified" });
+    }
+    try {
+      const targetUser = await getUser(normalizedTarget);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const badgeSet = new Set(targetUser.badges);
+      if (verified) {
+        badgeSet.add(BADGE_TYPES.VERIFIED);
+      } else {
+        badgeSet.delete(BADGE_TYPES.VERIFIED);
+      }
+      const updated = await writeUserRecord({ ...targetUser, badges: [...badgeSet] });
+      res.json({ user: publicUser(updated) });
+    } catch (error) {
+      console.error("Failed to update verification badge", error);
+      res.status(500).json({ message: "Unable to update verification badge" });
     }
   });
 
