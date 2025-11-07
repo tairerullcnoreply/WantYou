@@ -1978,7 +1978,7 @@ async function initProfile() {
     }
   });
 
-  const buildProfileUrl = () => {
+  const buildProfileRequestPath = () => {
     if (requestedUser) {
       return `/profile?user=${encodeURIComponent(requestedUser)}`;
     }
@@ -1987,7 +1987,7 @@ async function initProfile() {
 
   try {
     await requireSession();
-    const data = await apiRequest(buildProfileUrl());
+    const data = await apiRequest(buildProfileRequestPath());
     renderProfile(data);
   } catch (error) {
     console.error("Unable to load profile", error);
