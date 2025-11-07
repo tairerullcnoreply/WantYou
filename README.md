@@ -42,3 +42,4 @@ You can chat with others without being anonymous.
 * [11/15/2025; 9:55 AM UTC] Supercharged posts and events with visibility controls, moods, highlights, and an immersive event viewer
 * [11/15/2025; 11:40 AM UTC] Polished event viewer accessibility with highlight cues and richer progress summaries
 * [11/16/2025; 10:05 AM UTC] Supercharged messaging with unread tracking, search filtering, and scrolling chat history pagination
+* [11/16/2025; 3:15 PM UTC] Redirected logged-in visitors to lookup, deep-linked auth tabs, and removed unauthenticated entry points

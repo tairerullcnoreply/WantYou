@@ -543,6 +543,22 @@ function initLanding() {
   const form = document.getElementById("request-access");
   let heroIndex = 0;
 
+  const existingToken = getSessionToken();
+  if (existingToken) {
+    (async () => {
+      try {
+        await apiRequest("/session");
+        window.location.replace("/lookup/");
+      } catch (error) {
+        if (error?.status === 401) {
+          clearSessionToken();
+        } else {
+          console.error("Unable to verify existing session", error);
+        }
+      }
+    })();
+  }
+
   if (year) {
     year.textContent = new Date().getFullYear();
   }
@@ -595,25 +611,46 @@ function initSignup() {
   const loginForm = document.getElementById("login-form");
   const tabs = document.querySelectorAll(".signup__tab");
   const year = document.getElementById("signup-year");
+  const forms = [signupForm, loginForm].filter(Boolean);
 
   if (year) {
     year.textContent = new Date().getFullYear();
   }
 
+  const activateTab = (target) => {
+    if (!forms.length) {
+      return;
+    }
+    const normalizedTarget = forms.some((form) => form.dataset.form === target)
+      ? target
+      : forms[0].dataset.form;
+    tabs.forEach((button) => {
+      const isActive = button.dataset.tab === normalizedTarget;
+      button.classList.toggle("signup__tab--active", isActive);
+    });
+    forms.forEach((form) => {
+      const isTarget = form.dataset.form === normalizedTarget;
+      form.classList.toggle("signup__form--hidden", !isTarget);
+    });
+  };
+
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
       const target = tab.dataset.tab;
       if (!target) return;
-
-      tabs.forEach((button) => button.classList.toggle("signup__tab--active", button === tab));
-
-      [signupForm, loginForm].forEach((form) => {
-        if (!form) return;
-        const isTarget = form.dataset.form === target;
-        form.classList.toggle("signup__form--hidden", !isTarget);
-      });
+      activateTab(target);
+      const params = new URLSearchParams(window.location.search);
+      params.set("view", target);
+      const nextQuery = params.toString();
+      const nextUrl = nextQuery ? `${window.location.pathname}?${nextQuery}` : window.location.pathname;
+      window.history.replaceState({}, "", nextUrl);
     });
   });
+
+  const params = new URLSearchParams(window.location.search);
+  const hashView = window.location.hash ? window.location.hash.slice(1) : "";
+  const initialTarget = (params.get("view") || hashView || "").toLowerCase();
+  activateTab(initialTarget || (forms[0]?.dataset.form ?? ""));
 
   signupForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
