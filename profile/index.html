@@ -64,6 +64,31 @@
             <p class="profile-summary__bio" data-profile-bio>
               Add more about yourself so people can get to know you.
             </p>
+            <dl class="profile-summary__details" data-profile-details hidden>
+              <div data-profile-pronouns-container hidden>
+                <dt>Pronouns</dt>
+                <dd data-profile-pronouns></dd>
+              </div>
+              <div data-profile-location-container hidden>
+                <dt>Location</dt>
+                <dd data-profile-location></dd>
+              </div>
+              <div data-profile-availability-container hidden>
+                <dt>Availability</dt>
+                <dd data-profile-availability></dd>
+              </div>
+              <div data-profile-website-container hidden>
+                <dt>Website</dt>
+                <dd>
+                  <a
+                    data-profile-website
+                    href="#"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  ></a>
+                </dd>
+              </div>
+            </dl>
           </div>
           <div class="profile-summary__actions" data-profile-actions>
             <button class="button button--ghost" data-action="edit-profile" data-own-control>
@@ -93,6 +118,88 @@
             <dd id="stat-both">0</dd>
           </div>
         </dl>
+      </section>
+
+      <section class="card profile-section profile-section--about">
+        <header class="profile-section__header">
+          <div>
+            <h2>About</h2>
+            <p>The story behind the statuses.</p>
+          </div>
+          <span class="tag profile-availability" data-profile-availability-pill hidden></span>
+        </header>
+        <div class="profile-about">
+          <article class="profile-about__card" data-profile-spotlight-card>
+            <h3>Spotlight</h3>
+            <p data-profile-spotlight>Highlight a win, milestone, or mission.</p>
+          </article>
+          <article class="profile-about__card" data-profile-journey-card>
+            <h3>Journey</h3>
+            <p data-profile-journey>Share the path you're charting next.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="card profile-section profile-section--interests">
+        <header class="profile-section__header">
+          <div>
+            <h2>Focus &amp; interests</h2>
+            <p>Signals that help people start the right conversations.</p>
+          </div>
+        </header>
+        <ul class="profile-interests" data-profile-interests>
+          <li data-profile-interests-empty>No interests shared yet.</li>
+        </ul>
+      </section>
+
+      <section class="card profile-section profile-section--activity">
+        <header class="profile-section__header">
+          <div>
+            <h2>Activity</h2>
+            <p>A quick pulse on how this profile is moving.</p>
+          </div>
+        </header>
+        <dl class="profile-activity" data-profile-activity>
+          <div>
+            <dt>Active events</dt>
+            <dd data-activity-active-events>0</dd>
+          </div>
+          <div>
+            <dt>Highlighted loops</dt>
+            <dd data-activity-highlighted-events>0</dd>
+          </div>
+          <div>
+            <dt>Posts published</dt>
+            <dd data-activity-total-posts>0</dd>
+          </div>
+          <div>
+            <dt>Media shared</dt>
+            <dd data-activity-total-media>0</dd>
+          </div>
+          <div>
+            <dt>Mood variety</dt>
+            <dd data-activity-moods-used>0</dd>
+          </div>
+          <div>
+            <dt>Last update</dt>
+            <dd data-activity-last-updated>—</dd>
+          </div>
+        </dl>
+        <p class="profile-section__empty" data-activity-empty hidden>
+          Activity insights will unlock as events and posts go live.
+        </p>
+      </section>
+
+      <section class="card profile-section profile-section--links" data-profile-links-section>
+        <header class="profile-section__header">
+          <div>
+            <h2>Featured links</h2>
+            <p>Drop resources, calendars, or work you're proud of.</p>
+          </div>
+        </header>
+        <ul class="profile-links" data-profile-links>
+          <li data-profile-links-empty>No links shared yet.</li>
+        </ul>
       </section>
 
       <section class="card profile-section" data-own-only>
@@ -194,6 +301,64 @@
           <label>
             <span>Bio</span>
             <textarea name="bio" rows="5" maxlength="500"></textarea>
+          </label>
+          <label>
+            <span>Pronouns</span>
+            <input type="text" name="pronouns" maxlength="40" />
+          </label>
+          <label>
+            <span>Location</span>
+            <input type="text" name="location" maxlength="120" />
+          </label>
+          <label>
+            <span>Availability</span>
+            <select name="availability">
+              <option value="open">Open to new connections</option>
+              <option value="looking">Actively looking to connect</option>
+              <option value="focused">Heads-down on something big</option>
+              <option value="away">Stepping back for now</option>
+              <option value="busy">Booked and busy</option>
+            </select>
+          </label>
+          <label>
+            <span>Website</span>
+            <input type="url" name="website" maxlength="200" placeholder="https://" />
+          </label>
+          <label>
+            <span>Focus &amp; interests</span>
+            <input
+              type="text"
+              name="interests"
+              maxlength="240"
+              placeholder="Separate with commas (e.g. Design, Robotics, Mentorship)"
+            />
+          </label>
+          <label>
+            <span>Spotlight</span>
+            <textarea
+              name="spotlight"
+              rows="3"
+              maxlength="280"
+              placeholder="What should people celebrate with you?"
+            ></textarea>
+          </label>
+          <label>
+            <span>Journey</span>
+            <textarea
+              name="journey"
+              rows="4"
+              maxlength="600"
+              placeholder="Connect the dots on where you've been and where you're headed."
+            ></textarea>
+          </label>
+          <label>
+            <span>Featured links</span>
+            <textarea
+              name="links"
+              rows="3"
+              maxlength="600"
+              placeholder="One per line as Label - https://example.com"
+            ></textarea>
           </label>
         </div>
         <footer class="profile-dialog__footer">

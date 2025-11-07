@@ -2206,6 +2206,31 @@ async function initProfile() {
   const usernameHistoryNote = document.querySelector("[data-username-history-note]");
   const taglineEl = document.querySelector("[data-profile-tagline]");
   const bioEl = document.querySelector("[data-profile-bio]");
+  const detailsList = document.querySelector("[data-profile-details]");
+  const pronounsContainer = document.querySelector("[data-profile-pronouns-container]");
+  const pronounsEl = document.querySelector("[data-profile-pronouns]");
+  const locationContainer = document.querySelector("[data-profile-location-container]");
+  const locationEl = document.querySelector("[data-profile-location]");
+  const availabilityContainer = document.querySelector("[data-profile-availability-container]");
+  const availabilityEl = document.querySelector("[data-profile-availability]");
+  const availabilityPill = document.querySelector("[data-profile-availability-pill]");
+  const websiteContainer = document.querySelector("[data-profile-website-container]");
+  const websiteLink = document.querySelector("[data-profile-website]");
+  const spotlightCard = document.querySelector("[data-profile-spotlight-card]");
+  const spotlightEl = document.querySelector("[data-profile-spotlight]");
+  const journeyCard = document.querySelector("[data-profile-journey-card]");
+  const journeyEl = document.querySelector("[data-profile-journey]");
+  const interestsList = document.querySelector("[data-profile-interests]");
+  const activityList = document.querySelector("[data-profile-activity]");
+  const activityEmpty = document.querySelector("[data-activity-empty]");
+  const activityActiveEl = document.querySelector("[data-activity-active-events]");
+  const activityHighlightedEl = document.querySelector("[data-activity-highlighted-events]");
+  const activityPostsEl = document.querySelector("[data-activity-total-posts]");
+  const activityMediaEl = document.querySelector("[data-activity-total-media]");
+  const activityMoodsEl = document.querySelector("[data-activity-moods-used]");
+  const activityUpdatedEl = document.querySelector("[data-activity-last-updated]");
+  const linksSection = document.querySelector("[data-profile-links-section]");
+  const linksList = document.querySelector("[data-profile-links]");
   const profileBadges = document.querySelector("[data-profile-badges]");
   const avatarImg = document.querySelector("[data-profile-avatar]");
   const avatarButton = document.querySelector(".profile-summary__avatar");
@@ -2999,6 +3024,194 @@ async function initProfile() {
     bioEl.textContent = user.bio ? user.bio : bioFallback;
     bioEl.classList.toggle("profile-summary__tagline--empty", !user.bio);
 
+    const detailVisibility = [];
+    const pronouns = typeof user.pronouns === "string" ? user.pronouns.trim() : "";
+    if (pronounsContainer && pronounsEl) {
+      const hasPronouns = Boolean(pronouns);
+      pronounsContainer.hidden = !hasPronouns;
+      if (hasPronouns) {
+        pronounsEl.textContent = pronouns;
+      }
+      detailVisibility.push(hasPronouns);
+    }
+    const location = typeof user.location === "string" ? user.location.trim() : "";
+    if (locationContainer && locationEl) {
+      const hasLocation = Boolean(location);
+      locationContainer.hidden = !hasLocation;
+      if (hasLocation) {
+        locationEl.textContent = location;
+      }
+      detailVisibility.push(hasLocation);
+    }
+    const availabilityLabel = typeof user.availabilityLabel === "string"
+      ? user.availabilityLabel.trim()
+      : typeof user.availability === "string"
+      ? user.availability
+      : "";
+    if (availabilityContainer && availabilityEl) {
+      const hasAvailability = Boolean(availabilityLabel);
+      availabilityContainer.hidden = !hasAvailability;
+      if (hasAvailability) {
+        availabilityEl.textContent = availabilityLabel;
+      }
+      detailVisibility.push(hasAvailability);
+    }
+    if (availabilityPill) {
+      if (availabilityLabel) {
+        availabilityPill.textContent = availabilityLabel;
+        availabilityPill.hidden = false;
+      } else {
+        availabilityPill.hidden = true;
+      }
+    }
+    const website = typeof user.website === "string" ? user.website.trim() : "";
+    if (websiteContainer && websiteLink) {
+      if (website) {
+        let label = website;
+        try {
+          const parsed = new URL(website);
+          label = parsed.hostname.replace(/^www\./i, "") || parsed.href;
+        } catch (error) {
+          label = website;
+        }
+        websiteLink.textContent = label;
+        websiteLink.setAttribute("href", website);
+        websiteContainer.hidden = false;
+        detailVisibility.push(true);
+      } else {
+        websiteContainer.hidden = true;
+        detailVisibility.push(false);
+      }
+    }
+    if (detailsList) {
+      const hasDetails = detailVisibility.some(Boolean);
+      detailsList.hidden = !hasDetails;
+    }
+
+    if (spotlightCard && spotlightEl) {
+      const spotlight = typeof user.spotlight === "string" ? user.spotlight.trim() : "";
+      if (spotlight) {
+        spotlightEl.textContent = spotlight;
+        spotlightCard.classList.remove("profile-about__card--empty");
+      } else {
+        spotlightEl.textContent = data.canEdit
+          ? "Highlight a win, milestone, or mission."
+          : "No spotlight yet.";
+        spotlightCard.classList.add("profile-about__card--empty");
+      }
+    }
+    if (journeyCard && journeyEl) {
+      const journey = typeof user.journey === "string" ? user.journey.trim() : "";
+      if (journey) {
+        journeyEl.textContent = journey;
+        journeyCard.classList.remove("profile-about__card--empty");
+      } else {
+        journeyEl.textContent = data.canEdit
+          ? "Connect the dots on where you've been and where you're headed."
+          : "No journey shared yet.";
+        journeyCard.classList.add("profile-about__card--empty");
+      }
+    }
+
+    if (interestsList) {
+      const interests = Array.isArray(user.interests) ? user.interests.filter(Boolean) : [];
+      if (interests.length) {
+        interestsList.innerHTML = interests
+          .map((interest) => `<li>${escapeHtml(interest)}</li>`)
+          .join("");
+      } else {
+        const emptyMessage = data.canEdit
+          ? "Add interests to show people what lights you up."
+          : "No interests shared yet.";
+        interestsList.innerHTML = `<li data-profile-interests-empty>${escapeHtml(emptyMessage)}</li>`;
+      }
+    }
+
+    const activity = data.activity ?? {};
+    const activityTotals = {
+      activeEvents: Number.isFinite(activity.activeEvents) ? activity.activeEvents : 0,
+      highlightedEvents: Number.isFinite(activity.highlightedEvents)
+        ? activity.highlightedEvents
+        : 0,
+      totalPosts: Number.isFinite(activity.totalPosts) ? activity.totalPosts : 0,
+      totalMedia: Number.isFinite(activity.totalMedia) ? activity.totalMedia : 0,
+      moodsUsed: Number.isFinite(activity.moodsUsed) ? activity.moodsUsed : 0,
+    };
+    const hasActivity =
+      activityTotals.activeEvents > 0 ||
+      activityTotals.highlightedEvents > 0 ||
+      activityTotals.totalPosts > 0 ||
+      activityTotals.totalMedia > 0 ||
+      activityTotals.moodsUsed > 0 ||
+      Boolean(activity.lastUpdatedAt);
+    if (activityActiveEl) {
+      activityActiveEl.textContent = String(activityTotals.activeEvents);
+    }
+    if (activityHighlightedEl) {
+      activityHighlightedEl.textContent = String(activityTotals.highlightedEvents);
+    }
+    if (activityPostsEl) {
+      activityPostsEl.textContent = String(activityTotals.totalPosts);
+    }
+    if (activityMediaEl) {
+      activityMediaEl.textContent = String(activityTotals.totalMedia);
+    }
+    if (activityMoodsEl) {
+      activityMoodsEl.textContent = String(activityTotals.moodsUsed);
+    }
+    if (activityUpdatedEl) {
+      activityUpdatedEl.textContent = activity.lastUpdatedAt
+        ? formatTimestamp(activity.lastUpdatedAt)
+        : "—";
+    }
+    if (activityList) {
+      activityList.hidden = !hasActivity;
+    }
+    if (activityEmpty) {
+      activityEmpty.hidden = hasActivity;
+      if (!hasActivity) {
+        activityEmpty.textContent = data.canEdit
+          ? "Activity insights will unlock as you share events or posts."
+          : "Activity insights will unlock as events and posts go live.";
+      }
+    }
+
+    if (linksList) {
+      const links = Array.isArray(user.links)
+        ? user.links.filter((link) => link && typeof link.url === "string" && link.url)
+        : [];
+      if (links.length) {
+        const items = links
+          .map((link) => {
+            const label = link.label ? String(link.label) : link.url;
+            let subtitle = "";
+            try {
+              const parsed = new URL(link.url);
+              subtitle = parsed.hostname.replace(/^www\./i, "");
+            } catch (error) {
+              subtitle = "";
+            }
+            const subtitleHtml = subtitle && subtitle !== label ? `<span>${escapeHtml(subtitle)}</span>` : "";
+            return `<li class="profile-links__item"><a href="${escapeHtml(
+              link.url
+            )}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}</a>${subtitleHtml}</li>`;
+          })
+          .join("");
+        linksList.innerHTML = items;
+      } else {
+        const emptyMessage = data.canEdit
+          ? "Drop resources, calendars, or work you're proud of."
+          : "No links shared yet.";
+        linksList.innerHTML = `<li data-profile-links-empty>${escapeHtml(emptyMessage)}</li>`;
+      }
+    }
+    if (linksSection) {
+      const hasLinks = Array.isArray(user.links)
+        ? user.links.some((link) => link && link.url)
+        : false;
+      linksSection.hidden = !hasLinks && !data.canEdit;
+    }
+
     applyAvatar(user, profileData.events);
     renderUserBadges(profileBadges, user.badges);
 
@@ -3174,6 +3387,42 @@ async function initProfile() {
         const canChangeUsername = !nextChangeAt || Date.now() >= nextChangeAt;
         form.elements.tagline.value = profileData.user.tagline ?? "";
         form.elements.bio.value = profileData.user.bio ?? "";
+        if (form.elements.pronouns) {
+          form.elements.pronouns.value = profileData.user.pronouns ?? "";
+        }
+        if (form.elements.location) {
+          form.elements.location.value = profileData.user.location ?? "";
+        }
+        if (form.elements.availability) {
+          form.elements.availability.value = profileData.user.availability ?? "open";
+        }
+        if (form.elements.website) {
+          form.elements.website.value = profileData.user.website ?? "";
+        }
+        if (form.elements.interests) {
+          form.elements.interests.value = Array.isArray(profileData.user.interests)
+            ? profileData.user.interests.join(", ")
+            : "";
+        }
+        if (form.elements.spotlight) {
+          form.elements.spotlight.value = profileData.user.spotlight ?? "";
+        }
+        if (form.elements.journey) {
+          form.elements.journey.value = profileData.user.journey ?? "";
+        }
+        if (form.elements.links) {
+          const linksValue = Array.isArray(profileData.user.links)
+            ? profileData.user.links
+                .filter((link) => link && link.url)
+                .map((link) =>
+                  link.label && link.label !== link.url
+                    ? `${link.label} - ${link.url}`
+                    : link.url
+                )
+                .join("\n")
+            : "";
+          form.elements.links.value = linksValue;
+        }
         if (usernameChangeNote) {
           if (canChangeUsername) {
             usernameChangeNote.textContent = "You can change your username once every 30 days.";
@@ -3219,6 +3468,30 @@ async function initProfile() {
     }
     if (formData.has("bio")) {
       payload.bio = String(formData.get("bio") ?? "");
+    }
+    if (formData.has("pronouns")) {
+      payload.pronouns = String(formData.get("pronouns") ?? "");
+    }
+    if (formData.has("location")) {
+      payload.location = String(formData.get("location") ?? "");
+    }
+    if (formData.has("availability")) {
+      payload.availability = String(formData.get("availability") ?? "");
+    }
+    if (formData.has("website")) {
+      payload.website = String(formData.get("website") ?? "");
+    }
+    if (formData.has("interests")) {
+      payload.interests = String(formData.get("interests") ?? "");
+    }
+    if (formData.has("spotlight")) {
+      payload.spotlight = String(formData.get("spotlight") ?? "");
+    }
+    if (formData.has("journey")) {
+      payload.journey = String(formData.get("journey") ?? "");
+    }
+    if (formData.has("links")) {
+      payload.links = String(formData.get("links") ?? "");
     }
     try {
       const response = await apiRequest("/profile", {
