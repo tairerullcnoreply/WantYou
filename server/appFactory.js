@@ -67,6 +67,126 @@ const RELATIONSHIP_STATUS_LABELS = Object.freeze({
 const RELATIONSHIP_STATUS_OPTIONS = new Set(Object.values(RELATIONSHIP_STATUS));
 const DEFAULT_RELATIONSHIP_STATUS = RELATIONSHIP_STATUS.OPEN;
 
+const MINIMUM_VERIFIED_AGE = 13;
+const MAXIMUM_VERIFIED_AGE = 120;
+
+function normalizeBirthdateInput(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  let isoCandidate = null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    isoCandidate = trimmed;
+  } else {
+    const parsed = new Date(trimmed);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+    isoCandidate = parsed.toISOString().slice(0, 10);
+  }
+  const [yearStr, monthStr, dayStr] = isoCandidate.split("-");
+  const year = Number.parseInt(yearStr, 10);
+  const month = Number.parseInt(monthStr, 10);
+  const day = Number.parseInt(dayStr, 10);
+  if (
+    [year, month, day].some((part) => !Number.isFinite(part)) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(candidate.getTime())) {
+    return null;
+  }
+  if (candidate.getUTCDate() !== day || candidate.getUTCMonth() + 1 !== month) {
+    return null;
+  }
+  const now = new Date();
+  if (candidate > now) {
+    return null;
+  }
+  const earliest = new Date(Date.UTC(now.getUTCFullYear() - MAXIMUM_VERIFIED_AGE, now.getUTCMonth(), now.getUTCDate()));
+  if (candidate < earliest) {
+    return null;
+  }
+  const iso = candidate.toISOString().slice(0, 10);
+  const age = calculateAgeFromIso(iso, now);
+  if (age === null || age < MINIMUM_VERIFIED_AGE) {
+    return null;
+  }
+  return iso;
+}
+
+function calculateAgeFromIso(iso, referenceDate = new Date()) {
+  if (typeof iso !== "string" || !iso) {
+    return null;
+  }
+  const [yearStr, monthStr, dayStr] = iso.split("-");
+  const year = Number.parseInt(yearStr, 10);
+  const month = Number.parseInt(monthStr, 10);
+  const day = Number.parseInt(dayStr, 10);
+  if (
+    [year, month, day].some((part) => !Number.isFinite(part)) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+  let age = referenceDate.getUTCFullYear() - year;
+  const monthDiff = referenceDate.getUTCMonth() + 1 - month;
+  if (monthDiff < 0 || (monthDiff === 0 && referenceDate.getUTCDate() < day)) {
+    age -= 1;
+  }
+  if (age < 0) {
+    return null;
+  }
+  return age;
+}
+
+function determineAgeRange(iso) {
+  const age = calculateAgeFromIso(iso);
+  if (age === null) {
+    return null;
+  }
+  if (age < MINIMUM_VERIFIED_AGE) {
+    return null;
+  }
+  if (age <= 17) {
+    return "13-17";
+  }
+  if (age <= 20) {
+    return "18-20";
+  }
+  if (age <= 24) {
+    return "21-24";
+  }
+  if (age <= 29) {
+    return "25-29";
+  }
+  if (age <= 34) {
+    return "30-34";
+  }
+  if (age <= 39) {
+    return "35-39";
+  }
+  if (age <= 49) {
+    return "40-49";
+  }
+  if (age <= 64) {
+    return "50-64";
+  }
+  return "65+";
+}
+
 function resolveUploadRoot() {
   const explicit = process.env.UPLOAD_ROOT?.trim();
   if (explicit) {
@@ -283,6 +403,7 @@ function sanitizeUserRecord(record) {
         })
         .filter(Boolean)
     : [];
+  const birthdate = normalizeBirthdateInput(record.birthdate);
   return {
     userId,
     fullName: typeof record.fullName === "string" ? record.fullName.trim() : "",
@@ -305,6 +426,8 @@ function sanitizeUserRecord(record) {
     spotlight: sanitizeText(record.spotlight ?? "", 280),
     interests: sanitizeInterestList(record.interests ?? []),
     links: sanitizeLinkEntries(record.links ?? []),
+    birthdate,
+    ageRange: determineAgeRange(birthdate),
   };
 }
 
@@ -322,6 +445,8 @@ function buildUserSummaryPayload(user) {
     location: user.location ?? "",
     relationshipStatus: user.relationshipStatus ?? DEFAULT_RELATIONSHIP_STATUS,
     sexuality: user.sexuality ?? "",
+    birthdate: user.birthdate ?? null,
+    ageRange: user.ageRange ?? null,
   });
 }
 
@@ -996,6 +1121,8 @@ async function saveUser({ fullName, username, password }) {
     spotlight: "",
     interests: [],
     links: [],
+    birthdate: null,
+    ageRange: null,
   };
   return writeUserRecord(record);
 }
@@ -1231,37 +1358,40 @@ async function listUsers() {
     const raw = entries[index + 1];
     if (!username) continue;
     const parsed = parseJsonSafe(raw, null);
-    if (parsed) {
-      let profilePicturePath =
-        typeof parsed.profilePicturePath === "string" ? parsed.profilePicturePath : "";
-      if (!profilePicturePath) {
-        const fullRecord = await getUser(username);
-        profilePicturePath = fullRecord?.profilePicturePath ?? "";
+      if (parsed) {
+        let profilePicturePath =
+          typeof parsed.profilePicturePath === "string" ? parsed.profilePicturePath : "";
+        if (!profilePicturePath) {
+          const fullRecord = await getUser(username);
+          profilePicturePath = fullRecord?.profilePicturePath ?? "";
+        }
+        const ageRange = parsed.ageRange ?? determineAgeRange(parsed.birthdate);
+        users.push({
+          username,
+          fullName: parsed.fullName,
+          tagline: parsed.tagline ?? "",
+          badges: enforceBadgeRules(username, parsed.badges),
+          userId: parsed.userId ?? null,
+          profilePicturePath,
+          previousUsernames: Array.isArray(parsed.previousUsernames)
+            ? parsed.previousUsernames.filter(Boolean)
+            : [],
+          ageRange: ageRange ?? null,
+        });
+      } else {
+        users.push({
+          username,
+          fullName: raw,
+          tagline: "",
+          badges: [],
+          userId: null,
+          profilePicturePath: "",
+          previousUsernames: [],
+          ageRange: null,
+        });
       }
-      users.push({
-        username,
-        fullName: parsed.fullName,
-        tagline: parsed.tagline ?? "",
-        badges: enforceBadgeRules(username, parsed.badges),
-        userId: parsed.userId ?? null,
-        profilePicturePath,
-        previousUsernames: Array.isArray(parsed.previousUsernames)
-          ? parsed.previousUsernames.filter(Boolean)
-          : [],
-      });
-    } else {
-      users.push({
-        username,
-        fullName: raw,
-        tagline: "",
-        badges: [],
-        userId: null,
-        profilePicturePath: "",
-        previousUsernames: [],
-      });
     }
-  }
-  return users;
+    return users;
 }
 
 async function createSession(username) {
@@ -1413,6 +1543,7 @@ async function getLookupPeople(currentUsername) {
       previousUsernames: Array.isArray(user.previousUsernames)
         ? user.previousUsernames.filter(Boolean)
         : [],
+      ageRange: user.ageRange ?? null,
       inbound: connectionStateFor(user.username, incoming),
       outbound: connectionStateFor(user.username, outgoing),
     }));
@@ -1886,6 +2017,7 @@ function publicUser(user) {
     profilePicture: user.profilePicturePath ? resolveMediaUrl(user.profilePicturePath) : "",
     badges,
     userId: user.userId,
+    ageRange: user.ageRange ?? determineAgeRange(user.birthdate),
     previousUsernames: Array.isArray(user.usernameHistory)
       ? user.usernameHistory.map((entry) => entry.username)
       : [],
@@ -2485,9 +2617,14 @@ function createApp() {
           return true;
         });
       }
+      const canVerify = req.user.username === OWNER_USERNAME && requested !== req.user.username;
+
       const response = {
         user: publicUser({ ...targetUser }),
       };
+      if (canVerify) {
+        response.user.birthdate = targetUser.birthdate ?? null;
+      }
 
       const eventPayload = events.map((event) => ({
           id: event.id,
@@ -2579,7 +2716,6 @@ function createApp() {
         lastUpdatedAt: lastActivityAt,
       };
 
-      const canVerify = req.user.username === OWNER_USERNAME && requested !== req.user.username;
       response.canVerify = canVerify;
 
       if (isSelf) {
@@ -2729,7 +2865,7 @@ function createApp() {
         .status(403)
         .json({ message: "Only the WantYou owner can manage verification badges" });
     }
-    const { username, verified } = req.body ?? {};
+    const { username, verified, birthdate } = req.body ?? {};
     const normalizedTarget = normalizeUsername(username);
     if (!normalizedTarget) {
       return res.status(400).json({ message: "Username to verify is required" });
@@ -2745,12 +2881,22 @@ function createApp() {
         return res.status(404).json({ message: "User not found" });
       }
       const badgeSet = new Set(targetUser.badges);
+      let nextBirthdate = targetUser.birthdate ?? null;
       if (verified) {
+        const normalizedBirthdate = normalizeBirthdateInput(birthdate);
+        if (!normalizedBirthdate) {
+          return res.status(400).json({ message: "Verified members need a valid birthdate (YYYY-MM-DD)" });
+        }
+        nextBirthdate = normalizedBirthdate;
         badgeSet.add(BADGE_TYPES.VERIFIED);
       } else {
         badgeSet.delete(BADGE_TYPES.VERIFIED);
       }
-      const updated = await writeUserRecord({ ...targetUser, badges: [...badgeSet] });
+      const updated = await writeUserRecord({
+        ...targetUser,
+        badges: [...badgeSet],
+        birthdate: nextBirthdate,
+      });
       res.json({ user: publicUser(updated) });
     } catch (error) {
       console.error("Failed to update verification badge", error);

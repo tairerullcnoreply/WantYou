@@ -29,6 +29,7 @@ const AI_PREVIEW_USER = {
     { label: "About WantYou", url: "https://wantyou.vercel.app" },
     { label: "Press kit", url: "https://wantyou.vercel.app/press/" },
   ],
+  ageRange: "25-29",
 };
 
 const PEOPLE = [
@@ -40,6 +41,7 @@ const PEOPLE = [
     userId: "user-skylar",
     profilePicture: "",
     previousUsernames: ["skyr"],
+    ageRange: "25-29",
     inbound: {
       status: "both",
       anonymous: false,
@@ -61,6 +63,7 @@ const PEOPLE = [
     userId: "user-amir",
     profilePicture: "",
     previousUsernames: [],
+    ageRange: "30-34",
     inbound: {
       status: "want",
       anonymous: false,
@@ -82,6 +85,7 @@ const PEOPLE = [
     userId: "user-jordan",
     profilePicture: "",
     previousUsernames: [],
+    ageRange: "21-24",
     inbound: {
       status: "know",
       anonymous: true,
@@ -103,6 +107,7 @@ const PEOPLE = [
     userId: "user-harper",
     profilePicture: "",
     previousUsernames: [],
+    ageRange: "25-29",
     inbound: {
       status: "none",
       anonymous: false,
@@ -323,6 +328,7 @@ const PROFILES = new Map([
           { label: "Portfolio", url: "https://skylar.design" },
           { label: "Instagram", url: "https://instagram.com/skylar" },
         ],
+        ageRange: "25-29",
       },
       events: [
         {
@@ -373,6 +379,7 @@ const PROFILES = new Map([
         links: [
           { label: "Supper club", url: "https://amir.community" },
         ],
+        ageRange: "30-34",
       },
       events: [],
       posts: [
@@ -412,6 +419,7 @@ const PROFILES = new Map([
         links: [
           { label: "Latest installation", url: "https://jordanmakes.art" },
         ],
+        ageRange: "21-24",
       },
       events: [
         {
@@ -450,6 +458,7 @@ const PROFILES = new Map([
         spotlight: "Forever chasing cozy cafes.",
         interests: ["Spoken word", "Tea rituals", "Trail walks"],
         links: [],
+        ageRange: "25-29",
       },
       events: [],
       posts: [],
@@ -482,6 +491,7 @@ function getUsersPayload() {
         userId: person.userId,
         profilePicturePath: "",
         previousUsernames: person.previousUsernames,
+        ageRange: person.ageRange,
       }))
     ),
   };

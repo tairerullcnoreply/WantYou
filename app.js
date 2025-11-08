@@ -495,6 +495,72 @@ function promptForAlias(currentAlias = "") {
   }
   return trimmed;
 }
+
+function calculateAgeFromIso(iso) {
+  if (typeof iso !== "string" || !iso) {
+    return null;
+  }
+  const [yearStr, monthStr, dayStr] = iso.split("-");
+  const year = Number.parseInt(yearStr, 10);
+  const month = Number.parseInt(monthStr, 10);
+  const day = Number.parseInt(dayStr, 10);
+  if (
+    [year, month, day].some((part) => !Number.isFinite(part)) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+  const now = new Date();
+  let age = now.getFullYear() - year;
+  const monthDiff = now.getMonth() + 1 - month;
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < day)) {
+    age -= 1;
+  }
+  if (age < 0 || age > 150) {
+    return null;
+  }
+  return age;
+}
+
+function promptForBirthdate(initialValue = "") {
+  const minAge = 13;
+  const maxAge = 120;
+  let attempt = typeof initialValue === "string" ? initialValue.trim() : "";
+  const message =
+    "Enter the member's birthdate to verify them (YYYY-MM-DD). We'll use it for age-based matchmaking.";
+  while (true) {
+    const response = window.prompt(message, attempt);
+    if (response === null) {
+      return null;
+    }
+    const value = response.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      window.alert("Use the YYYY-MM-DD format to verify someone.");
+      attempt = value;
+      continue;
+    }
+    const age = calculateAgeFromIso(value);
+    if (age === null) {
+      window.alert("Enter a real birthdate in the past.");
+      attempt = value;
+      continue;
+    }
+    if (age < minAge) {
+      window.alert("Verified members must be at least 13 years old.");
+      attempt = value;
+      continue;
+    }
+    if (age > maxAge) {
+      window.alert("Please enter a realistic birthdate.");
+      attempt = value;
+      continue;
+    }
+    return value;
+  }
+}
 let sessionUser = null;
 
 function escapeHtml(value = "") {
@@ -1232,11 +1298,55 @@ async function initLookup() {
     note: summaryCard?.querySelector("[data-summary-note]"),
   };
 
+  const surpriseSection = document.querySelector("[data-surprise-section]");
+  const surpriseButton = document.querySelector('[data-action="surprise-me"]');
+  const surpriseNote = document.querySelector("[data-surprise-note]");
+
   const cards = [];
   const state = new Map();
   let emptyState = null;
+  let latestPeople = [];
 
   const activeStatusFilters = new Set(["all"]);
+
+  const updateSurpriseAvailability = () => {
+    if (!surpriseButton || !surpriseNote) {
+      return;
+    }
+    const badges = sessionUser?.badges ?? [];
+    const isVerified = getDisplayBadges(badges).includes("Verified");
+    const ageRange = typeof sessionUser?.ageRange === "string" ? sessionUser.ageRange : "";
+    if (!isVerified || !ageRange) {
+      surpriseButton.disabled = true;
+      if (surpriseSection) {
+        surpriseSection.dataset.surpriseReady = "false";
+      }
+      surpriseNote.hidden = false;
+      surpriseNote.textContent =
+        "Verify with a birthdate to unlock age-based surprise matches.";
+      return;
+    }
+    const candidates = latestPeople.filter((person) => {
+      if (!person || !person.ageRange) return false;
+      if (person.ageRange !== ageRange) return false;
+      return getDisplayBadges(person.badges).includes("Verified");
+    });
+    if (!candidates.length) {
+      surpriseButton.disabled = true;
+      if (surpriseSection) {
+        surpriseSection.dataset.surpriseReady = "pending";
+      }
+      surpriseNote.hidden = false;
+      surpriseNote.textContent = "No Verified people share your age range yet. Check back soon.";
+      return;
+    }
+    surpriseButton.disabled = false;
+    if (surpriseSection) {
+      surpriseSection.dataset.surpriseReady = "true";
+    }
+    surpriseNote.hidden = false;
+    surpriseNote.textContent = `We'll highlight a random Verified member aged ${ageRange}.`;
+  };
 
   const updateStatusButtons = () => {
     statusButtons.forEach((button) => {
@@ -1334,6 +1444,32 @@ async function initLookup() {
     refreshSummary();
   };
 
+  const resetFilters = ({ focusSearch = true } = {}) => {
+    if (searchInput) {
+      searchInput.value = "";
+    }
+    if (filterAnon) {
+      filterAnon.checked = false;
+    }
+    if (mutualFilter) {
+      mutualFilter.checked = false;
+    }
+    if (outboundFilter) {
+      outboundFilter.checked = false;
+    }
+    if (sortSelect) {
+      const defaultSortValue =
+        sortSelect.dataset.defaultSort ||
+        (sortSelect.options && sortSelect.options.length ? sortSelect.options[0].value : sortSelect.value);
+      sortSelect.value = defaultSortValue;
+    }
+    setStatusFilters(["all"]);
+    refreshFilters();
+    if (focusSearch && searchInput) {
+      searchInput.focus();
+    }
+  };
+
   updateStatusButtons();
   refreshSummary();
 
@@ -1352,6 +1488,7 @@ async function initLookup() {
     emptyState.className = "lookup__empty";
     emptyState.dataset.empty = "true";
     emptyState.hidden = true;
+    latestPeople = Array.isArray(people) ? people.slice() : [];
 
     const fragment = document.createDocumentFragment();
 
@@ -1626,7 +1763,54 @@ async function initLookup() {
     container.appendChild(fragment);
 
     refreshFilters();
+    updateSurpriseAvailability();
   };
+
+  surpriseButton?.addEventListener("click", () => {
+    if (surpriseButton.disabled) {
+      return;
+    }
+    const ageRange = typeof sessionUser?.ageRange === "string" ? sessionUser.ageRange : "";
+    if (!ageRange) {
+      updateSurpriseAvailability();
+      return;
+    }
+    const candidates = latestPeople
+      .filter((person) => person && person.username !== sessionUser?.username)
+      .filter((person) => person.ageRange === ageRange)
+      .filter((person) => getDisplayBadges(person.badges).includes("Verified"));
+    if (!candidates.length) {
+      window.alert("No Verified people share your age range yet. Check back soon.");
+      updateSurpriseAvailability();
+      return;
+    }
+    const choice = candidates[Math.floor(Math.random() * candidates.length)];
+    let entry = state.get(choice.username);
+    if (!entry) {
+      window.location.href = buildProfileUrl(choice.username);
+      return;
+    }
+    if (entry.element?.hidden) {
+      resetFilters({ focusSearch: false });
+      entry = state.get(choice.username);
+    }
+    const element = entry?.element;
+    if (element) {
+      window.requestAnimationFrame(() => {
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+        element.classList.add("connection--highlight");
+        window.setTimeout(() => {
+          element.classList.remove("connection--highlight");
+        }, 4000);
+      });
+      if (surpriseNote) {
+        surpriseNote.hidden = false;
+        surpriseNote.textContent = `Surprise! We highlighted ${choice.fullName} (${ageRange}). Start a chat from their card.`;
+      }
+    } else {
+      window.location.href = buildProfileUrl(choice.username);
+    }
+  });
 
   if (searchForm) {
     searchForm.addEventListener("submit", (event) => event.preventDefault());
@@ -1637,29 +1821,7 @@ async function initLookup() {
   outboundFilter?.addEventListener("change", () => refreshFilters());
   sortSelect?.addEventListener("change", () => refreshFilters());
   clearFiltersButton?.addEventListener("click", () => {
-    if (searchInput) {
-      searchInput.value = "";
-    }
-    if (filterAnon) {
-      filterAnon.checked = false;
-    }
-    if (mutualFilter) {
-      mutualFilter.checked = false;
-    }
-    if (outboundFilter) {
-      outboundFilter.checked = false;
-    }
-    if (sortSelect) {
-      const defaultSortValue =
-        sortSelect.dataset.defaultSort ||
-        (sortSelect.options && sortSelect.options.length
-          ? sortSelect.options[0].value
-          : sortSelect.value);
-      sortSelect.value = defaultSortValue;
-    }
-    setStatusFilters(["all"]);
-    refreshFilters();
-    searchInput?.focus();
+    resetFilters();
   });
 
   try {
@@ -1667,6 +1829,8 @@ async function initLookup() {
   } catch {
     return;
   }
+
+  updateSurpriseAvailability();
 
   try {
     const data = await apiRequest("/lookup");
@@ -1679,6 +1843,8 @@ async function initLookup() {
     cards.length = 0;
     state.clear();
     updateLookupSummary(summaryContext, state);
+    latestPeople = [];
+    updateSurpriseAvailability();
   }
 }
 
@@ -2371,6 +2537,8 @@ async function initProfile() {
   const pronounsEl = document.querySelector("[data-profile-pronouns]");
   const locationContainer = document.querySelector("[data-profile-location-container]");
   const locationEl = document.querySelector("[data-profile-location]");
+  const ageRangeContainer = document.querySelector("[data-profile-age-range-container]");
+  const ageRangeEl = document.querySelector("[data-profile-age-range]");
   const relationshipContainer = document.querySelector("[data-profile-relationship-container]");
   const relationshipEl = document.querySelector("[data-profile-relationship]");
   const relationshipPill = document.querySelector("[data-profile-relationship-pill]");
@@ -3206,6 +3374,18 @@ async function initProfile() {
       }
       detailVisibility.push(hasLocation);
     }
+    const ageRange = typeof user.ageRange === "string" ? user.ageRange.trim() : "";
+    const hasVerifiedBadge = getDisplayBadges(user.badges).includes("Verified");
+    if (ageRangeContainer && ageRangeEl) {
+      const hasAgeRange = hasVerifiedBadge && Boolean(ageRange);
+      ageRangeContainer.hidden = !hasAgeRange;
+      if (hasAgeRange) {
+        ageRangeEl.textContent = ageRange;
+      } else {
+        ageRangeEl.textContent = "";
+      }
+      detailVisibility.push(hasAgeRange);
+    }
     const relationshipLabel = typeof user.relationshipStatusLabel === "string"
       ? user.relationshipStatusLabel.trim()
       : typeof user.relationshipStatus === "string"
@@ -3441,14 +3621,26 @@ async function initProfile() {
       ? profileData.user.badges
       : [];
     const isVerified = getDisplayBadges(currentBadges).includes("Verified");
+    let birthdateValue = profileData.user?.birthdate ?? "";
+    if (!isVerified) {
+      const input = promptForBirthdate(birthdateValue);
+      if (input === null) {
+        return;
+      }
+      birthdateValue = input;
+    }
     verifyButton.disabled = true;
     try {
+      const payload = {
+        username: profileData.user.username,
+        verified: !isVerified,
+      };
+      if (!isVerified) {
+        payload.birthdate = birthdateValue;
+      }
       const response = await apiRequest("/badges/verify", {
         method: "POST",
-        body: JSON.stringify({
-          username: profileData.user.username,
-          verified: !isVerified,
-        }),
+        body: JSON.stringify(payload),
       });
       if (response?.user) {
         profileData.user = response.user;
