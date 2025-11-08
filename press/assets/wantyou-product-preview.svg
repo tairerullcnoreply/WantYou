@@ -1,0 +1,23 @@
+<svg width="960" height="600" viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fff5eb" />
+      <stop offset="100%" stop-color="#ffffff" />
+    </linearGradient>
+  </defs>
+  <rect width="960" height="600" rx="36" fill="url(#bg)" />
+  <rect x="64" y="64" width="832" height="472" rx="28" fill="#ffffff" stroke="#ffe0c2" stroke-width="4" />
+  <rect x="96" y="112" width="320" height="80" rx="18" fill="#fff5eb" />
+  <rect x="96" y="220" width="320" height="80" rx="18" fill="#fff0e0" />
+  <rect x="96" y="328" width="320" height="80" rx="18" fill="#ffe4cc" />
+  <rect x="448" y="112" width="384" height="60" rx="16" fill="#1f1f1f" />
+  <text x="468" y="152" font-family="'Inter', 'Segoe UI', sans-serif" font-size="28" font-weight="600" fill="#ffffff">Know you · Want you · Both</text>
+  <rect x="448" y="204" width="384" height="96" rx="20" fill="#fff5eb" />
+  <text x="468" y="256" font-family="'Inter', 'Segoe UI', sans-serif" font-size="24" font-weight="600" fill="#1f1f1f">Anonymous chat preview</text>
+  <rect x="468" y="276" width="240" height="12" rx="6" fill="#ffd0a6" />
+  <rect x="448" y="328" width="384" height="96" rx="20" fill="#ffffff" stroke="#ffe0c2" stroke-width="2" />
+  <text x="468" y="372" font-family="'Inter', 'Segoe UI', sans-serif" font-size="24" font-weight="600" fill="#1f1f1f">Reveal moment</text>
+  <rect x="468" y="392" width="200" height="12" rx="6" fill="#ffb347" />
+  <rect x="448" y="440" width="384" height="60" rx="16" fill="#ff7a00" />
+  <text x="468" y="480" font-family="'Inter', 'Segoe UI', sans-serif" font-size="26" font-weight="600" fill="#ffffff">Start a WantYou conversation</text>
+</svg>
