@@ -726,6 +726,10 @@ img {
   gap: 1rem;
 }
 
+.connection--highlight {
+  box-shadow: var(--shadow), 0 0 0 4px var(--color-accent-soft);
+}
+
 .connection__header {
   display: flex;
   align-items: center;
