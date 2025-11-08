@@ -18,22 +18,22 @@ const AI_PREVIEW_USER = {
   userId: "tour-user-001",
   usernameHistory: [],
   usernameChangedAt: null,
-  pronouns: "they/them",
+  pronouns: "They/Them",
   location: "Everywhere",
-  relationshipStatus: "open",
+  relationshipStatus: "Single",
   sexuality: "Pansexual",
   journey: "Curious connector",
   spotlight: "Helping you preview WantYou without logging in.",
   interests: ["Intentional dating", "Community", "Storytelling"],
   links: [
-    { label: "About WantYou", url: "https://wantyou.app" },
-    { label: "Press kit", url: "https://wantyou.app/press/" },
+    { label: "About WantYou", url: "https://wantyou.vercel.app" },
+    { label: "Press kit", url: "https://wantyou.vercel.app/press/" },
   ],
 };
 
 const PEOPLE = [
   {
-    username: "skylar",
+    username: "skylar00401",
     fullName: "Skylar Rivers",
     tagline: "Product designer, loves morning coffee",
     badges: ["Verified"],
@@ -54,7 +54,7 @@ const PEOPLE = [
     },
   },
   {
-    username: "amir",
+    username: "am1rpatty",
     fullName: "Amir Patel",
     tagline: "Community builder & weekend chef",
     badges: [],
@@ -75,7 +75,7 @@ const PEOPLE = [
     },
   },
   {
-    username: "jordan",
+    username: "jordan733",
     fullName: "Jordan Lee",
     tagline: "Startup operator exploring the arts",
     badges: ["Verified"],
@@ -120,7 +120,7 @@ const PEOPLE = [
 
 const THREAD_SUMMARIES = [
   {
-    username: "skylar",
+    username: "skylar00401",
     fullName: "Skylar Rivers",
     displayName: "Skylar Rivers",
     tagline: "Product designer, loves morning coffee",
@@ -137,7 +137,7 @@ const THREAD_SUMMARIES = [
     totalMessages: 4,
   },
   {
-    username: "amir",
+    username: "am1rpatty",
     fullName: "Amir Patel",
     displayName: "Amir Patel",
     tagline: "Community builder & weekend chef",
@@ -154,7 +154,7 @@ const THREAD_SUMMARIES = [
     totalMessages: 3,
   },
   {
-    username: "jordan",
+    username: "jordan733",
     fullName: "Jordan Lee",
     displayName: "Anonymous admirer",
     tagline: "Startup operator exploring the arts",
@@ -170,9 +170,9 @@ const THREAD_SUMMARIES = [
 
 const THREAD_DETAILS = new Map([
   [
-    "skylar",
+    "skylar00401",
     {
-      username: "skylar",
+      username: "skylar00401",
       fullName: "Skylar Rivers",
       displayName: "Skylar Rivers",
       tagline: "Product designer, loves morning coffee",
@@ -184,7 +184,7 @@ const THREAD_DETAILS = new Map([
       messages: [
         {
           id: "m-skylar-1",
-          sender: "skylar",
+          sender: "skylar00401",
           text: "Appreciate you checking the read-only tour!",
           createdAt: minutesAgo(referenceDate, 55),
         },
@@ -196,7 +196,7 @@ const THREAD_DETAILS = new Map([
         },
         {
           id: "m-skylar-3",
-          sender: "skylar",
+          sender: "skylar00401",
           text: "Let's plan our coffee walk after your preview!",
           createdAt: minutesAgo(referenceDate, 5),
         },
@@ -207,9 +207,9 @@ const THREAD_DETAILS = new Map([
     },
   ],
   [
-    "amir",
+    "am1rpatty",
     {
-      username: "amir",
+      username: "am1rpatty",
       fullName: "Amir Patel",
       displayName: "Amir Patel",
       tagline: "Community builder & weekend chef",
@@ -227,7 +227,7 @@ const THREAD_DETAILS = new Map([
         },
         {
           id: "m-amir-2",
-          sender: "amir",
+          sender: "am1rpatty",
           text: "I'll save you a plate once previews turn into parties.",
           createdAt: minutesAgo(referenceDate, 37),
         },
@@ -238,9 +238,9 @@ const THREAD_DETAILS = new Map([
     },
   ],
   [
-    "jordan",
+    "jordan733",
     {
-      username: "jordan",
+      username: "jordan733",
       fullName: "Jordan Lee",
       displayName: "Anonymous admirer",
       tagline: "Startup operator exploring the arts",
@@ -265,7 +265,7 @@ const PROFILES = new Map([
       events: [
         {
           id: "event-preview-1",
-          text: "Guiding AI visitors through WantYou's core flows.",
+          text: "Today I guided more users through WanYou!",
           attachments: [],
           createdAt: minutesAgo(referenceDate, 180),
           expiresAt: minutesAgo(referenceDate, -24 * 60),
@@ -299,23 +299,23 @@ const PROFILES = new Map([
     },
   ],
   [
-    "skylar",
+    "skylar00401",
     {
       user: {
         fullName: "Skylar Rivers",
-        username: "skylar",
+        username: "skylar00401",
         tagline: "Product designer, loves morning coffee",
         bio: "Building welcoming spaces for intentional relationships.",
         profilePicturePath: "",
         badges: ["Verified"],
         userId: "user-skylar",
         usernameHistory: [
-          { username: "skyr", changedAt: minutesAgo(referenceDate, 400) },
+          { username: "skyr00401", changedAt: minutesAgo(referenceDate, 400) },
         ],
-        pronouns: "she/her",
+        pronouns: "She/Her",
         location: "Seattle",
-        relationshipStatus: "dating-open",
-        sexuality: "Queer",
+        relationshipStatus: "Dating but Open",
+        sexuality: "Straight",
         journey: "Designing new ways to say yes.",
         spotlight: "Always down for sunrise walks.",
         interests: ["Slow travel", "Latte art", "Community theater"],
@@ -352,21 +352,21 @@ const PROFILES = new Map([
     },
   ],
   [
-    "amir",
+    "am1rpatty",
     {
       user: {
         fullName: "Amir Patel",
-        username: "amir",
+        username: "am1rpatty",
         tagline: "Community builder & weekend chef",
         bio: "Hosting pop-up dinners with new friends.",
         profilePicturePath: "",
         badges: [],
         userId: "user-amir",
         usernameHistory: [],
-        pronouns: "he/him",
+        pronouns: "He/Him",
         location: "Chicago",
-        relationshipStatus: "open",
-        sexuality: "Straight",
+        relationshipStatus: "Single",
+        sexuality: "Gay",
         journey: "Looking to share meals and meaningful chats.",
         spotlight: "Try my cardamom chai.",
         interests: ["Cooking", "Neighborhood hangs", "Indie film"],
@@ -391,20 +391,20 @@ const PROFILES = new Map([
     },
   ],
   [
-    "jordan",
+    "jordan733",
     {
       user: {
         fullName: "Jordan Lee",
-        username: "jordan",
+        username: "jordan733",
         tagline: "Startup operator exploring the arts",
         bio: "Currently curating pop-up galleries in the city.",
         profilePicturePath: "",
         badges: ["Verified"],
         userId: "user-jordan",
         usernameHistory: [],
-        pronouns: "they/them",
+        pronouns: "They/Them",
         location: "New York",
-        relationshipStatus: "dating-open",
+        relationshipStatus: "Dating but Open",
         sexuality: "Bisexual",
         journey: "Looking for co-conspirators in art adventures.",
         spotlight: "Ask me about immersive theater.",
@@ -416,7 +416,7 @@ const PROFILES = new Map([
       events: [
         {
           id: "event-jordan-1",
-          text: "Ticket drop for rooftop poetry slam tonight!",
+          text: "My back hurts...",
           attachments: [],
           createdAt: minutesAgo(referenceDate, 30),
           expiresAt: minutesAgo(referenceDate, -10 * 60),
@@ -507,7 +507,7 @@ function getThreadDetail(username) {
 }
 
 function getSelectedThreadPayload() {
-  const detail = THREAD_DETAILS.get("skylar");
+  const detail = THREAD_DETAILS.get("skylar00401");
   if (!detail) {
     return { message: "No stored thread" };
   }
