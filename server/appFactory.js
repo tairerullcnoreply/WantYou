@@ -39,6 +39,8 @@ const DEFAULT_EVENT_ACCENT = "sunrise";
 
 const VALID_POST_VISIBILITIES = new Set(["public", "connections", "private"]);
 const DEFAULT_POST_VISIBILITY = "public";
+const VALID_POST_AUDIENCES = new Set(["everyone", "both", "verified"]);
+const DEFAULT_POST_AUDIENCE = "everyone";
 const VALID_POST_MOODS = new Set([
   "none",
   "celebration",
@@ -47,6 +49,13 @@ const VALID_POST_MOODS = new Set([
   "announcement",
 ]);
 const DEFAULT_POST_MOOD = "none";
+
+const MINIMUM_ACCOUNT_AGE = 13;
+const DEFAULT_AGE_MIN = 18;
+const DEFAULT_AGE_MAX = null;
+const SOCIAL_STREAK_WINDOW_HOURS = 36;
+const MAX_AUDIO_DURATION_SECONDS = 30;
+const MAX_AUDIO_FILE_SIZE = 5 * 1024 * 1024;
 
 const RELATIONSHIP_STATUS = Object.freeze({
   SINGLE: "single",
@@ -66,6 +75,29 @@ const RELATIONSHIP_STATUS_LABELS = Object.freeze({
 
 const RELATIONSHIP_STATUS_OPTIONS = new Set(Object.values(RELATIONSHIP_STATUS));
 const DEFAULT_RELATIONSHIP_STATUS = RELATIONSHIP_STATUS.OPEN;
+
+const MESSAGE_ATTACHMENT_TYPES = new Set(["image", "video", "audio", "gif"]);
+
+const COMPATIBILITY_GAMES = Object.freeze([
+  {
+    id: "icebreak-rapidfire",
+    name: "Rapid Fire",
+    description: "Trade five lightning-round prompts to earn Bond XP.",
+    xpReward: 25,
+  },
+  {
+    id: "memory-match",
+    name: "Memory Match",
+    description: "Share a highlight from the past week and guess each other's.",
+    xpReward: 40,
+  },
+  {
+    id: "compatibility-slider",
+    name: "Compatibility Slider",
+    description: "Rate three topics together to calibrate your vibe.",
+    xpReward: 35,
+  },
+]);
 
 function resolveUploadRoot() {
   const explicit = process.env.UPLOAD_ROOT?.trim();
@@ -95,6 +127,7 @@ const UPLOAD_ROOT = resolveUploadRoot();
 const AVATAR_UPLOAD_DIR = path.join(UPLOAD_ROOT, "avatars");
 const POST_UPLOAD_DIR = path.join(UPLOAD_ROOT, "posts");
 const EVENT_UPLOAD_DIR = path.join(UPLOAD_ROOT, "events");
+const AUDIO_UPLOAD_DIR = path.join(UPLOAD_ROOT, "audio-intros");
 const USE_EPHEMERAL_UPLOADS = UPLOAD_ROOT.startsWith(os.tmpdir());
 const USE_KV_MEDIA_STORAGE = USE_EPHEMERAL_UPLOADS && HAS_UPSTASH_CONFIG;
 
@@ -110,6 +143,7 @@ ensureDirectory(UPLOAD_ROOT);
 ensureDirectory(AVATAR_UPLOAD_DIR);
 ensureDirectory(POST_UPLOAD_DIR);
 ensureDirectory(EVENT_UPLOAD_DIR);
+ensureDirectory(AUDIO_UPLOAD_DIR);
 
 function normalizeBadgeList(badges) {
   if (!Array.isArray(badges)) {
@@ -205,6 +239,70 @@ function sanitizeWebsite(input) {
   } catch (error) {
     return "";
   }
+}
+
+function sanitizeBirthdate(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return null;
+  }
+  const date = new Date(`${trimmed}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const iso = date.toISOString().slice(0, 10);
+  const age = calculateAge(iso);
+  if (!Number.isFinite(age) || age < MINIMUM_ACCOUNT_AGE) {
+    return null;
+  }
+  return iso;
+}
+
+function calculateAge(birthdate) {
+  if (!birthdate) {
+    return null;
+  }
+  const parsed = Date.parse(`${birthdate}T00:00:00.000Z`);
+  if (Number.isNaN(parsed)) {
+    return null;
+  }
+  const now = new Date();
+  const birth = new Date(parsed);
+  let age = now.getUTCFullYear() - birth.getUTCFullYear();
+  const monthDiff = now.getUTCMonth() - birth.getUTCMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getUTCDate() < birth.getUTCDate())) {
+    age -= 1;
+  }
+  return age;
+}
+
+function normalizeAgePreferences(value) {
+  const defaultPrefs = { minAge: DEFAULT_AGE_MIN, maxAge: DEFAULT_AGE_MAX };
+  if (!value || typeof value !== "object") {
+    return defaultPrefs;
+  }
+  let minAge = Number.parseInt(value.minAge, 10);
+  if (!Number.isFinite(minAge) || minAge < DEFAULT_AGE_MIN) {
+    minAge = DEFAULT_AGE_MIN;
+  }
+  let maxAge = value.maxAge === null || value.maxAge === undefined
+    ? DEFAULT_AGE_MAX
+    : Number.parseInt(value.maxAge, 10);
+  if (!Number.isFinite(maxAge) || maxAge < minAge) {
+    maxAge = null;
+  }
+  return { minAge, maxAge };
+}
+
+function formatAgeRange(preferences) {
+  const prefs = normalizeAgePreferences(preferences);
+  if (!prefs.maxAge) {
+    return `${prefs.minAge}+`;
+  }
+  return `${prefs.minAge}–${prefs.maxAge}`;
 }
 
 function sanitizeInterestList(value) {
@@ -305,6 +403,32 @@ function sanitizeUserRecord(record) {
     spotlight: sanitizeText(record.spotlight ?? "", 280),
     interests: sanitizeInterestList(record.interests ?? []),
     links: sanitizeLinkEntries(record.links ?? []),
+    birthdate:
+      typeof record.birthdate === "string"
+        ? sanitizeBirthdate(record.birthdate) ??
+          (/^\d{4}-\d{2}-\d{2}$/.test(record.birthdate.trim())
+            ? record.birthdate.trim()
+            : null)
+        : null,
+    agePreferences: normalizeAgePreferences(record.agePreferences ?? {}),
+    ageVerifiedAt:
+      typeof record.ageVerifiedAt === "string" && record.ageVerifiedAt.trim()
+        ? record.ageVerifiedAt
+        : null,
+    audioIntroPath:
+      typeof record.audioIntroPath === "string" ? record.audioIntroPath : "",
+    accountStatus:
+      record.accountStatus === "disabled"
+        ? "disabled"
+        : record.accountStatus === "deleted"
+        ? "deleted"
+        : "active",
+    allowMessages:
+      typeof record.allowMessages === "boolean" ? record.allowMessages : true,
+    allowReadReceipts:
+      typeof record.allowReadReceipts === "boolean"
+        ? record.allowReadReceipts
+        : true,
   };
 }
 
@@ -322,6 +446,9 @@ function buildUserSummaryPayload(user) {
     location: user.location ?? "",
     relationshipStatus: user.relationshipStatus ?? DEFAULT_RELATIONSHIP_STATUS,
     sexuality: user.sexuality ?? "",
+    birthdate: user.birthdate ?? null,
+    agePreferences: user.agePreferences ?? normalizeAgePreferences({}),
+    accountStatus: user.accountStatus ?? "active",
   });
 }
 
@@ -343,8 +470,22 @@ const ALLOWED_IMAGE_TYPES = new Set([
 
 const ALLOWED_VIDEO_TYPES = new Set(["video/mp4", "video/webm"]);
 
+const ALLOWED_AUDIO_TYPES = new Set([
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/mp4",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/webm",
+  "audio/ogg",
+]);
+
 function isAllowedMediaType(mime) {
-  return ALLOWED_IMAGE_TYPES.has(mime) || ALLOWED_VIDEO_TYPES.has(mime);
+  return (
+    ALLOWED_IMAGE_TYPES.has(mime) ||
+    ALLOWED_VIDEO_TYPES.has(mime) ||
+    ALLOWED_AUDIO_TYPES.has(mime)
+  );
 }
 
 const uploadStorage = multer.diskStorage({
@@ -355,6 +496,8 @@ const uploadStorage = multer.diskStorage({
       directory = AVATAR_UPLOAD_DIR;
     } else if (target === "event") {
       directory = EVENT_UPLOAD_DIR;
+    } else if (target === "audio") {
+      directory = AUDIO_UPLOAD_DIR;
     }
     ensureDirectory(directory);
     cb(null, directory);
@@ -380,7 +523,7 @@ const uploadMiddleware = multer({
         return;
       }
     } else if (!isAllowedMediaType(file.mimetype)) {
-      cb(new Error("Only JPG, PNG, GIF, WEBP, MP4, or WEBM files are allowed"));
+      cb(new Error("Only JPG, PNG, GIF, WEBP, MP4, WEBM, or audio files are allowed"));
       return;
     }
     cb(null, true);
@@ -713,13 +856,22 @@ function upgradeConversationMeta(meta) {
     unread: {},
     readAt: {},
     totalMessages: 0,
+    bondXp: 0,
+    bondLevel: 1,
+    games: {},
+    socialStreak: 0,
+    socialStreakUpdatedAt: null,
+    lastInteractionAt: null,
+    theme: null,
+    messageTheme: null,
+    nicknames: {},
   };
   if (!meta || typeof meta !== "object") {
     return safe;
   }
 
   if (meta.lastMessage && typeof meta.lastMessage === "object") {
-    const { id, sender, text, createdAt } = meta.lastMessage;
+    const { id, sender, text, createdAt, attachments, replyTo, reactions } = meta.lastMessage;
     if (id && sender && createdAt) {
       safe.lastMessage = {
         id,
@@ -727,6 +879,15 @@ function upgradeConversationMeta(meta) {
         text: typeof text === "string" ? text : "",
         createdAt,
       };
+      if (Array.isArray(attachments)) {
+        safe.lastMessage.attachments = attachments;
+      }
+      if (replyTo) {
+        safe.lastMessage.replyTo = replyTo;
+      }
+      if (Array.isArray(reactions)) {
+        safe.lastMessage.reactions = reactions;
+      }
     }
   }
 
@@ -764,6 +925,57 @@ function upgradeConversationMeta(meta) {
       .filter(Boolean);
   }
 
+  const xp = Number(meta.bondXp ?? 0);
+  if (Number.isFinite(xp) && xp >= 0) {
+    safe.bondXp = Math.floor(xp);
+  }
+  const level = Number(meta.bondLevel ?? 1);
+  safe.bondLevel = Number.isFinite(level) && level > 0 ? Math.floor(level) : 1;
+
+  if (meta.games && typeof meta.games === "object") {
+    const normalizedGames = {};
+    Object.entries(meta.games).forEach(([id, data]) => {
+      normalizedGames[id] = {
+        lastPlayedAt:
+          typeof data?.lastPlayedAt === "string" && data.lastPlayedAt.trim()
+            ? data.lastPlayedAt
+            : null,
+        completedAt:
+          typeof data?.completedAt === "string" && data.completedAt.trim()
+            ? data.completedAt
+            : null,
+        completions: Number.isFinite(data?.completions)
+          ? Math.max(0, Math.floor(data.completions))
+          : 0,
+      };
+    });
+    safe.games = normalizedGames;
+  }
+
+  const streak = Number(meta.socialStreak ?? 0);
+  safe.socialStreak = Number.isFinite(streak) && streak > 0 ? Math.floor(streak) : 0;
+  if (typeof meta.socialStreakUpdatedAt === "string" && meta.socialStreakUpdatedAt.trim()) {
+    safe.socialStreakUpdatedAt = meta.socialStreakUpdatedAt;
+  }
+  if (typeof meta.lastInteractionAt === "string" && meta.lastInteractionAt.trim()) {
+    safe.lastInteractionAt = meta.lastInteractionAt;
+  }
+  if (typeof meta.theme === "string" && meta.theme.trim()) {
+    safe.theme = meta.theme.trim();
+  }
+  if (typeof meta.messageTheme === "string" && meta.messageTheme.trim()) {
+    safe.messageTheme = meta.messageTheme.trim();
+  }
+  if (meta.nicknames && typeof meta.nicknames === "object") {
+    const normalizedNicknames = {};
+    Object.entries(meta.nicknames).forEach(([username, nickname]) => {
+      const normalized = normalizeUsername(username);
+      if (!normalized) return;
+      normalizedNicknames[normalized] = typeof nickname === "string" ? nickname.trim() : "";
+    });
+    safe.nicknames = normalizedNicknames;
+  }
+
   return safe;
 }
 
@@ -781,6 +993,10 @@ function userEventsKey(username) {
 
 function userPostsKey(username) {
   return `user:${username}:posts`;
+}
+
+function postInteractionsKey(username, postId) {
+  return `post:${username}:${postId}:interactions`;
 }
 
 function normalizeUsername(username = "") {
@@ -943,6 +1159,40 @@ async function cleanupAttachments(attachments) {
   );
 }
 
+function sanitizeMessageAttachment(attachment) {
+  if (!attachment || typeof attachment !== "object") {
+    return null;
+  }
+  const rawType = typeof attachment.type === "string" ? attachment.type.trim().toLowerCase() : "";
+  const type = MESSAGE_ATTACHMENT_TYPES.has(rawType) ? rawType : "image";
+  let location = null;
+  if (typeof attachment.location === "string" && attachment.location.trim()) {
+    location = attachment.location.trim();
+  } else if (typeof attachment.url === "string" && attachment.url.trim()) {
+    location = attachment.url.trim();
+  }
+  if (!location) {
+    return null;
+  }
+  return {
+    id: attachment.id ?? crypto.randomUUID(),
+    type,
+    location,
+    originalName: sanitizeText(attachment.originalName ?? "", 120),
+    mimeType: typeof attachment.mimeType === "string" ? attachment.mimeType : "",
+    size: Number.isFinite(attachment.size) ? Math.max(0, Math.floor(attachment.size)) : 0,
+  };
+}
+
+function normalizeMessageAttachments(attachments) {
+  if (!Array.isArray(attachments)) {
+    return [];
+  }
+  return attachments
+    .map((attachment) => sanitizeMessageAttachment(attachment))
+    .filter(Boolean);
+}
+
 async function getUser(username) {
   const normalized = normalizeUsername(username);
   if (!normalized) return null;
@@ -996,6 +1246,13 @@ async function saveUser({ fullName, username, password }) {
     spotlight: "",
     interests: [],
     links: [],
+    birthdate: null,
+    agePreferences: normalizeAgePreferences({}),
+    ageVerifiedAt: null,
+    audioIntroPath: "",
+    accountStatus: "active",
+    allowMessages: true,
+    allowReadReceipts: true,
   };
   return writeUserRecord(record);
 }
@@ -1232,6 +1489,9 @@ async function listUsers() {
     if (!username) continue;
     const parsed = parseJsonSafe(raw, null);
     if (parsed) {
+      if (parsed.accountStatus && parsed.accountStatus !== "active") {
+        continue;
+      }
       let profilePicturePath =
         typeof parsed.profilePicturePath === "string" ? parsed.profilePicturePath : "";
       if (!profilePicturePath) {
@@ -1248,6 +1508,8 @@ async function listUsers() {
         previousUsernames: Array.isArray(parsed.previousUsernames)
           ? parsed.previousUsernames.filter(Boolean)
           : [],
+        birthdate: parsed.birthdate ?? null,
+        agePreferences: parsed.agePreferences ?? normalizeAgePreferences({}),
       });
     } else {
       users.push({
@@ -1258,6 +1520,8 @@ async function listUsers() {
         userId: null,
         profilePicturePath: "",
         previousUsernames: [],
+        birthdate: null,
+        agePreferences: normalizeAgePreferences({}),
       });
     }
   }
@@ -1413,6 +1677,10 @@ async function getLookupPeople(currentUsername) {
       previousUsernames: Array.isArray(user.previousUsernames)
         ? user.previousUsernames.filter(Boolean)
         : [],
+      birthdate: user.birthdate ?? null,
+      age: calculateAge(user.birthdate ?? null),
+      agePreferences: normalizeAgePreferences(user.agePreferences ?? {}),
+      ageRangeLabel: formatAgeRange(user.agePreferences ?? {}),
       inbound: connectionStateFor(user.username, incoming),
       outbound: connectionStateFor(user.username, outgoing),
     }));
@@ -1514,6 +1782,21 @@ function formatAliasForCurrentUser(currentUser, outbound) {
   return currentUser.fullName;
 }
 
+function formatConversationMessage(message) {
+  if (!message) {
+    return null;
+  }
+  return {
+    id: message.id,
+    sender: message.sender,
+    text: typeof message.text === "string" ? message.text : "",
+    createdAt: message.createdAt,
+    attachments: normalizeAttachments(message.attachments ?? []),
+    replyTo: typeof message.replyTo === "string" ? message.replyTo : null,
+    reactions: Array.isArray(message.reactions) ? message.reactions : [],
+  };
+}
+
 async function getConversationMessages(usernameA, usernameB, options = {}) {
   const { cursor, limit } = options;
   const id = conversationId(usernameA, usernameB);
@@ -1545,14 +1828,70 @@ async function getConversationMessages(usernameA, usernameB, options = {}) {
   const previousCursor = hasMore && selected.length ? selected[0].createdAt ?? null : null;
 
   return {
-    messages: selected,
+    messages: selected.map((message) => formatConversationMessage(message)).filter(Boolean),
     hasMore,
     previousCursor,
     total: parsed.length,
   };
 }
 
-async function appendConversationMessage(from, to, text) {
+async function findConversationMessage(usernameA, usernameB, messageId) {
+  const id = conversationId(usernameA, usernameB);
+  if (!id) {
+    return null;
+  }
+  const rawMessages = await redisCommand(["LRANGE", conversationMessagesKey(id), "0", "-1"]);
+  if (!Array.isArray(rawMessages)) {
+    return null;
+  }
+  const messages = rawMessages
+    .map((entry) => parseJsonSafe(entry, null))
+    .filter(Boolean);
+  return messages.find((message) => message?.id === messageId) ?? null;
+}
+
+async function updateConversationMessage(usernameA, usernameB, messageId, mutator) {
+  const id = conversationId(usernameA, usernameB);
+  if (!id) {
+    throw new Error("Conversation participants are required");
+  }
+  const rawMessages = await redisCommand(["LRANGE", conversationMessagesKey(id), "0", "-1"]);
+  if (!Array.isArray(rawMessages)) {
+    return null;
+  }
+  const messages = rawMessages
+    .map((entry) => parseJsonSafe(entry, null))
+    .filter(Boolean)
+    .sort((a, b) => timestampScore(a?.createdAt) - timestampScore(b?.createdAt));
+  const index = messages.findIndex((message) => message?.id === messageId);
+  if (index === -1) {
+    return null;
+  }
+  const existing = messages[index];
+  const updated = await mutator(existing);
+  if (!updated) {
+    return existing;
+  }
+  const merged = {
+    ...existing,
+    ...updated,
+    id: existing.id,
+    createdAt: existing.createdAt,
+  };
+  messages[index] = merged;
+  await rewriteList(conversationMessagesKey(id), messages);
+  const metaRaw = await redisCommand(["GET", conversationMetaKey(id)]);
+  const meta = upgradeConversationMeta(parseJsonSafe(metaRaw, null));
+  if (meta.lastMessage?.id === messageId) {
+    meta.lastMessage = merged;
+  }
+  meta.totalMessages = messages.length;
+  meta.messageCount = meta.totalMessages;
+  await redisCommand(["SET", conversationMetaKey(id), JSON.stringify(meta)]);
+  return merged;
+}
+
+async function appendConversationMessage(from, to, payload) {
   const id = conversationId(from, to);
   if (!id) {
     throw new Error("Conversation participants are required");
@@ -1562,12 +1901,23 @@ async function appendConversationMessage(from, to, text) {
   const existingMeta = upgradeConversationMeta(
     parseJsonSafe(await redisCommand(["GET", conversationMetaKey(id)]), null)
   );
+  const text = typeof payload?.text === "string" ? payload.text : "";
+  const attachments = Array.isArray(payload?.attachments) ? payload.attachments : [];
+  const replyTo = typeof payload?.replyTo === "string" ? payload.replyTo : null;
+  const createdAt = new Date().toISOString();
   const message = {
     id: crypto.randomUUID(),
     sender,
     text,
-    createdAt: new Date().toISOString(),
+    createdAt,
   };
+  if (attachments.length) {
+    message.attachments = attachments;
+  }
+  if (replyTo) {
+    message.replyTo = replyTo;
+  }
+  message.reactions = [];
   const unread = { ...existingMeta.unread };
   if (sender) {
     unread[sender] = 0;
@@ -1580,6 +1930,7 @@ async function appendConversationMessage(from, to, text) {
     readAt[sender] = message.createdAt;
   }
   const meta = {
+    ...existingMeta,
     lastMessage: message,
     updatedAt: message.createdAt,
     unread,
@@ -1591,12 +1942,50 @@ async function appendConversationMessage(from, to, text) {
   } else {
     meta.participants = [sender, recipient].filter(Boolean);
   }
+  meta.lastInteractionAt = message.createdAt;
+  const lastUpdated = existingMeta.socialStreakUpdatedAt
+    ? Date.parse(existingMeta.socialStreakUpdatedAt)
+    : null;
+  let nextStreak = existingMeta.socialStreak ?? 0;
+  if (Number.isFinite(lastUpdated)) {
+    const diffMs = Date.parse(message.createdAt) - lastUpdated;
+    const windowMs = SOCIAL_STREAK_WINDOW_HOURS * 60 * 60 * 1000;
+    if (diffMs > 0 && diffMs <= windowMs) {
+      nextStreak += 1;
+    } else {
+      nextStreak = 1;
+    }
+  } else {
+    nextStreak = 1;
+  }
+  meta.socialStreak = nextStreak;
+  meta.socialStreakUpdatedAt = message.createdAt;
+  const nextXp = existingMeta.bondXp + 1;
+  meta.bondXp = nextXp;
+  meta.bondLevel = Math.max(1, Math.floor(nextXp / 100) + 1);
   meta.messageCount = meta.totalMessages;
   await redisPipeline([
     ["RPUSH", conversationMessagesKey(id), JSON.stringify(message)],
     ["SET", conversationMetaKey(id), JSON.stringify(meta)],
   ]);
   return message;
+}
+
+async function updateConversationMetaRecord(usernameA, usernameB, mutator) {
+  const id = conversationId(usernameA, usernameB);
+  if (!id) {
+    throw new Error("Conversation participants are required");
+  }
+  const raw = await redisCommand(["GET", conversationMetaKey(id)]);
+  const meta = upgradeConversationMeta(parseJsonSafe(raw, null));
+  const nextMeta = await mutator(meta);
+  if (nextMeta === false) {
+    return meta;
+  }
+  const merged = { ...meta, ...(nextMeta || {}) };
+  merged.messageCount = merged.totalMessages;
+  await redisCommand(["SET", conversationMetaKey(id), JSON.stringify(merged)]);
+  return merged;
 }
 
 async function getConversationMetaRecords(currentUsername, people) {
@@ -1619,7 +2008,10 @@ async function getConversationMetaRecords(currentUsername, people) {
 async function markConversationRead(usernameA, usernameB) {
   const id = conversationId(usernameA, usernameB);
   if (!id) return null;
-  const raw = await redisCommand(["GET", conversationMetaKey(id)]);
+  const [raw, viewer] = await Promise.all([
+    redisCommand(["GET", conversationMetaKey(id)]),
+    getUser(usernameA),
+  ]);
   if (!raw) {
     return null;
   }
@@ -1627,7 +2019,9 @@ async function markConversationRead(usernameA, usernameB) {
   const currentUser = normalizeUsername(usernameA);
   if (currentUser) {
     meta.unread[currentUser] = 0;
-    meta.readAt[currentUser] = new Date().toISOString();
+    if (!viewer || viewer.allowReadReceipts !== false) {
+      meta.readAt[currentUser] = new Date().toISOString();
+    }
   }
   meta.messageCount = meta.totalMessages;
   await redisCommand(["SET", conversationMetaKey(id), JSON.stringify(meta)]);
@@ -1705,6 +2099,25 @@ function normalizePostVisibility(value) {
   return DEFAULT_POST_VISIBILITY;
 }
 
+function normalizePostAudience(value) {
+  if (typeof value !== "string") {
+    return DEFAULT_POST_AUDIENCE;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (VALID_POST_AUDIENCES.has(normalized)) {
+    return normalized;
+  }
+  switch (normalized) {
+    case "both":
+    case "connections":
+      return "both";
+    case "verified":
+      return "verified";
+    default:
+      return DEFAULT_POST_AUDIENCE;
+  }
+}
+
 function normalizePostMood(value) {
   if (typeof value !== "string") {
     return DEFAULT_POST_MOOD;
@@ -1772,6 +2185,13 @@ function sanitizePostRecord(post) {
   const updatedRaw = typeof post.updatedAt === "string" ? post.updatedAt : createdAt;
   const updatedTime = Date.parse(updatedRaw);
   const updatedAt = Number.isNaN(updatedTime) ? createdAt : new Date(updatedTime).toISOString();
+  let expiresAt = null;
+  if (post.expiresAt) {
+    const expiresTime = Date.parse(post.expiresAt);
+    if (Number.isFinite(expiresTime) && expiresTime > Date.now()) {
+      expiresAt = new Date(expiresTime).toISOString();
+    }
+  }
   return {
     id: post.id ?? crypto.randomUUID(),
     text: typeof post.text === "string" ? post.text.trim() : "",
@@ -1780,6 +2200,8 @@ function sanitizePostRecord(post) {
     updatedAt,
     visibility: normalizePostVisibility(post.visibility),
     mood: normalizePostMood(post.mood),
+    audience: normalizePostAudience(post.audience ?? post.visibilityAudience),
+    expiresAt,
   };
 }
 
@@ -1838,7 +2260,23 @@ async function listUserPosts(username) {
     .map((item) => parseJsonSafe(item, null))
     .filter(Boolean)
     .map((post) => sanitizePostRecord(post));
-  return sortPostsForDisplay(posts);
+  const now = Date.now();
+  const active = [];
+  let changed = false;
+  posts.forEach((post) => {
+    if (post.expiresAt) {
+      const expires = Date.parse(post.expiresAt);
+      if (!Number.isFinite(expires) || expires <= now) {
+        changed = true;
+        return;
+      }
+    }
+    active.push(post);
+  });
+  if (changed) {
+    await rewriteList(userPostsKey(username), sortPostsForDisplay(active));
+  }
+  return sortPostsForDisplay(active);
 }
 
 async function saveUserPost(username, post) {
@@ -1876,6 +2314,49 @@ async function updateUserPost(username, postId, updates) {
   return merged;
 }
 
+async function getPostInteractions(ownerUsername, postId) {
+  const key = postInteractionsKey(ownerUsername, postId);
+  const raw = await redisCommand(["GET", key]);
+  const parsed = parseJsonSafe(raw, null);
+  if (!parsed) {
+    return {
+      likes: [],
+      comments: [],
+      reposts: 0,
+      shares: 0,
+    };
+  }
+  return {
+    likes: Array.isArray(parsed.likes) ? parsed.likes.map((user) => normalizeUsername(user)).filter(Boolean) : [],
+    comments: Array.isArray(parsed.comments)
+      ? parsed.comments.map((comment) => ({
+          id: comment.id ?? crypto.randomUUID(),
+          author: normalizeUsername(comment.author ?? ""),
+          text: sanitizeText(comment.text ?? "", 400),
+          createdAt: typeof comment.createdAt === "string" ? comment.createdAt : new Date().toISOString(),
+        }))
+      : [],
+    reposts: Number.isFinite(parsed.reposts) ? Math.max(0, Math.floor(parsed.reposts)) : 0,
+    shares: Number.isFinite(parsed.shares) ? Math.max(0, Math.floor(parsed.shares)) : 0,
+  };
+}
+
+async function updatePostInteractions(ownerUsername, postId, mutator) {
+  const existing = await getPostInteractions(ownerUsername, postId);
+  const updated = await mutator(existing);
+  if (!updated) {
+    return existing;
+  }
+  const payload = {
+    likes: Array.isArray(updated.likes) ? updated.likes : existing.likes,
+    comments: Array.isArray(updated.comments) ? updated.comments : existing.comments,
+    reposts: Number.isFinite(updated.reposts) ? Math.max(0, Math.floor(updated.reposts)) : existing.reposts,
+    shares: Number.isFinite(updated.shares) ? Math.max(0, Math.floor(updated.shares)) : existing.shares,
+  };
+  await redisCommand(["SET", postInteractionsKey(ownerUsername, postId), JSON.stringify(payload)]);
+  return payload;
+}
+
 function publicUser(user) {
   const badges = enforceBadgeRules(user.username, user.badges);
   return {
@@ -1906,6 +2387,15 @@ function publicUser(user) {
           }))
           .filter((link) => Boolean(link.url))
       : [],
+    birthdate: user.birthdate ?? null,
+    age: calculateAge(user.birthdate ?? null),
+    agePreferences: normalizeAgePreferences(user.agePreferences ?? {}),
+    ageRangeLabel: formatAgeRange(user.agePreferences ?? {}),
+    ageVerifiedAt: user.ageVerifiedAt ?? null,
+    audioIntro: user.audioIntroPath ? resolveMediaUrl(user.audioIntroPath) : "",
+    accountStatus: user.accountStatus ?? "active",
+    allowMessages: user.allowMessages ?? true,
+    allowReadReceipts: user.allowReadReceipts ?? true,
   };
 }
 
@@ -1976,6 +2466,9 @@ async function authenticate(req, res, next) {
     if (!user) {
       await destroySession(token);
       return res.status(401).json({ message: "Account missing" });
+    }
+    if (user.accountStatus && user.accountStatus !== "active") {
+      return res.status(403).json({ message: "Account is not active" });
     }
     req.user = publicUser(user);
     req.sessionToken = token;
@@ -2114,6 +2607,9 @@ function createApp() {
       if (!user || user.passwordHash !== hashPassword(password)) {
         return res.status(401).json({ message: "Invalid username or password" });
       }
+      if (user.accountStatus && user.accountStatus !== "active") {
+        return res.status(403).json({ message: "Account is not active" });
+      }
       const token = await createSession(user.username);
       res.json({
         message: "Logged in",
@@ -2155,6 +2651,76 @@ function createApp() {
     } catch (error) {
       console.error("Failed to load lookup state", error);
       res.status(500).json({ message: "Unable to load lookup state" });
+    }
+  });
+
+  app.get("/api/lookup/surprise", authenticate, async (req, res) => {
+    try {
+      const viewer = await getUser(req.user.username);
+      if (!viewer) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const hasVerifiedBadge = Array.isArray(req.user.badges)
+        ? req.user.badges.includes(BADGE_TYPES.VERIFIED)
+        : false;
+      if (!hasVerifiedBadge) {
+        return res
+          .status(403)
+          .json({ message: "Verification required to use Surprise Me" });
+      }
+      const birthdate = viewer.birthdate ?? null;
+      const viewerAge = calculateAge(birthdate);
+      if (!Number.isFinite(viewerAge)) {
+        return res
+          .status(400)
+          .json({ message: "Add a verified birthdate to unlock Surprise Me" });
+      }
+      const viewerPrefs = normalizeAgePreferences(viewer.agePreferences ?? {});
+      const users = await listUsers();
+      const candidates = [];
+      users.forEach((entry) => {
+        if (entry.username === viewer.username) {
+          return;
+        }
+        const isVerified = Array.isArray(entry.badges)
+          ? entry.badges.includes(BADGE_TYPES.VERIFIED)
+          : false;
+        if (!isVerified) {
+          return;
+        }
+        const age = calculateAge(entry.birthdate ?? null);
+        if (!Number.isFinite(age)) {
+          return;
+        }
+        if (age < viewerPrefs.minAge) {
+          return;
+        }
+        if (viewerPrefs.maxAge && age > viewerPrefs.maxAge) {
+          return;
+        }
+        const candidatePrefs = normalizeAgePreferences(entry.agePreferences ?? {});
+        if (viewerAge < candidatePrefs.minAge) {
+          return;
+        }
+        if (candidatePrefs.maxAge && viewerAge > candidatePrefs.maxAge) {
+          return;
+        }
+        candidates.push(entry.username);
+      });
+      if (!candidates.length) {
+        return res
+          .status(404)
+          .json({ message: "No verified matches in your age range yet" });
+      }
+      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      const target = await getUser(pick);
+      if (!target) {
+        return res.status(404).json({ message: "No match found" });
+      }
+      res.json({ user: publicUser(target) });
+    } catch (error) {
+      console.error("Failed to fetch surprise lookup", error);
+      res.status(500).json({ message: "Unable to pick a surprise match" });
     }
   });
 
@@ -2297,7 +2863,7 @@ function createApp() {
           const inbound = person.inbound;
           const outbound = person.outbound;
           const meta = metaMap.get(person.username) ?? null;
-          const lastMessage = meta?.lastMessage ?? null;
+          const lastMessage = meta?.lastMessage ? formatConversationMessage(meta.lastMessage) : null;
           const updatedAt =
             meta?.updatedAt ?? outbound.updatedAt ?? inbound.updatedAt ?? null;
           return {
@@ -2308,16 +2874,16 @@ function createApp() {
             badges: Array.isArray(person.badges) ? person.badges : [],
             inbound,
             outbound,
-            lastMessage: lastMessage
-              ? {
-                  sender: lastMessage.sender,
-                  text: lastMessage.text,
-                  createdAt: lastMessage.createdAt,
-                }
-              : null,
+            lastMessage,
             updatedAt,
             unreadCount: meta?.unread?.[req.user.username] ?? 0,
             totalMessages: meta?.totalMessages ?? 0,
+            bondXp: meta?.bondXp ?? 0,
+            bondLevel: meta?.bondLevel ?? 1,
+            socialStreak: meta?.socialStreak ?? 0,
+            lastInteractionAt: meta?.lastInteractionAt ?? updatedAt,
+            theme: meta?.theme ?? null,
+            messageTheme: meta?.messageTheme ?? null,
           };
         })
         .filter((thread) => Boolean(thread.lastMessage));
@@ -2375,16 +2941,20 @@ function createApp() {
         inbound,
         outbound,
         alias: formatAliasForCurrentUser(req.user, outbound),
-        messages: messages.map((message) => ({
-          id: message.id,
-          sender: message.sender,
-          text: message.text,
-          createdAt: message.createdAt,
-        })),
+        messages,
         hasMore,
         previousCursor,
         totalMessages: Number.isFinite(total) ? total : messages.length,
         unreadCount: meta?.unread?.[req.user.username] ?? 0,
+        bondXp: meta?.bondXp ?? 0,
+        bondLevel: meta?.bondLevel ?? 1,
+        socialStreak: meta?.socialStreak ?? 0,
+        lastInteractionAt: meta?.lastInteractionAt ?? null,
+        games: meta?.games ?? {},
+        theme: meta?.theme ?? null,
+        messageTheme: meta?.messageTheme ?? null,
+        nicknames: meta?.nicknames ?? {},
+        readReceipts: meta?.readAt ?? {},
       };
       res.json({ thread });
     } catch (error) {
@@ -2395,31 +2965,57 @@ function createApp() {
 
   app.post("/api/messages/thread/:username", authenticate, async (req, res) => {
     const normalizedTarget = normalizeUsername(req.params.username);
-    const { text } = req.body ?? {};
+    const { text, attachments, replyTo } = req.body ?? {};
     if (!normalizedTarget) {
       return res.status(400).json({ message: "A valid username is required" });
     }
-    const trimmed = text?.trim();
-    if (!trimmed) {
-      return res.status(400).json({ message: "A message is required" });
+    const trimmed = typeof text === "string" ? text.trim() : "";
+    const sanitizedAttachments = normalizeMessageAttachments(attachments ?? []);
+    if (!trimmed && !sanitizedAttachments.length) {
+      return res.status(400).json({ message: "Messages need text or attachments" });
     }
     try {
-      const targetUser = await getUser(normalizedTarget);
+      const [targetUser, senderUser] = await Promise.all([
+        getUser(normalizedTarget),
+        getUser(req.user.username),
+      ]);
       if (!targetUser) {
         return res.status(404).json({ message: "User not found" });
       }
-      const message = await appendConversationMessage(
-        req.user.username,
-        normalizedTarget,
-        trimmed
-      );
+      if (targetUser.allowMessages === false) {
+        return res.status(403).json({ message: "This user isn't accepting messages" });
+      }
+      const targetVerified = Array.isArray(targetUser.badges)
+        ? targetUser.badges.includes(BADGE_TYPES.VERIFIED)
+        : false;
+      if (targetVerified) {
+        const senderVerified = Array.isArray(senderUser?.badges)
+          ? senderUser.badges.includes(BADGE_TYPES.VERIFIED)
+          : false;
+        if (!senderVerified) {
+          return res
+            .status(403)
+            .json({ message: "Get verified to message this user" });
+        }
+      }
+      let replyMessage = null;
+      if (typeof replyTo === "string" && replyTo.trim()) {
+        replyMessage = await findConversationMessage(
+          req.user.username,
+          normalizedTarget,
+          replyTo.trim()
+        );
+        if (!replyMessage) {
+          return res.status(404).json({ message: "Reply target not found" });
+        }
+      }
+      const message = await appendConversationMessage(req.user.username, normalizedTarget, {
+        text: trimmed,
+        attachments: sanitizedAttachments,
+        replyTo: replyMessage?.id ?? null,
+      });
       res.status(201).json({
-        message: {
-          id: message.id,
-          sender: message.sender,
-          text: message.text,
-          createdAt: message.createdAt,
-        },
+        message: formatConversationMessage(message),
       });
     } catch (error) {
       console.error("Failed to save message", error);
@@ -2438,6 +3034,229 @@ function createApp() {
     } catch (error) {
       console.error("Failed to mark conversation read", error);
       res.status(500).json({ message: "Unable to update read state" });
+    }
+  });
+
+  app.get("/api/messages/thread/:username/games", authenticate, async (req, res) => {
+    const normalizedTarget = normalizeUsername(req.params.username);
+    if (!normalizedTarget) {
+      return res.status(400).json({ message: "A valid username is required" });
+    }
+    try {
+      const meta = await getConversationMeta(req.user.username, normalizedTarget);
+      if (!meta || meta.totalMessages <= 0) {
+        return res
+          .status(400)
+          .json({ message: "Start a conversation before launching mini-games" });
+      }
+      const games = COMPATIBILITY_GAMES.map((game) => {
+        const progress = meta.games?.[game.id] ?? {};
+        return {
+          id: game.id,
+          name: game.name,
+          description: game.description,
+          xpReward: game.xpReward,
+          lastPlayedAt: progress.lastPlayedAt ?? null,
+          completedAt: progress.completedAt ?? null,
+          completions: progress.completions ?? 0,
+        };
+      });
+      res.json({
+        bondXp: meta.bondXp ?? 0,
+        bondLevel: meta.bondLevel ?? 1,
+        socialStreak: meta.socialStreak ?? 0,
+        games,
+      });
+    } catch (error) {
+      console.error("Failed to load mini-games", error);
+      res.status(500).json({ message: "Unable to load mini-games" });
+    }
+  });
+
+  app.post(
+    "/api/messages/thread/:username/games/:gameId/start",
+    authenticate,
+    async (req, res) => {
+      const normalizedTarget = normalizeUsername(req.params.username);
+      const gameId = req.params.gameId;
+      if (!normalizedTarget || !gameId) {
+        return res.status(400).json({ message: "Game and conversation are required" });
+      }
+      const config = COMPATIBILITY_GAMES.find((game) => game.id === gameId);
+      if (!config) {
+        return res.status(404).json({ message: "Game not found" });
+      }
+      try {
+        const meta = await updateConversationMetaRecord(
+          req.user.username,
+          normalizedTarget,
+          async (current) => {
+            if (current.totalMessages <= 0) {
+              return false;
+            }
+            const nextGames = { ...current.games };
+            const gameProgress = { ...(nextGames[gameId] ?? {}) };
+            gameProgress.lastPlayedAt = new Date().toISOString();
+            nextGames[gameId] = gameProgress;
+            return { ...current, games: nextGames };
+          }
+        );
+        res.json({
+          bondXp: meta.bondXp ?? 0,
+          bondLevel: meta.bondLevel ?? 1,
+          game: meta.games?.[gameId] ?? {},
+        });
+      } catch (error) {
+        console.error("Failed to start mini-game", error);
+        res.status(500).json({ message: "Unable to start mini-game" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/messages/thread/:username/games/:gameId/complete",
+    authenticate,
+    async (req, res) => {
+      const normalizedTarget = normalizeUsername(req.params.username);
+      const gameId = req.params.gameId;
+      if (!normalizedTarget || !gameId) {
+        return res.status(400).json({ message: "Game and conversation are required" });
+      }
+      const config = COMPATIBILITY_GAMES.find((game) => game.id === gameId);
+      if (!config) {
+        return res.status(404).json({ message: "Game not found" });
+      }
+      try {
+        const meta = await updateConversationMetaRecord(
+          req.user.username,
+          normalizedTarget,
+          async (current) => {
+            if (current.totalMessages <= 0) {
+              return false;
+            }
+            const nextGames = { ...current.games };
+            const nowIso = new Date().toISOString();
+            const gameProgress = { ...(nextGames[gameId] ?? {}) };
+            gameProgress.lastPlayedAt = nowIso;
+            gameProgress.completedAt = nowIso;
+            gameProgress.completions = (gameProgress.completions ?? 0) + 1;
+            nextGames[gameId] = gameProgress;
+            const nextXp = (current.bondXp ?? 0) + config.xpReward;
+            return {
+              ...current,
+              games: nextGames,
+              bondXp: nextXp,
+              bondLevel: Math.max(1, Math.floor(nextXp / 100) + 1),
+            };
+          }
+        );
+        res.json({
+          bondXp: meta.bondXp ?? 0,
+          bondLevel: meta.bondLevel ?? 1,
+          game: meta.games?.[gameId] ?? {},
+        });
+      } catch (error) {
+        console.error("Failed to complete mini-game", error);
+        res.status(500).json({ message: "Unable to complete mini-game" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/messages/thread/:username/messages/:messageId/react",
+    authenticate,
+    async (req, res) => {
+      const normalizedTarget = normalizeUsername(req.params.username);
+      const messageId = req.params.messageId;
+      const { emoji, remove } = req.body ?? {};
+      if (!normalizedTarget || !messageId) {
+        return res.status(400).json({ message: "Message and conversation required" });
+      }
+      if (typeof emoji !== "string" || !emoji.trim()) {
+        return res.status(400).json({ message: "Pick an emoji to react with" });
+      }
+      const normalizedEmoji = emoji.trim().slice(0, 8);
+      try {
+        const updated = await updateConversationMessage(
+          req.user.username,
+          normalizedTarget,
+          messageId,
+          async (existing) => {
+            const reactions = Array.isArray(existing.reactions) ? existing.reactions.slice() : [];
+            const filtered = reactions.filter(
+              (reaction) =>
+                !(reaction?.emoji === normalizedEmoji && normalizeUsername(reaction?.user) === req.user.username)
+            );
+            if (remove) {
+              return { ...existing, reactions: filtered };
+            }
+            filtered.push({
+              emoji: normalizedEmoji,
+              user: req.user.username,
+              createdAt: new Date().toISOString(),
+            });
+            return { ...existing, reactions: filtered };
+          }
+        );
+        if (!updated) {
+          return res.status(404).json({ message: "Message not found" });
+        }
+        res.json({ message: formatConversationMessage(updated) });
+      } catch (error) {
+        console.error("Failed to update reaction", error);
+        res.status(500).json({ message: "Unable to update reaction" });
+      }
+    }
+  );
+
+  app.post("/api/messages/thread/:username/nickname", authenticate, async (req, res) => {
+    const normalizedTarget = normalizeUsername(req.params.username);
+    if (!normalizedTarget) {
+      return res.status(400).json({ message: "A valid username is required" });
+    }
+    const nickname = sanitizeText(req.body?.nickname ?? "", 60);
+    try {
+      const meta = await updateConversationMetaRecord(
+        req.user.username,
+        normalizedTarget,
+        async (current) => {
+          const nextNicknames = { ...current.nicknames };
+          if (!nickname) {
+            delete nextNicknames[normalizedTarget];
+          } else {
+            nextNicknames[normalizedTarget] = nickname;
+          }
+          return { ...current, nicknames: nextNicknames };
+        }
+      );
+      res.json({ nicknames: meta.nicknames ?? {} });
+    } catch (error) {
+      console.error("Failed to update nickname", error);
+      res.status(500).json({ message: "Unable to update nickname" });
+    }
+  });
+
+  app.post("/api/messages/thread/:username/theme", authenticate, async (req, res) => {
+    const normalizedTarget = normalizeUsername(req.params.username);
+    if (!normalizedTarget) {
+      return res.status(400).json({ message: "A valid username is required" });
+    }
+    const background = sanitizeText(req.body?.background ?? "", 40);
+    const messageTheme = sanitizeText(req.body?.messageTheme ?? "", 40);
+    try {
+      const meta = await updateConversationMetaRecord(
+        req.user.username,
+        normalizedTarget,
+        async (current) => ({
+          ...current,
+          theme: background || null,
+          messageTheme: messageTheme || null,
+        })
+      );
+      res.json({ theme: meta.theme ?? null, messageTheme: meta.messageTheme ?? null });
+    } catch (error) {
+      console.error("Failed to update theme", error);
+      res.status(500).json({ message: "Unable to update theme" });
     }
   });
 
@@ -2500,15 +3319,34 @@ function createApp() {
           highlighted: Boolean(event.highlighted),
         }));
 
-      const postPayload = filteredPosts.map((post) => ({
+      const postInteractions = await Promise.all(
+        filteredPosts.map((post) => getPostInteractions(requested, post.id))
+      );
+      const postPayload = filteredPosts.map((post, index) => {
+        const interactions = postInteractions[index] ?? {
+          likes: [],
+          comments: [],
+          reposts: 0,
+          shares: 0,
+        };
+        return {
           id: post.id,
           text: post.text ?? "",
           attachments: normalizeAttachments(post.attachments),
           createdAt: post.createdAt,
           visibility: post.visibility ?? "public",
+          audience: post.audience ?? DEFAULT_POST_AUDIENCE,
+          expiresAt: post.expiresAt ?? null,
           updatedAt: post.updatedAt,
           mood: post.mood ?? DEFAULT_POST_MOOD,
-        }));
+          interactions: {
+            likes: interactions.likes ?? [],
+            comments: interactions.comments ?? [],
+            reposts: interactions.reposts ?? 0,
+            shares: interactions.shares ?? 0,
+          },
+        };
+      });
 
       response.events = eventPayload;
       response.posts = postPayload;
@@ -2729,7 +3567,7 @@ function createApp() {
         .status(403)
         .json({ message: "Only the WantYou owner can manage verification badges" });
     }
-    const { username, verified } = req.body ?? {};
+    const { username, verified, birthdate, agePreferences } = req.body ?? {};
     const normalizedTarget = normalizeUsername(username);
     if (!normalizedTarget) {
       return res.status(400).json({ message: "Username to verify is required" });
@@ -2747,6 +3585,17 @@ function createApp() {
       const badgeSet = new Set(targetUser.badges);
       if (verified) {
         badgeSet.add(BADGE_TYPES.VERIFIED);
+        const normalizedBirthdate = sanitizeBirthdate(birthdate ?? targetUser.birthdate ?? "");
+        if (!normalizedBirthdate) {
+          return res
+            .status(400)
+            .json({ message: "A valid birthdate (YYYY-MM-DD) is required for verification" });
+        }
+        targetUser.birthdate = normalizedBirthdate;
+        targetUser.ageVerifiedAt = new Date().toISOString();
+        if (agePreferences) {
+          targetUser.agePreferences = normalizeAgePreferences(agePreferences);
+        }
       } else {
         badgeSet.delete(BADGE_TYPES.VERIFIED);
       }
@@ -2755,6 +3604,64 @@ function createApp() {
     } catch (error) {
       console.error("Failed to update verification badge", error);
       res.status(500).json({ message: "Unable to update verification badge" });
+    }
+  });
+
+  app.patch("/api/account/preferences", authenticate, async (req, res) => {
+    try {
+      const user = await getUser(req.user.username);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const updates = { ...user };
+      if ("allowMessages" in req.body) {
+        updates.allowMessages = Boolean(req.body.allowMessages);
+      }
+      if ("allowReadReceipts" in req.body) {
+        updates.allowReadReceipts = Boolean(req.body.allowReadReceipts);
+      }
+      if (req.body?.agePreferences) {
+        updates.agePreferences = normalizeAgePreferences(req.body.agePreferences);
+      }
+      const saved = await writeUserRecord(updates);
+      res.json({ user: publicUser(saved) });
+    } catch (error) {
+      console.error("Failed to update account preferences", error);
+      res.status(500).json({ message: "Unable to update account preferences" });
+    }
+  });
+
+  app.post("/api/account/disable", authenticate, async (req, res) => {
+    try {
+      const user = await getUser(req.user.username);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const saved = await writeUserRecord({ ...user, accountStatus: "disabled" });
+      if (req.sessionToken) {
+        await destroySession(req.sessionToken);
+      }
+      res.json({ user: publicUser(saved) });
+    } catch (error) {
+      console.error("Failed to disable account", error);
+      res.status(500).json({ message: "Unable to disable account" });
+    }
+  });
+
+  app.delete("/api/account", authenticate, async (req, res) => {
+    try {
+      const user = await getUser(req.user.username);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      await writeUserRecord({ ...user, accountStatus: "deleted" });
+      if (req.sessionToken) {
+        await destroySession(req.sessionToken);
+      }
+      res.status(204).end();
+    } catch (error) {
+      console.error("Failed to delete account", error);
+      res.status(500).json({ message: "Unable to delete account" });
     }
   });
 
@@ -2797,6 +3704,72 @@ function createApp() {
         res.status(500).json({ message: "Unable to update profile picture" });
       }
     });
+  });
+
+  app.post("/api/profile/audio-intro", authenticate, (req, res) => {
+    req.uploadTarget = "audio";
+    uploadMiddleware.single("intro")(req, res, async (error) => {
+      if (error) {
+        return uploadErrorResponse(res, error);
+      }
+      if (!req.file) {
+        return res.status(400).json({ message: "Select an audio clip to upload" });
+      }
+      if (req.file.size > MAX_AUDIO_FILE_SIZE) {
+        await removeFileSafe(req.file.path);
+        return res
+          .status(413)
+          .json({ message: "Audio intros must be 5 MB or smaller" });
+      }
+      let media = null;
+      try {
+        const user = await getUser(req.user.username);
+        if (!user) {
+          await removeFileSafe(req.file.path);
+          return res.status(404).json({ message: "User not found" });
+        }
+        media = await persistMediaFile(req.file);
+        if (!media?.location) {
+          await removeFileSafe(req.file.path);
+          return res.status(500).json({ message: "Unable to store audio intro" });
+        }
+        const previousLocation = user.audioIntroPath;
+        const updated = await updateUserProfile(req.user.username, {
+          audioIntroPath: media.location,
+        });
+        if (previousLocation && previousLocation !== media.location) {
+          await removeMediaLocation(previousLocation);
+        }
+        res.status(201).json({ user: publicUser(updated) });
+      } catch (err) {
+        console.error("Failed to upload audio intro", err);
+        if (media?.location) {
+          await removeMediaLocation(media.location);
+        } else if (req.file?.path) {
+          await removeFileSafe(req.file.path);
+        }
+        res.status(500).json({ message: "Unable to update audio intro" });
+      }
+    });
+  });
+
+  app.delete("/api/profile/audio-intro", authenticate, async (req, res) => {
+    try {
+      const user = await getUser(req.user.username);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const previousLocation = user.audioIntroPath;
+      if (!previousLocation) {
+        return res.status(204).end();
+      }
+      const updated = await updateUserProfile(req.user.username, { audioIntroPath: "" });
+      await removeMediaLocation(previousLocation);
+      res.json({ user: publicUser(updated) });
+    } catch (error) {
+      console.error("Failed to remove audio intro", error);
+      res.status(500).json({ message: "Unable to remove audio intro" });
+    }
   });
 
   app.post("/api/events", authenticate, (req, res) => {
@@ -2959,6 +3932,20 @@ function createApp() {
       if (mood !== undefined) {
         updates.mood = normalizePostMood(mood);
       }
+      if (req.body?.audience !== undefined) {
+        updates.audience = normalizePostAudience(req.body.audience);
+      }
+      if (req.body?.expiresAt !== undefined) {
+        if (!req.body.expiresAt) {
+          updates.expiresAt = null;
+        } else {
+          const expiresTime = Date.parse(req.body.expiresAt);
+          if (!Number.isFinite(expiresTime) || expiresTime <= Date.now()) {
+            return res.status(400).json({ message: "Expiration must be in the future" });
+          }
+          updates.expiresAt = new Date(expiresTime).toISOString();
+        }
+      }
       if (!Object.keys(updates).length) {
         return res.status(400).json({ message: "Nothing to update" });
       }
@@ -3005,6 +3992,245 @@ function createApp() {
       res.status(500).json({ message: "Unable to delete post" });
     }
   });
+
+  function canInteractWithVerified(actor, targetUser) {
+    const targetVerified = Array.isArray(targetUser.badges)
+      ? targetUser.badges.includes(BADGE_TYPES.VERIFIED)
+      : false;
+    if (!targetVerified) {
+      return true;
+    }
+    const actorVerified = Array.isArray(actor?.badges)
+      ? actor.badges.includes(BADGE_TYPES.VERIFIED)
+      : false;
+    return actorVerified || actor?.username === targetUser.username;
+  }
+
+  async function requirePostOwnership(req, res, next) {
+    const ownerUsername = normalizeUsername(req.params.username);
+    if (!ownerUsername) {
+      res.status(400).json({ message: "A valid username is required" });
+      return;
+    }
+    try {
+      const [owner, viewer] = await Promise.all([
+        getUser(ownerUsername),
+        getUser(req.user.username),
+      ]);
+      if (!owner) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+      if (!canInteractWithVerified(viewer, owner)) {
+        res.status(403).json({ message: "Get verified to interact with this post" });
+        return;
+      }
+      req.postOwner = owner;
+      req.postViewer = viewer;
+      next();
+    } catch (error) {
+      console.error("Failed to authorize post interaction", error);
+      res.status(500).json({ message: "Unable to process interaction" });
+    }
+  }
+
+  async function findPostForInteraction(ownerUsername, postId) {
+    const posts = await listUserPosts(ownerUsername);
+    return posts.find((post) => post.id === postId) ?? null;
+  }
+
+  app.post(
+    "/api/users/:username/posts/:postId/like",
+    authenticate,
+    requirePostOwnership,
+    async (req, res) => {
+      const postId = req.params.postId;
+      if (!postId) {
+        return res.status(400).json({ message: "Post id required" });
+      }
+      try {
+        const post = await findPostForInteraction(req.postOwner.username, postId);
+        if (!post) {
+          return res.status(404).json({ message: "Post not found" });
+        }
+        const interactions = await updatePostInteractions(
+          req.postOwner.username,
+          postId,
+          async (current) => {
+            const likes = new Set(current.likes ?? []);
+            const viewer = req.user.username;
+            if (likes.has(viewer)) {
+              likes.delete(viewer);
+            } else {
+              likes.add(viewer);
+            }
+            return { ...current, likes: Array.from(likes) };
+          }
+        );
+        res.json({
+          likes: interactions.likes,
+          liked: interactions.likes.includes(req.user.username),
+        });
+      } catch (error) {
+        console.error("Failed to toggle like", error);
+        res.status(500).json({ message: "Unable to update like" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/users/:username/posts/:postId/comment",
+    authenticate,
+    requirePostOwnership,
+    async (req, res) => {
+      const postId = req.params.postId;
+      const text = sanitizeText(req.body?.text ?? "", 400);
+      if (!postId) {
+        return res.status(400).json({ message: "Post id required" });
+      }
+      if (!text) {
+        return res.status(400).json({ message: "Comment cannot be empty" });
+      }
+      try {
+        const post = await findPostForInteraction(req.postOwner.username, postId);
+        if (!post) {
+          return res.status(404).json({ message: "Post not found" });
+        }
+        const commentId = crypto.randomUUID();
+        const interactions = await updatePostInteractions(
+          req.postOwner.username,
+          postId,
+          async (current) => {
+            const comments = Array.isArray(current.comments) ? current.comments.slice() : [];
+            comments.push({
+              id: commentId,
+              author: req.user.username,
+              text,
+              createdAt: new Date().toISOString(),
+            });
+            return { ...current, comments };
+          }
+        );
+        res.status(201).json({
+          comment: interactions.comments.find((comment) => comment.id === commentId) ?? null,
+          comments: interactions.comments,
+        });
+      } catch (error) {
+        console.error("Failed to add comment", error);
+        res.status(500).json({ message: "Unable to add comment" });
+      }
+    }
+  );
+
+  app.delete(
+    "/api/users/:username/posts/:postId/comment/:commentId",
+    authenticate,
+    requirePostOwnership,
+    async (req, res) => {
+      const { postId, commentId } = req.params;
+      if (!postId || !commentId) {
+        return res.status(400).json({ message: "Post and comment are required" });
+      }
+      try {
+        const post = await findPostForInteraction(req.postOwner.username, postId);
+        if (!post) {
+          return res.status(404).json({ message: "Post not found" });
+        }
+        let removed = false;
+        const interactions = await updatePostInteractions(
+          req.postOwner.username,
+          postId,
+          async (current) => {
+            const comments = Array.isArray(current.comments) ? current.comments.slice() : [];
+            const filtered = comments.filter((comment) => {
+              if (comment.id !== commentId) {
+                return true;
+              }
+              const author = normalizeUsername(comment.author ?? "");
+              const canRemove =
+                author === req.user.username || req.postOwner.username === req.user.username;
+              if (!canRemove) {
+                return true;
+              }
+              removed = true;
+              return false;
+            });
+            if (!removed) {
+              return current;
+            }
+            return { ...current, comments: filtered };
+          }
+        );
+        if (!removed) {
+          return res.status(403).json({ message: "You can't remove this comment" });
+        }
+        res.status(204).end();
+      } catch (error) {
+        console.error("Failed to delete comment", error);
+        res.status(500).json({ message: "Unable to delete comment" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/users/:username/posts/:postId/repost",
+    authenticate,
+    requirePostOwnership,
+    async (req, res) => {
+      const postId = req.params.postId;
+      if (!postId) {
+        return res.status(400).json({ message: "Post id required" });
+      }
+      try {
+        const post = await findPostForInteraction(req.postOwner.username, postId);
+        if (!post) {
+          return res.status(404).json({ message: "Post not found" });
+        }
+        const interactions = await updatePostInteractions(
+          req.postOwner.username,
+          postId,
+          async (current) => ({
+            ...current,
+            reposts: (current.reposts ?? 0) + 1,
+          })
+        );
+        res.json({ reposts: interactions.reposts ?? 0 });
+      } catch (error) {
+        console.error("Failed to repost", error);
+        res.status(500).json({ message: "Unable to repost" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/users/:username/posts/:postId/share",
+    authenticate,
+    requirePostOwnership,
+    async (req, res) => {
+      const postId = req.params.postId;
+      if (!postId) {
+        return res.status(400).json({ message: "Post id required" });
+      }
+      try {
+        const post = await findPostForInteraction(req.postOwner.username, postId);
+        if (!post) {
+          return res.status(404).json({ message: "Post not found" });
+        }
+        const interactions = await updatePostInteractions(
+          req.postOwner.username,
+          postId,
+          async (current) => ({
+            ...current,
+            shares: (current.shares ?? 0) + 1,
+          })
+        );
+        res.json({ shares: interactions.shares ?? 0 });
+      } catch (error) {
+        console.error("Failed to share", error);
+        res.status(500).json({ message: "Unable to share post" });
+      }
+    }
+  );
 
   app.use((err, req, res, next) => {
     console.error("Unhandled error", err);
