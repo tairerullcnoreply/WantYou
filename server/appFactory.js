@@ -2617,6 +2617,8 @@ function createApp() {
           return true;
         });
       }
+      const canVerify = req.user.username === OWNER_USERNAME && requested !== req.user.username;
+
       const response = {
         user: publicUser({ ...targetUser }),
       };
@@ -2714,7 +2716,6 @@ function createApp() {
         lastUpdatedAt: lastActivityAt,
       };
 
-      const canVerify = req.user.username === OWNER_USERNAME && requested !== req.user.username;
       response.canVerify = canVerify;
 
       if (isSelf) {
