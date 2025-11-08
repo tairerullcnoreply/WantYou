@@ -265,7 +265,7 @@ const PROFILES = new Map([
       events: [
         {
           id: "event-preview-1",
-          text: "Today I guided more users through WanYou!",
+          text: "Today I guided more users through WantYou!",
           attachments: [],
           createdAt: minutesAgo(referenceDate, 180),
           expiresAt: minutesAgo(referenceDate, -24 * 60),
@@ -442,9 +442,9 @@ const PROFILES = new Map([
         badges: [],
         userId: "user-harper",
         usernameHistory: [],
-        pronouns: "she/they",
+        pronouns: "She/They",
         location: "Portland",
-        relationshipStatus: "not-looking",
+        relationshipStatus: "Not Looking",
         sexuality: "Demisexual",
         journey: "Always writing, sometimes sharing.",
         spotlight: "Forever chasing cozy cafes.",
