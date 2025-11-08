@@ -537,9 +537,15 @@ function timestampScore(value) {
   return Number.isNaN(time) ? 0 : time;
 }
 
+function populateCurrentYears() {
+  const currentYear = new Date().getFullYear().toString();
+  document.querySelectorAll("[data-current-year]").forEach((element) => {
+    element.textContent = currentYear;
+  });
+}
+
 function initLanding() {
   const heroCard = document.getElementById("hero-card");
-  const year = document.getElementById("year");
   const form = document.getElementById("request-access");
   let heroIndex = 0;
 
@@ -557,10 +563,6 @@ function initLanding() {
         }
       }
     })();
-  }
-
-  if (year) {
-    year.textContent = new Date().getFullYear();
   }
 
   if (heroCard) {
@@ -610,12 +612,7 @@ function initSignup() {
   const signupForm = document.getElementById("signup-form");
   const loginForm = document.getElementById("login-form");
   const tabs = document.querySelectorAll(".signup__tab");
-  const year = document.getElementById("signup-year");
   const forms = [signupForm, loginForm].filter(Boolean);
-
-  if (year) {
-    year.textContent = new Date().getFullYear();
-  }
 
   const activateTab = (target) => {
     if (!forms.length) {
@@ -3744,6 +3741,7 @@ function initApp() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  populateCurrentYears();
   setupGlobalControls();
   initApp();
 });
