@@ -5,6 +5,7 @@ const fsp = require("fs/promises");
 const crypto = require("crypto");
 const express = require("express");
 const multer = require("multer");
+const aiPreview = require("./aiPreviewData");
 
 const UPSTASH_REST_URL = process.env.KV_REST_API_URL;
 const UPSTASH_REST_TOKEN = process.env.KV_REST_API_TOKEN;
@@ -1922,7 +1923,42 @@ function normalizeAttachments(attachments) {
     .filter((attachment) => Boolean(attachment.url));
 }
 
+function isAiReference(value) {
+  if (!value) {
+    return false;
+  }
+  return String(value).trim().toUpperCase() === "AI";
+}
+
+function isReadOnlyMethod(method) {
+  const normalized = String(method || "GET").toUpperCase();
+  return normalized === "GET" || normalized === "HEAD";
+}
+
+function isAiPreviewRequest(req) {
+  if (!req) {
+    return false;
+  }
+  if (isAiReference(req.query?.ref)) {
+    return true;
+  }
+  if (isAiReference(req.get?.("x-wantyou-ai-guest"))) {
+    return true;
+  }
+  return false;
+}
+
 async function authenticate(req, res, next) {
+  if (isAiPreviewRequest(req)) {
+    if (!isReadOnlyMethod(req.method)) {
+      return res.status(403).json({ message: "AI preview is read-only" });
+    }
+    req.user = aiPreview.getAiUser();
+    req.sessionToken = null;
+    req.aiGuest = true;
+    return next();
+  }
+
   const header = req.get("authorization");
   if (!header?.startsWith("Bearer ")) {
     return res.status(401).json({ message: "Authentication required" });
@@ -1943,6 +1979,7 @@ async function authenticate(req, res, next) {
     }
     req.user = publicUser(user);
     req.sessionToken = token;
+    req.aiGuest = false;
     next();
   } catch (error) {
     console.error("Failed to authenticate session", error);
@@ -2090,6 +2127,10 @@ function createApp() {
   });
 
   app.get("/api/session", authenticate, (req, res) => {
+    if (req.aiGuest) {
+      res.json(aiPreview.getSessionPayload());
+      return;
+    }
     res.json({ user: req.user });
   });
 
@@ -2104,6 +2145,10 @@ function createApp() {
   });
 
   app.get("/api/lookup", authenticate, async (req, res) => {
+    if (req.aiGuest) {
+      res.json(aiPreview.getLookupPayload());
+      return;
+    }
     try {
       const people = await getLookupPeople(req.user.username);
       res.json({ people });
@@ -2184,6 +2229,15 @@ function createApp() {
   });
 
   app.get("/api/messages/selection", authenticate, async (req, res) => {
+    if (req.aiGuest) {
+      const payload = aiPreview.getSelectedThreadPayload();
+      if (!payload?.thread) {
+        res.status(404).json({ message: "No stored thread" });
+        return;
+      }
+      res.json(payload);
+      return;
+    }
     try {
       const thread = await getSelectedThread(req.user.username);
       if (!thread) {
@@ -2215,6 +2269,10 @@ function createApp() {
   });
 
   app.get("/api/users", authenticate, async (req, res) => {
+    if (req.aiGuest) {
+      res.json(aiPreview.getUsersPayload());
+      return;
+    }
     try {
       const users = (await listUsers()).filter(
         (user) => user.username !== req.user.username
@@ -2227,6 +2285,10 @@ function createApp() {
   });
 
   app.get("/api/messages/threads", authenticate, async (req, res) => {
+    if (req.aiGuest) {
+      res.json(aiPreview.getThreadsPayload());
+      return;
+    }
     try {
       const people = await getLookupPeople(req.user.username);
       const metaMap = await getConversationMetaRecords(req.user.username, people);
@@ -2272,6 +2334,16 @@ function createApp() {
   });
 
   app.get("/api/messages/thread/:username", authenticate, async (req, res) => {
+    if (req.aiGuest) {
+      const target = normalizeUsername(req.params.username);
+      const payload = aiPreview.getThreadDetail(target);
+      if (!payload) {
+        res.status(404).json({ message: "Conversation not found" });
+        return;
+      }
+      res.json(payload);
+      return;
+    }
     const normalizedTarget = normalizeUsername(req.params.username);
     if (!normalizedTarget) {
       return res.status(400).json({ message: "A valid username is required" });
@@ -2370,6 +2442,16 @@ function createApp() {
   });
 
   app.get("/api/profile", authenticate, async (req, res) => {
+    if (req.aiGuest) {
+      const requested = normalizeUsername(req.query.user) || req.user.username;
+      const payload = aiPreview.getProfilePayload(requested);
+      if (!payload) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+      res.json(payload);
+      return;
+    }
     try {
       const requested = normalizeUsername(req.query.user) || req.user.username;
       const targetUser = await getUser(requested);

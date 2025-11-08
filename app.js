@@ -1,3 +1,10 @@
+const AI_REF_PARAM = "ref";
+const AI_REF_VALUE = "AI";
+const AI_GUEST_STORAGE_KEY = "wantyou_ai_guest";
+const AI_GUEST_HEADER = "X-WantYou-AI-Guest";
+
+let aiGuestMode = false;
+
 const STATUS_LABELS = {
   none: "No status yet",
   know: "This user knows you",
@@ -17,6 +24,144 @@ function formatFileSize(bytes) {
     unitIndex += 1;
   }
   return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function isAiReferenceValue(value) {
+  if (!value) {
+    return false;
+  }
+  return String(value).trim().toUpperCase() === AI_REF_VALUE;
+}
+
+function isReadOnlyMethod(method) {
+  const normalized = String(method || "GET").toUpperCase();
+  return normalized === "GET" || normalized === "HEAD";
+}
+
+function isAiGuestMode() {
+  return aiGuestMode;
+}
+
+function withAiRef(url) {
+  if (!isAiGuestMode() || !url) {
+    return url;
+  }
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.origin !== window.location.origin) {
+      return url;
+    }
+    if (!isAiReferenceValue(parsed.searchParams.get(AI_REF_PARAM))) {
+      parsed.searchParams.set(AI_REF_PARAM, AI_REF_VALUE);
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch (error) {
+    return url;
+  }
+}
+
+function applyAiRefToAnchors(root = document) {
+  if (!isAiGuestMode()) {
+    return;
+  }
+  if (!root || typeof root.querySelectorAll !== "function") {
+    return;
+  }
+  root.querySelectorAll("a[href]").forEach((anchor) => {
+    const href = anchor.getAttribute("href");
+    if (!href || href.startsWith("#")) {
+      return;
+    }
+    if (/^(mailto:|tel:|sms:|javascript:)/i.test(href)) {
+      return;
+    }
+    try {
+      const parsed = new URL(href, window.location.origin);
+      if (parsed.origin !== window.location.origin) {
+        return;
+      }
+      const next = withAiRef(`${parsed.pathname}${parsed.search}${parsed.hash}`);
+      if (next) {
+        anchor.setAttribute("href", next);
+      }
+    } catch (error) {
+      // ignore invalid URLs
+    }
+  });
+}
+
+function initializeAiGuestMode() {
+  let hasRef = false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    hasRef = isAiReferenceValue(params.get(AI_REF_PARAM));
+  } catch (error) {
+    hasRef = false;
+  }
+
+  let remembered = false;
+  try {
+    remembered = window.sessionStorage.getItem(AI_GUEST_STORAGE_KEY) === "1";
+  } catch (error) {
+    remembered = false;
+  }
+
+  aiGuestMode = hasRef || remembered;
+
+  if (hasRef) {
+    try {
+      window.sessionStorage.setItem(AI_GUEST_STORAGE_KEY, "1");
+    } catch (error) {
+      // Ignore storage failures; still continue in preview mode.
+    }
+  }
+
+  if (!isAiGuestMode()) {
+    return;
+  }
+
+  if (document.body) {
+    document.body.classList.add("ai-preview");
+  }
+
+  applyAiRefToAnchors(document);
+
+  document.addEventListener("click", (event) => {
+    const anchor = event.target?.closest?.("a[href]");
+    if (!anchor) {
+      return;
+    }
+    const href = anchor.getAttribute("href");
+    if (!href) {
+      return;
+    }
+    const updated = withAiRef(href);
+    if (updated && updated !== href) {
+      anchor.setAttribute("href", updated);
+    }
+  });
+
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          applyAiRefToAnchors(node);
+        }
+      });
+    });
+  });
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+
+  if (document.body) {
+    const banner = document.createElement("div");
+    banner.className = "ai-preview-banner";
+    banner.innerHTML =
+      '<p><strong>AI preview:</strong> You\'re browsing WantYou in read-only mode. Links include ?ref=AI and interactive actions are disabled.</p>';
+    document.body.insertBefore(banner, document.body.firstChild || null);
+  }
 }
 
 const STATUS_NAMES = {
@@ -123,10 +268,8 @@ function buildApiUrl(path) {
 }
 
 function buildProfileUrl(username) {
-  if (!username) {
-    return "/profile/";
-  }
-  return `/profile/@${encodeURIComponent(username)}/`;
+  const target = username ? `/profile/@${encodeURIComponent(username)}/` : "/profile/";
+  return withAiRef(target);
 }
 
 function getSessionToken() {
@@ -174,6 +317,13 @@ function getNextUsernameChangeAt(changedAt) {
 
 function setupGlobalControls() {
   const logoutButtons = document.querySelectorAll('[data-action="logout"]');
+  if (isAiGuestMode()) {
+    logoutButtons.forEach((button) => {
+      button.setAttribute("aria-hidden", "true");
+      button.hidden = true;
+    });
+    return;
+  }
   logoutButtons.forEach((button) => {
     const control = button;
     control.addEventListener("click", async (event) => {
@@ -191,19 +341,30 @@ function setupGlobalControls() {
       } finally {
         clearSessionToken();
         updateProfileLinks(null);
-        window.location.href = "/signup/";
+        window.location.href = withAiRef("/signup/");
       }
     });
   });
 }
 
 async function apiRequest(path, options = {}) {
-  const url = buildApiUrl(path);
+  let url = buildApiUrl(path);
   const init = { ...options };
+  const method = String(init.method || "GET").toUpperCase();
+  init.method = method;
   const headers = new Headers(init.headers || {});
   const token = getSessionToken();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (isAiGuestMode()) {
+    if (!isReadOnlyMethod(method)) {
+      const error = new Error("Interactions are disabled in AI preview mode.");
+      error.status = 403;
+      throw error;
+    }
+    headers.set(AI_GUEST_HEADER, AI_REF_VALUE);
+    url = withAiRef(url);
   }
   const hasBody = init.body !== undefined && init.body !== null && !(init.body instanceof FormData);
   if (hasBody && !headers.has("Content-Type")) {
@@ -390,7 +551,9 @@ async function requireSession() {
     return await loadSession();
   } catch (error) {
     if (error.status === 401) {
-      window.location.href = "/signup/";
+      if (!isAiGuestMode()) {
+        window.location.href = withAiRef("/signup/");
+      }
     }
     throw error;
   }
@@ -554,7 +717,7 @@ function initLanding() {
     (async () => {
       try {
         await apiRequest("/session");
-        window.location.replace("/lookup/");
+        window.location.replace(withAiRef("/lookup/"));
       } catch (error) {
         if (error?.status === 401) {
           clearSessionToken();
@@ -698,7 +861,7 @@ function initSignup() {
       }
       const fullName = data?.user?.fullName ?? username;
       window.alert(`Welcome back, ${fullName}! Redirecting to your lookup.`);
-      window.location.href = "/lookup/";
+      window.location.href = withAiRef("/lookup/");
     } catch (error) {
       window.alert(error.message || "We couldn't log you in right now.");
     } finally {
@@ -1452,7 +1615,7 @@ async function initLookup() {
               : error?.message || "We couldn't remember that chat selection.";
           window.alert(message);
         }
-        window.location.href = "/messages/";
+        window.location.href = withAiRef("/messages/");
       });
 
       fragment.appendChild(card);
@@ -1666,7 +1829,7 @@ async function initMessages() {
 
   newChatButton?.addEventListener("click", (event) => {
     event.preventDefault();
-    window.location.href = "/lookup/";
+    window.location.href = withAiRef("/lookup/");
   });
 
   placeholder.hidden = false;
@@ -3741,6 +3904,7 @@ function initApp() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  initializeAiGuestMode();
   populateCurrentYears();
   setupGlobalControls();
   initApp();

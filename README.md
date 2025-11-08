@@ -33,3 +33,4 @@ WantYou is a social platform that enables users to discover and connect with oth
 * [11/08/2025; 4:15 PM UTC] Updated press kit downloads to provide SVG-only assets
 * [11/08/2025; 4:45 PM UTC] Removed legacy PNG assets from the press kit archive
 * [11/18/2025; 2:20 PM UTC] Published a community guidelines page and linked it from every site footer
+* [11/18/2025; 6:05 PM UTC] Introduced the ?ref=AI read-only tour with demo data, AI navigation helpers, and landing page guidance
