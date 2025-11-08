@@ -1,0 +1,13 @@
+<svg width="640" height="240" viewBox="0 0 640 240" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffd5a3" />
+      <stop offset="100%" stop-color="#ff7a00" />
+    </linearGradient>
+  </defs>
+  <rect width="640" height="240" rx="28" fill="#1f1f1f" />
+  <text x="64" y="136" font-family="'Inter', 'Segoe UI', sans-serif" font-size="96" font-weight="700" fill="#ffffff">Want</text>
+  <text x="332" y="136" font-family="'Inter', 'Segoe UI', sans-serif" font-size="96" font-weight="700" fill="url(#accent)">Y</text>
+  <text x="396" y="136" font-family="'Inter', 'Segoe UI', sans-serif" font-size="96" font-weight="700" fill="#ffffff">ou</text>
+  <text x="64" y="188" font-family="'Inter', 'Segoe UI', sans-serif" font-size="28" font-weight="500" fill="#ffb347">Know who knows you. Share who wants you.</text>
+</svg>

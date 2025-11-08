@@ -29,3 +29,6 @@ WantYou is a social platform that enables users to discover and connect with oth
 * [11/16/2025; 3:15 PM UTC] Redirected logged-in visitors to lookup, deep-linked auth tabs, and removed unauthenticated entry points
 * [11/17/2025; 9:30 AM UTC] Expanded profiles with availability signals, activity analytics, interests, and featured link spotlights
 * [11/17/2025; 4:45 PM UTC] Replaced availability with relationship status options, added sexuality details, and hid owner-only verification controls
+* [11/08/2025; 3:50 PM UTC] Launched /press/ hub with downloadable logos, product art, and media guidance
+* [11/08/2025; 4:15 PM UTC] Updated press kit downloads to provide SVG-only assets
+* [11/08/2025; 4:45 PM UTC] Removed legacy PNG assets from the press kit archive
