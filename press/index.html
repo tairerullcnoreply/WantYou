@@ -299,16 +299,14 @@
 
     <footer class="press-footer">
       <div class="container press-footer__inner">
-        <p>&copy; <span id="press-year"></span> Uniplex LLC. All rights reserved.</p>
-        <a href="/">Back to wantyou.app</a>
+        <p>&copy; <span data-current-year></span> Uniplex LLC. All rights reserved.</p>
+        <div class="press-footer__links">
+          <a href="/">Back to wantyou.app</a>
+          <a href="/guidelines/">Community guidelines</a>
+        </div>
       </div>
     </footer>
 
-    <script>
-      const yearEl = document.getElementById("press-year");
-      if (yearEl) {
-        yearEl.textContent = new Date().getFullYear();
-      }
-    </script>
+    <script src="/app.js" defer></script>
   </body>
 </html>
