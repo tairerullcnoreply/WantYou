@@ -48,7 +48,12 @@
         </ul>
       </aside>
 
-      <section class="messages-thread" id="messages-thread" aria-live="polite">
+      <section
+        class="messages-thread"
+        id="messages-thread"
+        aria-live="polite"
+        data-thread-theme
+      >
         <div class="messages-thread__placeholder" data-thread-placeholder>
           <p>Select a conversation to see your messages.</p>
         </div>
@@ -64,6 +69,11 @@
               ></span>
             </div>
             <p class="messages-thread__note" data-alias hidden></p>
+            <div class="messages-thread__participants" data-thread-participants hidden>
+              <h3 class="visually-hidden">Participants</h3>
+              <ul class="messages-thread__avatars" data-participant-list></ul>
+              <div class="messages-thread__participant-meta" data-participant-names></div>
+            </div>
           </div>
           <div class="messages-thread__actions">
             <label class="toggle">
@@ -72,6 +82,14 @@
             </label>
             <button class="button button--ghost" data-action="switch-anon">
               Stay anonymous
+            </button>
+            <button
+              class="button button--ghost"
+              type="button"
+              data-action="open-theme"
+              title="Change chat background"
+            >
+              Themes
             </button>
           </div>
         </header>
@@ -88,10 +106,41 @@
         <ul class="messages" id="message-log"></ul>
 
         <form class="composer composer--messages" id="message-composer" hidden>
+          <div class="composer__reply" data-reply-preview hidden>
+            <span data-reply-label>Replying to Someone</span>
+            <button type="button" class="button button--ghost" data-action="cancel-reply">
+              Cancel reply
+            </button>
+          </div>
+          <div class="composer__toolbar">
+            <button type="button" class="button button--ghost" data-action="open-emoji">
+              Emoji
+            </button>
+            <button type="button" class="button button--ghost" data-action="open-gif">
+              GIFs
+            </button>
+            <label class="button button--ghost composer__upload">
+              <span>Upload</span>
+              <input
+                type="file"
+                name="attachments"
+                accept="image/*,video/*"
+                multiple
+                data-action="add-attachment"
+              />
+            </label>
+            <button type="button" class="button button--ghost" data-action="open-nicknames">
+              Nicknames
+            </button>
+            <button type="button" class="button button--ghost" data-action="open-message-theme">
+              Message theme
+            </button>
+          </div>
           <label class="form__field">
             <span class="visually-hidden">Your message</span>
             <textarea id="message-input" rows="3" placeholder="Send a reply" required></textarea>
           </label>
+          <div class="composer__preview" data-attachment-preview hidden></div>
           <div class="composer__actions">
             <button type="button" class="button button--ghost" data-action="request-reveal">
               Ask to reveal
@@ -102,12 +151,90 @@
       </section>
     </main>
 
+    <div class="messages-floating-panel" data-emoji-panel hidden>
+      <header class="messages-floating-panel__header">
+        <h2>Pick an emoji</h2>
+        <button class="button button--ghost" type="button" data-action="close-emoji">Close</button>
+      </header>
+      <div class="messages-floating-panel__grid" data-emoji-grid></div>
+    </div>
+
+    <div class="messages-floating-panel" data-gif-panel hidden>
+      <header class="messages-floating-panel__header">
+        <h2>Choose a GIF</h2>
+        <button class="button button--ghost" type="button" data-action="close-gif">Close</button>
+      </header>
+      <div class="messages-floating-panel__grid" data-gif-grid></div>
+    </div>
+
     <footer class="app-footer">
       <div class="container app-footer__inner">
         <p>© <span data-current-year></span> WantYou</p>
         <a href="/guidelines/">Community guidelines</a>
       </div>
     </footer>
+
+    <dialog class="messages-dialog" data-group-dialog>
+      <form method="dialog">
+        <header class="messages-dialog__header">
+          <h2>Start a new chat</h2>
+        </header>
+        <div class="messages-dialog__body">
+          <p>Select people to include in your chat.</p>
+          <fieldset data-group-options></fieldset>
+          <label>
+            <span>Group name</span>
+            <input type="text" name="groupName" maxlength="60" placeholder="Weekend crew" />
+          </label>
+        </div>
+        <footer class="messages-dialog__footer">
+          <button value="cancel" class="button button--ghost">Cancel</button>
+          <button value="confirm" class="button">Create chat</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="messages-dialog" data-theme-dialog>
+      <form method="dialog">
+        <header class="messages-dialog__header">
+          <h2>Chat themes</h2>
+        </header>
+        <div class="messages-dialog__body" data-theme-options></div>
+        <footer class="messages-dialog__footer">
+          <button value="cancel" class="button button--ghost">Close</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="messages-dialog" data-nickname-dialog>
+      <form method="dialog">
+        <header class="messages-dialog__header">
+          <h2>Edit nicknames</h2>
+        </header>
+        <div class="messages-dialog__body">
+          <p data-nickname-note>
+            Nicknames are visible only to you. Anonymous participants cannot be renamed.
+          </p>
+          <div data-nickname-options></div>
+        </div>
+        <footer class="messages-dialog__footer">
+          <button value="cancel" class="button button--ghost">Cancel</button>
+          <button value="confirm" class="button">Save</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="messages-dialog" data-message-theme-dialog>
+      <form method="dialog">
+        <header class="messages-dialog__header">
+          <h2>Message themes</h2>
+        </header>
+        <div class="messages-dialog__body" data-message-theme-options></div>
+        <footer class="messages-dialog__footer">
+          <button value="cancel" class="button button--ghost">Close</button>
+        </footer>
+      </form>
+    </dialog>
 
     <script src="/app.js" defer></script>
   </body>

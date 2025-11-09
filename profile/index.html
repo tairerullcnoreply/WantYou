@@ -510,6 +510,23 @@
       </form>
     </dialog>
 
+    <dialog class="profile-dialog profile-dialog--media" data-post-view-dialog>
+      <form method="dialog">
+        <header class="profile-dialog__header">
+          <h2>Post details</h2>
+        </header>
+        <div class="profile-dialog__body profile-post-view">
+          <p class="profile-post-view__timestamp" data-post-view-time></p>
+          <div class="profile-post-view__badges" data-post-view-badges></div>
+          <p class="profile-post-view__text" data-post-view-text></p>
+          <div class="profile-post-view__media" data-post-view-media></div>
+        </div>
+        <footer class="profile-dialog__footer">
+          <button value="close" class="button">Close</button>
+        </footer>
+      </form>
+    </dialog>
+
     <footer class="app-footer">
       <div class="container app-footer__inner">
         <p>© <span data-current-year></span> WantYou</p>

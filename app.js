@@ -198,6 +198,517 @@ const USER_BADGE_DEFINITIONS = Object.freeze({
 
 const USER_BADGE_ORDER = Object.freeze(["WantYou", "Verified"]);
 
+const CHAT_THEME_PRESETS = Object.freeze([
+  {
+    id: "classic",
+    name: "Classic light",
+    background: "linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(249,250,251,0.85) 100%)",
+    incomingBubble: "rgba(255,255,255,0.9)",
+    incomingColor: "#111827",
+    outgoingBubble: "#ff7a00",
+    outgoingColor: "#ffffff",
+    borderOpacity: 0.15,
+  },
+  {
+    id: "sunset-glow",
+    name: "Sunset glow",
+    background: "linear-gradient(135deg, #f9d976 0%, #f39f86 100%)",
+    incomingBubble: "rgba(255,255,255,0.85)",
+    incomingColor: "#1f2937",
+    outgoingBubble: "#242021",
+    outgoingColor: "#fef3c7",
+    borderOpacity: 0.25,
+  },
+  {
+    id: "midnight",
+    name: "Midnight neon",
+    background: "linear-gradient(135deg, #10002b 0%, #240046 35%, #3c096c 100%)",
+    incomingBubble: "rgba(16,0,43,0.72)",
+    incomingColor: "#f8fafc",
+    outgoingBubble: "rgba(255,255,255,0.12)",
+    outgoingColor: "#e2e8f0",
+    borderOpacity: 0.35,
+  },
+  {
+    id: "aurora",
+    name: "Aurora",
+    background: "linear-gradient(135deg, #00c6ff 0%, #0072ff 100%)",
+    incomingBubble: "rgba(0,0,0,0.55)",
+    incomingColor: "#f8fafc",
+    outgoingBubble: "rgba(255,255,255,0.9)",
+    outgoingColor: "#0f172a",
+    borderOpacity: 0.3,
+  },
+]);
+
+const MESSAGE_THEME_PRESETS = Object.freeze([
+  {
+    id: "classic",
+    name: "Rounded glow",
+    bubbleShadow: "0 18px 35px rgba(15, 23, 42, 0.22)",
+    bubbleBlur: "10px",
+    bubbleBorder: "none",
+  },
+  {
+    id: "glow",
+    name: "Neon glow",
+    bubbleShadow: "0 0 25px rgba(255, 255, 255, 0.35)",
+    bubbleBlur: "16px",
+    bubbleBorder: "1px solid rgba(255, 255, 255, 0.25)",
+  },
+  {
+    id: "vibrant",
+    name: "Vibrant frame",
+    bubbleShadow: "0 28px 48px rgba(17, 24, 39, 0.45)",
+    bubbleBlur: "20px",
+    bubbleBorder: "1px solid rgba(148, 163, 184, 0.35)",
+  },
+]);
+
+const EMOJI_PICKER_ITEMS = Object.freeze([
+  "😀",
+  "😃",
+  "😄",
+  "😁",
+  "😆",
+  "🥹",
+  "🤣",
+  "😂",
+  "🙂",
+  "🙃",
+  "😉",
+  "😊",
+  "🥰",
+  "😍",
+  "🤩",
+  "😘",
+  "😗",
+  "😚",
+  "😙",
+  "😋",
+  "😜",
+  "🤪",
+  "😝",
+  "🫶",
+  "👏",
+  "🙌",
+  "👍",
+  "🔥",
+  "💯",
+  "✨",
+  "🌟",
+  "🎉",
+  "🥳",
+  "💌",
+  "❤️",
+  "💗",
+  "💙",
+  "💜",
+  "☕️",
+  "🍜",
+  "🍹",
+  "🧋",
+  "🎶",
+  "🏞️",
+  "🎨",
+]);
+
+const GIF_CHOICES = Object.freeze([
+  {
+    url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZDc0dnk1YTAxb2t3NXVzN25sMDI2Z2xjNWJ4Z3Z3Y3VyZ2txMHRvOCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/ICOgUNjpvO0PC/giphy.gif",
+    label: "Excited confetti",
+  },
+  {
+    url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMWhjb3JoYm9pYTBxeGozdmswYnZ6OTVhbHJ0OTgzOHhtZ2duNWIyNyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/l4JyOCNEfXvVYEqB2/giphy.gif",
+    label: "Happy dance",
+  },
+  {
+    url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMGdjMnJlNjY0cHV6ZWk2aXhnM3Z2NDZzNHB4eHBnZXBocTNuc3p0biZlcD12MV9naWZzX3NlYXJjaCZjdD1n/26tPplGWjN0xLybiU/giphy.gif",
+    label: "Friends cheering",
+  },
+  {
+    url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExeWxudjFhdW9vd2lqd2dlemxzcmhtcWR0aDRrdGF1dWdscXAxbWZxYiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3o6Zt6ML6BklcajjsA/giphy.gif",
+    label: "Virtual high five",
+  },
+]);
+
+const MESSAGE_REACTION_CHOICES = Object.freeze(["❤️", "😂", "😮", "👏", "🔥", "👍", "🥹", "🙏"]);
+
+function getChatThemeById(id) {
+  if (!id) {
+    return CHAT_THEME_PRESETS[0];
+  }
+  return CHAT_THEME_PRESETS.find((theme) => theme.id === id) || CHAT_THEME_PRESETS[0];
+}
+
+function normalizeChatTheme(theme) {
+  const preset = getChatThemeById(theme?.id);
+  return {
+    id: theme?.id || preset.id,
+    name: theme?.name || preset.name,
+    background: theme?.background || preset.background,
+    incomingBubble: theme?.incomingBubble || preset.incomingBubble,
+    incomingColor: theme?.incomingColor || preset.incomingColor,
+    outgoingBubble: theme?.outgoingBubble || preset.outgoingBubble,
+    outgoingColor: theme?.outgoingColor || preset.outgoingColor,
+    borderOpacity:
+      typeof theme?.borderOpacity === "number" && Number.isFinite(theme.borderOpacity)
+        ? theme.borderOpacity
+        : preset.borderOpacity ?? 0.1,
+  };
+}
+
+function getMessageThemeById(id) {
+  if (!id) {
+    return MESSAGE_THEME_PRESETS[0];
+  }
+  return MESSAGE_THEME_PRESETS.find((theme) => theme.id === id) || MESSAGE_THEME_PRESETS[0];
+}
+
+function normalizeMessageTheme(theme) {
+  const preset = getMessageThemeById(theme?.id);
+  return {
+    id: theme?.id || preset.id,
+    name: theme?.name || preset.name,
+    bubbleShadow: theme?.bubbleShadow || preset.bubbleShadow,
+    bubbleBlur: theme?.bubbleBlur || preset.bubbleBlur,
+    bubbleBorder: theme?.bubbleBorder || preset.bubbleBorder,
+  };
+}
+
+function normalizeParticipant(participant) {
+  if (!participant?.username) {
+    return null;
+  }
+  return {
+    username: String(participant.username),
+    displayName: participant.displayName ? String(participant.displayName) : String(participant.username),
+    nickname: typeof participant.nickname === "string" ? participant.nickname : "",
+    avatar: typeof participant.avatar === "string" ? participant.avatar : "",
+    anonymous: Boolean(participant.anonymous),
+  };
+}
+
+function normalizeAttachment(attachment) {
+  if (!attachment?.url) {
+    return null;
+  }
+  const type = typeof attachment.type === "string" ? attachment.type.toLowerCase() : "image";
+  let normalizedType = "image";
+  if (type === "video") {
+    normalizedType = "video";
+  } else if (type === "gif") {
+    normalizedType = "gif";
+  }
+  return {
+    type: normalizedType,
+    url: attachment.url,
+    originalName: typeof attachment.originalName === "string" ? attachment.originalName : "",
+  };
+}
+
+function normalizeReadReceipt(entry) {
+  if (!entry?.username) {
+    return null;
+  }
+  return {
+    username: String(entry.username),
+    readAt: entry.readAt ?? null,
+  };
+}
+
+function normalizeReaction(reaction) {
+  if (!reaction?.emoji) {
+    return null;
+  }
+  const emoji = String(reaction.emoji);
+  const reactors = Array.isArray(reaction.reactors)
+    ? reaction.reactors.filter((user) => typeof user === "string").map(String)
+    : [];
+  const explicitCount = Number.isFinite(reaction.count) ? Math.max(0, Math.floor(reaction.count)) : reactors.length;
+  const count = Math.max(explicitCount, reactors.length);
+  return { emoji, reactors, count };
+}
+
+function normalizeMessage(message) {
+  if (!message) {
+    return null;
+  }
+  const attachments = Array.isArray(message.attachments)
+    ? message.attachments.map((attachment) => normalizeAttachment(attachment)).filter(Boolean)
+    : [];
+  const reactions = Array.isArray(message.reactions)
+    ? message.reactions.map((reaction) => normalizeReaction(reaction)).filter(Boolean)
+    : [];
+  const readBy = Array.isArray(message.readBy)
+    ? message.readBy.map((entry) => normalizeReadReceipt(entry)).filter(Boolean)
+    : [];
+  const text = typeof message.text === "string" ? message.text : "";
+  const replyTo = typeof message.replyTo === "string" ? message.replyTo : null;
+  return {
+    id: message.id ? String(message.id) : `msg-${Math.random().toString(16).slice(2)}`,
+    sender: message.sender ? String(message.sender) : null,
+    text,
+    createdAt: message.createdAt ?? null,
+    attachments,
+    reactions,
+    readBy,
+    replyTo,
+  };
+}
+
+function applyThreadTheme(section, theme, messageTheme) {
+  if (!section) return;
+  const resolvedTheme = normalizeChatTheme(theme);
+  const resolvedMessageTheme = normalizeMessageTheme(messageTheme);
+  section.style.setProperty("--thread-background", resolvedTheme.background || "transparent");
+  section.style.setProperty(
+    "--thread-border-opacity",
+    typeof resolvedTheme.borderOpacity === "number" ? String(resolvedTheme.borderOpacity) : "0"
+  );
+  section.style.setProperty("--message-incoming-bg", resolvedTheme.incomingBubble || "rgba(255,255,255,0.9)");
+  section.style.setProperty("--message-incoming-color", resolvedTheme.incomingColor || "#111827");
+  section.style.setProperty("--message-outgoing-bg", resolvedTheme.outgoingBubble || "#ff7a00");
+  section.style.setProperty("--message-outgoing-color", resolvedTheme.outgoingColor || "#ffffff");
+  section.style.setProperty("--message-bubble-shadow", resolvedMessageTheme.bubbleShadow || "");
+  section.style.setProperty("--message-bubble-blur", resolvedMessageTheme.bubbleBlur || "10px");
+  section.style.setProperty("--message-bubble-border", resolvedMessageTheme.bubbleBorder || "none");
+  section.dataset.themeId = resolvedTheme.id || "classic";
+  section.dataset.messageThemeId = resolvedMessageTheme.id || "classic";
+}
+
+function formatNameList(names = []) {
+  const filtered = names.filter((name) => typeof name === "string" && name.trim());
+  if (!filtered.length) {
+    return "";
+  }
+  if (filtered.length === 1) {
+    return filtered[0];
+  }
+  if (filtered.length === 2) {
+    return `${filtered[0]} and ${filtered[1]}`;
+  }
+  return `${filtered.slice(0, -1).join(", ")}, and ${filtered[filtered.length - 1]}`;
+}
+
+function getParticipantByUsername(thread, username) {
+  if (!thread || !username) {
+    return null;
+  }
+  return (thread.participants || []).find((participant) => participant.username === username) || null;
+}
+
+function getParticipantDisplayName(thread, username) {
+  if (!username) {
+    return sessionUser?.fullName || "You";
+  }
+  if (username === sessionUser?.username) {
+    return "You";
+  }
+  const nickname = thread.nicknames?.[username];
+  if (nickname) {
+    return nickname;
+  }
+  const participant = getParticipantByUsername(thread, username);
+  if (participant?.nickname) {
+    return participant.nickname;
+  }
+  if (participant?.displayName) {
+    return participant.displayName;
+  }
+  return username;
+}
+
+function renderThreadParticipants(context, thread) {
+  const { participantsContainer, participantList, participantMeta } = context;
+  if (!participantsContainer || !participantList || !participantMeta) {
+    return;
+  }
+  const participants = (thread.participants || []).filter((participant) => participant.username !== sessionUser?.username);
+  if (!participants.length) {
+    participantsContainer.hidden = true;
+    participantList.innerHTML = "";
+    participantMeta.textContent = "";
+    return;
+  }
+  participantsContainer.hidden = false;
+  participantList.innerHTML = "";
+  const maxAvatars = 6;
+  participants.slice(0, maxAvatars).forEach((participant) => {
+    const item = document.createElement("li");
+    const name = getParticipantDisplayName(thread, participant.username);
+    if (participant.avatar) {
+      const img = document.createElement("img");
+      img.src = participant.avatar;
+      img.alt = name;
+      item.appendChild(img);
+    } else {
+      item.textContent = (name || participant.username || "").trim().charAt(0).toUpperCase();
+    }
+    participantList.appendChild(item);
+  });
+  if (participants.length > maxAvatars) {
+    const extra = document.createElement("li");
+    extra.textContent = `+${participants.length - maxAvatars}`;
+    participantList.appendChild(extra);
+  }
+  participantMeta.textContent = formatNameList(
+    participants.map((participant) => getParticipantDisplayName(thread, participant.username))
+  );
+}
+
+function buildMessageElement(thread, message, helpers) {
+  const { messageMap } = helpers;
+  const li = document.createElement("li");
+  const outgoing = message.sender === sessionUser?.username;
+  li.className = `message message--${outgoing ? "outgoing" : "incoming"}`;
+  if (message.id) {
+    li.dataset.messageId = message.id;
+  }
+  li.dataset.messageSender = message.sender || "";
+
+  const bubble = document.createElement("div");
+  bubble.className = "message__bubble";
+
+  if (message.replyTo && messageMap.has(message.replyTo)) {
+    const target = messageMap.get(message.replyTo);
+    const reply = document.createElement("div");
+    reply.className = "message__reply";
+    const replyAuthor = document.createElement("strong");
+    replyAuthor.textContent = getParticipantDisplayName(thread, target.sender);
+    reply.appendChild(replyAuthor);
+    const replyText = document.createElement("span");
+    replyText.textContent = ` ${target.text ? target.text.slice(0, 120) : "Shared an attachment"}`;
+    reply.appendChild(replyText);
+    bubble.appendChild(reply);
+  }
+
+  if (message.text) {
+    const textEl = document.createElement("p");
+    textEl.className = "message__text";
+    textEl.textContent = message.text;
+    bubble.appendChild(textEl);
+  }
+
+  if (message.attachments.length) {
+    const attachmentsEl = document.createElement("div");
+    attachmentsEl.className = "message__attachments";
+    message.attachments.forEach((attachment) => {
+      const figure = document.createElement("figure");
+      if (attachment.type === "video") {
+        const video = document.createElement("video");
+        video.controls = true;
+        video.src = attachment.url;
+        video.preload = "metadata";
+        figure.appendChild(video);
+      } else {
+        const img = document.createElement("img");
+        img.src = attachment.url;
+        img.alt = attachment.originalName || "";
+        figure.appendChild(img);
+      }
+      attachmentsEl.appendChild(figure);
+    });
+    bubble.appendChild(attachmentsEl);
+  }
+
+  const meta = document.createElement("div");
+  meta.className = "message__meta";
+  const author = document.createElement("strong");
+  author.textContent = getParticipantDisplayName(thread, message.sender);
+  meta.appendChild(author);
+  const timestamp = formatTimestamp(message.createdAt);
+  if (timestamp) {
+    const bullet = document.createElement("span");
+    bullet.setAttribute("aria-hidden", "true");
+    bullet.textContent = "·";
+    meta.appendChild(bullet);
+    const time = document.createElement("time");
+    if (message.createdAt) {
+      time.dateTime = message.createdAt;
+    }
+    time.textContent = timestamp;
+    meta.appendChild(time);
+  }
+
+  const footer = document.createElement("div");
+  footer.className = "message__footer";
+  footer.appendChild(meta);
+
+  if (message.reactions.length) {
+    const reactionsEl = document.createElement("div");
+    reactionsEl.className = "message__reactions";
+    message.reactions.forEach((reaction) => {
+      const reactionEl = document.createElement("span");
+      reactionEl.className = "message__reaction";
+      reactionEl.textContent = `${reaction.emoji} ${reaction.count}`;
+      reactionsEl.appendChild(reactionEl);
+    });
+    footer.appendChild(reactionsEl);
+  }
+
+  if (outgoing && message.readBy.length) {
+    const seenBy = message.readBy.filter((entry) => entry.username !== sessionUser?.username);
+    if (seenBy.length) {
+      const readEl = document.createElement("span");
+      readEl.className = "message__read";
+      const avatars = document.createElement("span");
+      avatars.className = "message__read-avatars";
+      seenBy.slice(0, 3).forEach((entry) => {
+        const avatar = document.createElement("span");
+        const name = getParticipantDisplayName(thread, entry.username);
+        avatar.textContent = (name || entry.username || "").trim().charAt(0).toUpperCase();
+        avatars.appendChild(avatar);
+      });
+      readEl.appendChild(avatars);
+      const names = formatNameList(seenBy.map((entry) => getParticipantDisplayName(thread, entry.username)));
+      const text = document.createElement("span");
+      let descriptor = names ? `Seen by ${names}` : "Seen";
+      const timestamps = seenBy
+        .map((entry) => {
+          const parsed = Date.parse(entry.readAt);
+          return Number.isNaN(parsed) ? null : parsed;
+        })
+        .filter((value) => value !== null);
+      if (timestamps.length) {
+        const latest = Math.max(...timestamps);
+        const iso = new Date(latest).toISOString();
+        const relative = formatRelativeTime(iso);
+        if (relative) {
+          descriptor += ` · ${relative}`;
+        }
+      }
+      text.textContent = descriptor;
+      readEl.appendChild(text);
+      footer.appendChild(readEl);
+    }
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "message__actions";
+  const replyButton = document.createElement("button");
+  replyButton.type = "button";
+  replyButton.dataset.action = "reply-message";
+  if (message.id) {
+    replyButton.dataset.messageId = message.id;
+  }
+  replyButton.textContent = "Reply";
+  actions.appendChild(replyButton);
+  const reactButton = document.createElement("button");
+  reactButton.type = "button";
+  reactButton.dataset.action = "react-message";
+  if (message.id) {
+    reactButton.dataset.messageId = message.id;
+  }
+  reactButton.textContent = "React";
+  actions.appendChild(reactButton);
+
+  li.appendChild(bubble);
+  li.appendChild(footer);
+  li.appendChild(actions);
+  return li;
+}
+
 const POST_VISIBILITY_LABELS = Object.freeze({
   public: "Public",
   connections: "Connections",
@@ -429,14 +940,57 @@ function normalizeThread(thread) {
     ? thread.messages.length
     : 0;
   const previousCursor = typeof thread.previousCursor === "string" ? thread.previousCursor : null;
+  const participants = Array.isArray(thread.participants)
+    ? thread.participants.map((participant) => normalizeParticipant(participant)).filter(Boolean)
+    : [];
+  const participantMap = new Map();
+  participants.forEach((participant) => {
+    participantMap.set(participant.username, participant);
+  });
+  if (thread.username && !participantMap.has(thread.username)) {
+    participantMap.set(
+      thread.username,
+      normalizeParticipant({ username: thread.username, displayName: thread.displayName })
+    );
+  }
+  if (sessionUser?.username && !participantMap.has(sessionUser.username)) {
+    participantMap.set(
+      sessionUser.username,
+      normalizeParticipant({ username: sessionUser.username, displayName: sessionUser.fullName || "You" })
+    );
+  }
+  const normalizedParticipants = Array.from(participantMap.values()).filter(Boolean);
+  const theme = normalizeChatTheme(thread.theme);
+  const messageTheme = normalizeMessageTheme(thread.messageTheme);
+  const nicknames = {};
+  if (thread.nicknames && typeof thread.nicknames === "object") {
+    Object.entries(thread.nicknames).forEach(([key, value]) => {
+      if (typeof value === "string" && value.trim()) {
+        nicknames[key] = value.trim();
+      }
+    });
+  }
+  const messages = Array.isArray(thread.messages)
+    ? thread.messages.map((message) => normalizeMessage(message)).filter(Boolean)
+    : [];
+  const normalizedLastMessage = thread.lastMessage
+    ? normalizeMessage(thread.lastMessage)
+    : messages[messages.length - 1] ?? null;
   return {
     ...thread,
     inbound: normalizeConnectionState(thread.inbound),
     outbound: normalizeConnectionState(thread.outbound),
+    participants: normalizedParticipants,
+    nicknames,
+    theme,
+    messageTheme,
+    messages,
+    lastMessage: normalizedLastMessage,
     unreadCount,
     totalMessages,
     hasMore: Boolean(thread.hasMore),
     previousCursor,
+    localOnly: Boolean(thread.localOnly),
   };
 }
 
@@ -1863,6 +2417,10 @@ function renderThreadView(context, thread, options = {}) {
     composer,
     placeholder,
     loadMoreButton,
+    participantsContainer,
+    participantList,
+    participantMeta,
+    threadSection,
   } = context;
 
   const inbound = normalizeConnectionState(thread.inbound);
@@ -1872,6 +2430,12 @@ function renderThreadView(context, thread, options = {}) {
   placeholder.hidden = true;
   statusHeader.hidden = false;
   composer.hidden = false;
+
+  applyThreadTheme(threadSection, thread.theme, thread.messageTheme);
+  renderThreadParticipants(
+    { participantsContainer, participantList, participantMeta },
+    thread
+  );
 
   if (loadMoreButton) {
     const shouldShow = Boolean(thread.hasMore);
@@ -1930,39 +2494,36 @@ function renderThreadView(context, thread, options = {}) {
     requestReveal.disabled = !inboundAnonymous;
   }
 
-  const incomingAuthor = inboundAnonymous
-    ? inbound.alias?.trim() || "Anonymous"
-    : thread.displayName;
+  const messages = Array.isArray(thread.messages) ? thread.messages : [];
+  const messageMap = new Map();
+  messages.forEach((message) => {
+    if (message?.id) {
+      messageMap.set(message.id, message);
+    }
+  });
 
-  messageLog.innerHTML = (thread.messages ?? [])
-    .map((message) => {
-      const outgoing = message.sender === sessionUser?.username;
-      const direction = outgoing ? "outgoing" : "incoming";
-      const author = outgoing ? "You" : incomingAuthor;
-      const timestamp = formatTimestamp(message.createdAt);
-      const meta = `${escapeHtml(author)}${
-        timestamp ? ` · ${escapeHtml(timestamp)}` : ""
-      }`;
-      return `
-        <li class="message message--${direction}" data-message-id="${escapeHtml(
-          message.id ?? ""
-        )}">
-          <span class="message__meta">${meta}</span>
-          <p>${escapeHtml(message.text ?? "")}</p>
-        </li>
-      `;
-    })
-    .join("");
+  const previousHeight = preserveScroll ? previousScrollHeight : messageLog.scrollHeight;
+  messageLog.innerHTML = "";
 
-  if (!messageLog.innerHTML.trim()) {
-    messageLog.innerHTML = "<li class=\"message message--empty\"><p>No messages yet. Say hi!</p></li>";
+  if (!messages.length) {
+    const empty = document.createElement("li");
+    empty.className = "message message--empty";
+    const prompt = document.createElement("p");
+    prompt.textContent = "No messages yet. Say hi!";
+    empty.appendChild(prompt);
+    messageLog.appendChild(empty);
+  } else {
+    messages.forEach((message) => {
+      const element = buildMessageElement(thread, message, { messageMap });
+      messageLog.appendChild(element);
+    });
   }
 
   if (!preserveScroll && messageLog.scrollHeight) {
     messageLog.scrollTop = messageLog.scrollHeight;
   }
   if (preserveScroll && messageLog.scrollHeight) {
-    const delta = messageLog.scrollHeight - previousScrollHeight;
+    const delta = messageLog.scrollHeight - previousHeight;
     if (delta > 0) {
       messageLog.scrollTop = delta;
     }
@@ -1984,18 +2545,48 @@ async function initMessages() {
   const requestReveal = threadSection.querySelector('[data-action="request-reveal"]');
   const messageLog = document.getElementById("message-log");
   const composer = document.getElementById("message-composer");
+  const participantsContainer = threadSection.querySelector("[data-thread-participants]");
+  const participantList = threadSection.querySelector("[data-participant-list]");
+  const participantMeta = threadSection.querySelector("[data-participant-names]");
   const input = document.getElementById("message-input");
   const placeholder = threadSection.querySelector("[data-thread-placeholder]");
   const newChatButton = document.querySelector('[data-action="new-chat"]');
   const loadMoreButton = threadSection.querySelector('[data-action="load-more"]');
   const searchInput = document.querySelector('.app-search input[type="search"]');
+  const replyPreview = composer?.querySelector("[data-reply-preview]");
+  const replyLabel = composer?.querySelector("[data-reply-label]");
+  const cancelReplyButton = composer?.querySelector('[data-action="cancel-reply"]');
+  const attachmentPreview = composer?.querySelector("[data-attachment-preview]");
+  const attachmentInput = composer?.querySelector('input[data-action="add-attachment"]');
+  const emojiButton = composer?.querySelector('[data-action="open-emoji"]');
+  const gifButton = composer?.querySelector('[data-action="open-gif"]');
+  const nicknameButton = composer?.querySelector('[data-action="open-nicknames"]');
+  const messageThemeButton = composer?.querySelector('[data-action="open-message-theme"]');
+  const emojiPanel = document.querySelector("[data-emoji-panel]");
+  const emojiGrid = emojiPanel?.querySelector("[data-emoji-grid]");
+  const gifPanel = document.querySelector("[data-gif-panel]");
+  const gifGrid = gifPanel?.querySelector("[data-gif-grid]");
+  const emojiPanelClose = emojiPanel?.querySelector('[data-action="close-emoji"]');
+  const gifPanelClose = gifPanel?.querySelector('[data-action="close-gif"]');
+  const themeButton = threadSection.querySelector('[data-action="open-theme"]');
+  const themeDialog = document.querySelector("[data-theme-dialog]");
+  const themeOptions = themeDialog?.querySelector("[data-theme-options]");
+  const messageThemeDialog = document.querySelector("[data-message-theme-dialog]");
+  const messageThemeOptions = messageThemeDialog?.querySelector("[data-message-theme-options]");
+  const nicknameDialog = document.querySelector("[data-nickname-dialog]");
+  const nicknameOptions = nicknameDialog?.querySelector("[data-nickname-options]");
+  const nicknameNote = nicknameDialog?.querySelector("[data-nickname-note]");
+  const groupDialog = document.querySelector("[data-group-dialog]");
+  const groupOptions = groupDialog?.querySelector("[data-group-options]");
   if (!statusHeader || !statusLabel || !title || !messageLog || !composer || !placeholder) {
     return;
   }
 
   newChatButton?.addEventListener("click", (event) => {
     event.preventDefault();
-    window.location.href = withAiRef("/lookup/");
+    if (!openGroupDialog()) {
+      window.alert("Group chats are available from the Messages page in this preview.");
+    }
   });
 
   placeholder.hidden = false;
@@ -2030,11 +2621,534 @@ async function initMessages() {
     composer,
     placeholder,
     loadMoreButton,
+    participantsContainer,
+    participantList,
+    participantMeta,
+    threadSection,
   };
+
+  const composerState = {
+    attachments: [],
+    replyTo: null,
+    reactionTargetId: null,
+    themeId: null,
+    messageThemeId: null,
+  };
+
+  const knownParticipants = new Map();
+
+  function registerParticipants(thread) {
+    if (!thread) return;
+    (thread.participants || []).forEach((participant) => {
+      if (!participant?.username || participant.username === sessionUser?.username) {
+        return;
+      }
+      knownParticipants.set(participant.username, participant);
+    });
+  }
+
+  function openDialogElement(dialog) {
+    if (!dialog) return false;
+    if (typeof dialog.showModal === "function") {
+      dialog.returnValue = "";
+      dialog.showModal();
+      return true;
+    }
+    return false;
+  }
+
+  function renderEmojiGrid() {
+    if (!emojiGrid || emojiGrid.childElementCount) {
+      return;
+    }
+    EMOJI_PICKER_ITEMS.forEach((emoji) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.emoji = emoji;
+      button.textContent = emoji;
+      emojiGrid.appendChild(button);
+    });
+  }
+
+  function renderGifGrid() {
+    if (!gifGrid || gifGrid.childElementCount) {
+      return;
+    }
+    GIF_CHOICES.forEach((choice) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.url = choice.url;
+      button.dataset.label = choice.label;
+      const img = document.createElement("img");
+      img.src = choice.url;
+      img.alt = choice.label;
+      button.appendChild(img);
+      gifGrid.appendChild(button);
+    });
+  }
+
+  function insertEmojiAtCursor(target, emoji) {
+    if (!target || !emoji) return;
+    const start = target.selectionStart ?? target.value.length;
+    const end = target.selectionEnd ?? target.value.length;
+    const before = target.value.slice(0, start);
+    const after = target.value.slice(end);
+    target.value = `${before}${emoji}${after}`;
+    const next = start + emoji.length;
+    target.focus();
+    if (typeof target.setSelectionRange === "function") {
+      target.setSelectionRange(next, next);
+    }
+  }
+
+  function renderAttachmentPreview() {
+    if (!attachmentPreview) return;
+    attachmentPreview.innerHTML = "";
+    if (!composerState.attachments.length) {
+      attachmentPreview.hidden = true;
+      return;
+    }
+    attachmentPreview.hidden = false;
+    composerState.attachments.forEach((attachment) => {
+      const figure = document.createElement("figure");
+      if (attachment.type === "video") {
+        const video = document.createElement("video");
+        video.src = attachment.url;
+        video.controls = true;
+        video.preload = "metadata";
+        figure.appendChild(video);
+      } else {
+        const img = document.createElement("img");
+        img.src = attachment.url;
+        img.alt = attachment.name || "Attachment";
+        figure.appendChild(img);
+      }
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.dataset.attachmentId = attachment.id;
+      removeButton.textContent = "Remove";
+      figure.appendChild(removeButton);
+      attachmentPreview.appendChild(figure);
+    });
+  }
+
+  function removeAttachment(id) {
+    const index = composerState.attachments.findIndex((attachment) => attachment.id === id);
+    if (index >= 0) {
+      const [removed] = composerState.attachments.splice(index, 1);
+      if (removed?.local && removed.url) {
+        URL.revokeObjectURL(removed.url);
+      }
+      renderAttachmentPreview();
+    }
+  }
+
+  function addAttachmentsFromFiles(files) {
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      if (!file) return;
+      const id = `upload-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const url = URL.createObjectURL(file);
+      composerState.attachments.push({
+        id,
+        type: file.type?.startsWith("video") ? "video" : "image",
+        url,
+        name: file.name,
+        local: true,
+      });
+    });
+    renderAttachmentPreview();
+  }
+
+  function addRemoteAttachment({ type, url, name }) {
+    if (!url) return;
+    const id = `remote-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    composerState.attachments.push({
+      id,
+      type: type === "video" ? "video" : type === "gif" ? "gif" : "image",
+      url,
+      name: name || "Attachment",
+      local: false,
+    });
+    renderAttachmentPreview();
+  }
+
+  function clearReplyTarget() {
+    composerState.replyTo = null;
+    if (replyPreview) {
+      replyPreview.hidden = true;
+    }
+  }
+
+  function setReplyTarget(message) {
+    if (!replyPreview || !replyLabel || !message || !activeThread) {
+      return;
+    }
+    composerState.replyTo = message.id || null;
+    const author = getParticipantDisplayName(activeThread, message.sender);
+    const previewText = message.text ? message.text.slice(0, 80) : "Attachment";
+    replyLabel.textContent = `Replying to ${author}: ${previewText}`;
+    replyPreview.hidden = false;
+    input?.focus();
+  }
+
+  function closeEmojiPanel() {
+    if (emojiPanel) {
+      emojiPanel.hidden = true;
+    }
+    composerState.reactionTargetId = null;
+  }
+
+  function openEmojiPanel(forReaction = false, messageId = null) {
+    if (!emojiPanel) return false;
+    renderEmojiGrid();
+    composerState.reactionTargetId = forReaction ? messageId : null;
+    emojiPanel.hidden = false;
+    return true;
+  }
+
+  function closeGifPanel() {
+    if (gifPanel) {
+      gifPanel.hidden = true;
+    }
+  }
+
+  function openGifPanel() {
+    if (!gifPanel) return false;
+    renderGifGrid();
+    gifPanel.hidden = false;
+    return true;
+  }
+
+  function applyThemeSelection(themeId) {
+    if (!activeThread) return;
+    const nextTheme = normalizeChatTheme({ id: themeId });
+    activeThread.theme = nextTheme;
+    composerState.themeId = nextTheme.id;
+    renderThreadView(context, activeThread);
+  }
+
+  function renderThemeOptionsForThread(thread) {
+    if (!themeOptions) return;
+    themeOptions.innerHTML = "";
+    const current = thread?.theme?.id || "classic";
+    CHAT_THEME_PRESETS.forEach((theme) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "messages-theme-option";
+      button.dataset.themeId = theme.id;
+      button.dataset.selected = theme.id === current ? "true" : "false";
+      const preview = document.createElement("div");
+      preview.className = "messages-theme-option__preview";
+      preview.style.background = theme.background;
+      const label = document.createElement("span");
+      label.textContent = theme.name;
+      button.appendChild(preview);
+      button.appendChild(label);
+      button.addEventListener("click", () => {
+        applyThemeSelection(theme.id);
+        themeDialog?.close();
+      });
+      themeOptions.appendChild(button);
+    });
+  }
+
+  function applyMessageThemeSelection(themeId) {
+    if (!activeThread) return;
+    const nextTheme = normalizeMessageTheme({ id: themeId });
+    activeThread.messageTheme = nextTheme;
+    composerState.messageThemeId = nextTheme.id;
+    renderThreadView(context, activeThread);
+  }
+
+  function renderMessageThemeOptionsForThread(thread) {
+    if (!messageThemeOptions) return;
+    messageThemeOptions.innerHTML = "";
+    const current = thread?.messageTheme?.id || "classic";
+    MESSAGE_THEME_PRESETS.forEach((theme) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "messages-theme-option";
+      button.dataset.themeId = theme.id;
+      button.dataset.selected = theme.id === current ? "true" : "false";
+      const preview = document.createElement("div");
+      preview.className = "messages-theme-option__preview";
+      preview.style.background = "linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(15,23,42,0.35) 100%)";
+      const label = document.createElement("span");
+      label.textContent = theme.name;
+      button.appendChild(preview);
+      button.appendChild(label);
+      button.addEventListener("click", () => {
+        applyMessageThemeSelection(theme.id);
+        messageThemeDialog?.close();
+      });
+      messageThemeOptions.appendChild(button);
+    });
+  }
+
+  function refreshNicknameDialogContent(thread) {
+    if (!nicknameOptions || !nicknameNote) return;
+    nicknameOptions.innerHTML = "";
+    const editable = (thread.participants || []).filter(
+      (participant) => participant.username !== sessionUser?.username && !participant.anonymous
+    );
+    if (!editable.length) {
+      nicknameNote.textContent = "Nicknames aren't available for this chat.";
+      return;
+    }
+    nicknameNote.textContent = "Nicknames are visible only to you. Anonymous participants cannot be renamed.";
+    editable.forEach((participant) => {
+      const row = document.createElement("div");
+      row.className = "messages-nickname-row";
+      const label = document.createElement("label");
+      const title = document.createElement("span");
+      title.textContent = participant.displayName;
+      const inputEl = document.createElement("input");
+      inputEl.type = "text";
+      inputEl.name = participant.username;
+      inputEl.maxLength = 40;
+      inputEl.value = thread.nicknames?.[participant.username] || participant.nickname || "";
+      label.appendChild(title);
+      label.appendChild(inputEl);
+      row.appendChild(label);
+      nicknameOptions.appendChild(row);
+    });
+  }
+
+  function refreshGroupOptions() {
+    if (!groupOptions) return;
+    groupOptions.innerHTML = "";
+    if (!knownParticipants.size) {
+      const note = document.createElement("p");
+      note.textContent = "Start a few chats to add people to your group list.";
+      groupOptions.appendChild(note);
+      return;
+    }
+    knownParticipants.forEach((participant, username) => {
+      const label = document.createElement("label");
+      label.className = "messages-nickname-row";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.name = "members";
+      checkbox.value = username;
+      const span = document.createElement("span");
+      span.textContent = participant.nickname || participant.displayName || username;
+      label.appendChild(checkbox);
+      label.appendChild(span);
+      groupOptions.appendChild(label);
+    });
+  }
+
+  function handleReaction(messageId, emoji) {
+    if (!activeThread || !emoji) return;
+    const target = activeThread.messages?.find((message) => message.id === messageId);
+    if (!target) return;
+    target.reactions = Array.isArray(target.reactions) ? target.reactions : [];
+    const existing = target.reactions.find((reaction) => reaction.emoji === emoji);
+    const reactor = sessionUser?.username || "you";
+    if (existing) {
+      if (!existing.reactors.includes(reactor)) {
+        existing.reactors.push(reactor);
+      }
+      existing.count = Math.max(existing.count + 1, existing.reactors.length);
+    } else {
+      target.reactions.push({ emoji, reactors: [reactor], count: 1 });
+    }
+    renderThreadView(context, activeThread);
+  }
+
+  function openGroupDialog() {
+    refreshGroupOptions();
+    return openDialogElement(groupDialog);
+  }
+
+  renderEmojiGrid();
+  renderGifGrid();
+  renderAttachmentPreview();
+
+  emojiButton?.addEventListener("click", () => {
+    composerState.reactionTargetId = null;
+    openEmojiPanel();
+  });
+
+  gifButton?.addEventListener("click", () => {
+    openGifPanel();
+  });
+
+  emojiPanelClose?.addEventListener("click", () => {
+    closeEmojiPanel();
+  });
+
+  gifPanelClose?.addEventListener("click", () => {
+    closeGifPanel();
+  });
+
+  attachmentInput?.addEventListener("change", (event) => {
+    addAttachmentsFromFiles(event.target.files);
+    event.target.value = "";
+  });
+
+  attachmentPreview?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-attachment-id]");
+    if (!button) return;
+    removeAttachment(button.dataset.attachmentId);
+  });
+
+  cancelReplyButton?.addEventListener("click", () => {
+    clearReplyTarget();
+  });
+
+  emojiGrid?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-emoji]");
+    if (!button) return;
+    const emoji = button.dataset.emoji;
+    if (!emoji) return;
+    if (composerState.reactionTargetId && activeThread) {
+      handleReaction(composerState.reactionTargetId, emoji);
+    } else {
+      insertEmojiAtCursor(input, emoji);
+    }
+    closeEmojiPanel();
+  });
+
+  gifGrid?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-url]");
+    if (!button) return;
+    addRemoteAttachment({ type: "gif", url: button.dataset.url, name: button.dataset.label });
+    closeGifPanel();
+  });
+
+  themeButton?.addEventListener("click", () => {
+    if (!activeThread) return;
+    renderThemeOptionsForThread(activeThread);
+    openDialogElement(themeDialog);
+  });
+
+  messageThemeButton?.addEventListener("click", () => {
+    if (!activeThread) return;
+    renderMessageThemeOptionsForThread(activeThread);
+    openDialogElement(messageThemeDialog);
+  });
+
+  nicknameButton?.addEventListener("click", () => {
+    if (!activeThread) return;
+    refreshNicknameDialogContent(activeThread);
+    openDialogElement(nicknameDialog);
+  });
+
+  nicknameDialog?.addEventListener("close", () => {
+    if (!activeThread || nicknameDialog.returnValue !== "confirm") {
+      return;
+    }
+    const form = nicknameDialog.querySelector("form");
+    if (!form) return;
+    const data = new FormData(form);
+    const updated = { ...activeThread.nicknames };
+    (activeThread.participants || []).forEach((participant) => {
+      if (participant.username === sessionUser?.username || participant.anonymous) {
+        delete updated[participant.username];
+        return;
+      }
+      const value = (data.get(participant.username) || "").toString().trim();
+      if (value) {
+        updated[participant.username] = value;
+      } else {
+        delete updated[participant.username];
+      }
+    });
+    activeThread.nicknames = updated;
+    renderThreadView(context, activeThread);
+  });
+
+  groupDialog?.addEventListener("close", () => {
+    if (groupDialog.returnValue !== "confirm") {
+      return;
+    }
+    const form = groupDialog.querySelector("form");
+    if (!form) return;
+    const formData = new FormData(form);
+    const members = formData.getAll("members").map((value) => value.toString());
+    const groupName = (formData.get("groupName") || "").toString().trim();
+    form.reset();
+    if (!members.length) {
+      window.alert("Select at least one person to start a group chat.");
+      return;
+    }
+    const participants = members
+      .map((username) => {
+        const participant = knownParticipants.get(username);
+        return participant
+          ? { ...participant }
+          : normalizeParticipant({ username, displayName: username });
+      })
+      .filter(Boolean);
+    participants.push(
+      normalizeParticipant({ username: sessionUser?.username, displayName: sessionUser?.fullName || "You" })
+    );
+    const newThread = normalizeThread({
+      username: `group-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      displayName: groupName || `Group chat (${participants.length})`,
+      fullName: groupName || "Group chat",
+      badges: [],
+      inbound: { status: "both", anonymous: false, alias: "", updatedAt: new Date().toISOString() },
+      outbound: { status: "both", anonymous: false, alias: "", updatedAt: new Date().toISOString() },
+      participants,
+      messages: [],
+      theme: { id: composerState.themeId || "classic" },
+      messageTheme: { id: composerState.messageThemeId || "classic" },
+      totalMessages: 0,
+      unreadCount: 0,
+      localOnly: true,
+    });
+    registerParticipants(newThread);
+    threadMap.set(newThread.username, newThread);
+    threads.unshift(newThread);
+    renderList();
+    selectThread(newThread.username);
+  });
+
+  emojiPanel?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeEmojiPanel();
+    }
+  });
+
+  gifPanel?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeGifPanel();
+    }
+  });
+
+  messageLog.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action][data-message-id]");
+    if (!button || !activeThread) {
+      return;
+    }
+    const messageId = button.dataset.messageId;
+    const action = button.dataset.action;
+    const message = activeThread.messages?.find((entry) => entry.id === messageId);
+    if (!message) {
+      return;
+    }
+    if (action === "reply-message") {
+      setReplyTarget(message);
+    } else if (action === "react-message") {
+      composerState.reactionTargetId = messageId;
+      if (!openEmojiPanel(true, messageId)) {
+        const emoji = window.prompt("React with emoji", "❤️");
+        if (emoji) {
+          handleReaction(messageId, emoji.trim());
+        }
+      }
+    }
+  });
+
 
   const fetchThreads = async () => {
     const data = await apiRequest("/messages/threads");
-    return (data?.threads ?? []).map((thread) => normalizeThread(thread));
+    const normalized = (data?.threads ?? []).map((thread) => normalizeThread(thread));
+    normalized.forEach((thread) => registerParticipants(thread));
+    return normalized;
   };
 
   const fetchThreadDetail = async (username, { cursor } = {}) => {
@@ -2045,7 +3159,9 @@ async function initMessages() {
     }
     const query = params.toString() ? `?${params.toString()}` : "";
     const data = await apiRequest(`/messages/thread/${encodeURIComponent(username)}${query}`);
-    return normalizeThread(data?.thread ?? null);
+    const thread = normalizeThread(data?.thread ?? null);
+    registerParticipants(thread);
+    return thread;
   };
 
   const updateListSelection = (username) => {
@@ -2170,13 +3286,24 @@ async function initMessages() {
     if (!thread || (!force && thread.unreadCount <= 0)) {
       return;
     }
+    const hadUnread = thread.unreadCount > 0;
+    const summary = threads.find((entry) => entry.username === thread.username);
+    if (thread.localOnly) {
+      thread.unreadCount = 0;
+      if (summary) {
+        summary.unreadCount = 0;
+      }
+      threadMap.set(thread.username, thread);
+      if (hadUnread) {
+        renderList();
+      }
+      return;
+    }
     try {
-      const hadUnread = thread.unreadCount > 0;
       await apiRequest(`/messages/thread/${encodeURIComponent(thread.username)}/read`, {
         method: "POST",
       });
       thread.unreadCount = 0;
-      const summary = threads.find((entry) => entry.username === thread.username);
       if (summary) {
         summary.unreadCount = 0;
       }
@@ -2359,8 +3486,79 @@ async function initMessages() {
     }
     composer.onsubmit = async (event) => {
       event.preventDefault();
-      const text = input?.value.trim();
-      if (!text) return;
+      if (!thread || !input) {
+        return;
+      }
+      const rawText = input.value ?? "";
+      const text = rawText.trim();
+      const attachmentsForMessage = composerState.attachments
+        .map((attachment) => ({
+          type: attachment.type,
+          url: attachment.url,
+          originalName: attachment.name || "",
+        }))
+        .filter((attachment) => attachment.url);
+      const replyTo = composerState.replyTo;
+      const hasText = Boolean(text);
+      const hasAttachments = attachmentsForMessage.length > 0;
+      if (!hasText && !hasAttachments) {
+        return;
+      }
+
+      const createdAt = new Date().toISOString();
+      const readReceipts = sessionUser?.username
+        ? [{ username: sessionUser.username, readAt: createdAt }]
+        : [];
+      const optimisticMessage = normalizeMessage({
+        id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        sender: sessionUser?.username || null,
+        text,
+        createdAt,
+        attachments: attachmentsForMessage,
+        reactions: [],
+        readBy: readReceipts,
+        replyTo: replyTo || undefined,
+      });
+
+      thread.messages = Array.isArray(thread.messages) ? thread.messages : [];
+      thread.messages.push(optimisticMessage);
+      thread.lastMessage = optimisticMessage;
+      const currentCount = Number.isFinite(thread.totalMessages)
+        ? thread.totalMessages
+        : thread.messages.length - 1;
+      thread.totalMessages = currentCount + 1;
+      thread.updatedAt = optimisticMessage.createdAt ?? thread.updatedAt;
+      thread.unreadCount = 0;
+      threadMap.set(thread.username, thread);
+
+      const summary = threads.find((entry) => entry.username === thread.username);
+      if (summary) {
+        summary.lastMessage = optimisticMessage;
+        summary.updatedAt = thread.updatedAt;
+        summary.outbound = thread.outbound;
+        summary.inbound = thread.inbound;
+        summary.unreadCount = 0;
+        summary.totalMessages = thread.totalMessages;
+      }
+
+      renderThreadView(context, thread);
+      attachThreadControls(thread);
+      renderList();
+
+      input.value = "";
+      input.focus();
+      composerState.attachments = [];
+      renderAttachmentPreview();
+      clearReplyTarget();
+      composerState.reactionTargetId = null;
+      closeEmojiPanel();
+      closeGifPanel();
+
+      const shouldPersist = !thread.localOnly && hasText && !hasAttachments && !replyTo;
+      if (!shouldPersist) {
+        return;
+      }
+
       try {
         const response = await apiRequest(
           `/messages/thread/${encodeURIComponent(thread.username)}`,
@@ -2369,36 +3567,46 @@ async function initMessages() {
             body: JSON.stringify({ text }),
           }
         );
-        const message = response?.message;
-        if (message) {
-          thread.messages = thread.messages ?? [];
-          const currentCount = Number.isFinite(thread.totalMessages)
-            ? thread.totalMessages
-            : thread.messages.length;
-          thread.messages.push(message);
-          thread.lastMessage = message;
-          thread.updatedAt = message.createdAt;
-          thread.totalMessages = currentCount + 1;
-          thread.unreadCount = 0;
-          threadMap.set(thread.username, thread);
-          renderThreadView(context, thread);
-          attachThreadControls(thread);
-          if (input) {
-            input.value = "";
-            input.focus();
+        const saved = response?.message ? normalizeMessage(response.message) : null;
+        if (saved) {
+          const index = thread.messages.findIndex((entry) => entry.id === optimisticMessage.id);
+          if (index >= 0) {
+            thread.messages[index] = { ...thread.messages[index], ...saved };
           }
-          const summary = threads.find((entry) => entry.username === thread.username);
+          thread.lastMessage = thread.messages[thread.messages.length - 1] ?? null;
+          thread.updatedAt = saved.createdAt ?? thread.updatedAt;
+          thread.totalMessages = Number.isFinite(thread.totalMessages)
+            ? Math.max(thread.totalMessages, thread.messages.length)
+            : thread.messages.length;
+          threadMap.set(thread.username, thread);
           if (summary) {
-            summary.lastMessage = message;
-            summary.updatedAt = message.createdAt;
-            summary.outbound = thread.outbound;
-            summary.inbound = thread.inbound;
-            summary.unreadCount = 0;
+            summary.lastMessage = thread.lastMessage;
+            summary.updatedAt = thread.updatedAt;
             summary.totalMessages = thread.totalMessages;
           }
+          renderThreadView(context, thread);
+          attachThreadControls(thread);
           renderList();
         }
       } catch (error) {
+        thread.messages = thread.messages.filter((entry) => entry.id !== optimisticMessage.id);
+        thread.totalMessages = Math.max(
+          0,
+          Number.isFinite(thread.totalMessages)
+            ? thread.totalMessages - 1
+            : thread.messages.length
+        );
+        thread.lastMessage = thread.messages[thread.messages.length - 1] ?? null;
+        thread.updatedAt = thread.lastMessage?.createdAt ?? thread.updatedAt;
+        threadMap.set(thread.username, thread);
+        if (summary) {
+          summary.lastMessage = thread.lastMessage;
+          summary.updatedAt = thread.updatedAt;
+          summary.totalMessages = thread.totalMessages;
+        }
+        renderThreadView(context, thread);
+        attachThreadControls(thread);
+        renderList();
         const message = error?.message || "We couldn't send that message.";
         window.alert(message);
       }
@@ -2417,6 +3625,7 @@ async function initMessages() {
           return;
         }
         thread.messages = thread.messages ?? [];
+        registerParticipants(thread);
         thread.updatedAt =
           thread.messages[thread.messages.length - 1]?.createdAt ??
           thread.inbound?.updatedAt ??
@@ -2465,6 +3674,15 @@ async function initMessages() {
         renderList();
       }
       activeThread = thread;
+      registerParticipants(thread);
+      composerState.themeId = thread.theme?.id || "classic";
+      composerState.messageThemeId = thread.messageTheme?.id || "classic";
+      composerState.attachments = [];
+      composerState.reactionTargetId = null;
+      renderAttachmentPreview();
+      clearReplyTarget();
+      closeEmojiPanel();
+      closeGifPanel();
       updateListSelection(username);
       renderThreadView(context, thread);
       attachThreadControls(thread);
@@ -2589,6 +3807,11 @@ async function initProfile() {
   const eventDialog = document.querySelector("[data-event-dialog]");
   const postDialog = document.querySelector("[data-post-dialog]");
   const postEditDialog = document.querySelector("[data-post-edit-dialog]");
+  const postViewDialog = document.querySelector("[data-post-view-dialog]");
+  const postViewTime = postViewDialog?.querySelector("[data-post-view-time]");
+  const postViewText = postViewDialog?.querySelector("[data-post-view-text]");
+  const postViewBadges = postViewDialog?.querySelector("[data-post-view-badges]");
+  const postViewMedia = postViewDialog?.querySelector("[data-post-view-media]");
   const eventLimitNote = document.querySelector("[data-event-limit]");
   const postLimitNote = document.querySelector("[data-post-limit]");
   function createPresenceController(element) {
@@ -3128,6 +4351,74 @@ async function initProfile() {
     renderPosts();
   };
 
+  const openPostViewer = (post) => {
+    if (!post) {
+      return;
+    }
+    if (!postViewDialog) {
+      const firstAttachment = post.attachments?.find((attachment) => attachment?.url);
+      if (firstAttachment?.url) {
+        window.open(firstAttachment.url, "_blank");
+      } else {
+        window.alert(post.text || "Shared an update");
+      }
+      return;
+    }
+    if (postViewText) {
+      const messageText = post.text?.trim();
+      postViewText.textContent = messageText || "Shared an update";
+    }
+    if (postViewTime) {
+      const created = formatRelativeTime(post.createdAt) || "Just now";
+      const updated =
+        post.updatedAt && post.updatedAt !== post.createdAt
+          ? formatRelativeTime(post.updatedAt)
+          : null;
+      const display = updated ? `Updated ${updated}` : created;
+      postViewTime.textContent = display;
+      postViewTime.hidden = !display;
+    }
+    if (postViewBadges) {
+      postViewBadges.innerHTML = "";
+      const visibility = post.visibility || "public";
+      const visibilityBadge = document.createElement("span");
+      visibilityBadge.className = `badge ${POST_VISIBILITY_BADGE[visibility] || "badge--muted"}`;
+      visibilityBadge.textContent = POST_VISIBILITY_LABELS[visibility] || POST_VISIBILITY_LABELS.public;
+      postViewBadges.appendChild(visibilityBadge);
+      const moodLabel = POST_MOOD_LABELS[post.mood] || "";
+      if (moodLabel) {
+        const moodBadge = document.createElement("span");
+        moodBadge.className = `badge ${POST_MOOD_BADGE[post.mood] || "badge--accent"}`;
+        const dot = document.createElement("span");
+        dot.className = "badge__dot";
+        moodBadge.appendChild(dot);
+        moodBadge.appendChild(document.createTextNode(moodLabel));
+        postViewBadges.appendChild(moodBadge);
+      }
+      postViewBadges.hidden = postViewBadges.childElementCount === 0;
+    }
+    if (postViewMedia) {
+      postViewMedia.innerHTML = "";
+      if (post.attachments?.length) {
+        postViewMedia.appendChild(createMediaFragment(post.attachments));
+      } else {
+        const empty = document.createElement("p");
+        empty.className = "profile-post-view__empty";
+        empty.textContent = "No media attached.";
+        postViewMedia.appendChild(empty);
+      }
+    }
+    postViewDialog.scrollTop = 0;
+    if (!openDialog(postViewDialog)) {
+      const firstAttachment = post.attachments?.find((attachment) => attachment?.url);
+      if (firstAttachment?.url) {
+        window.open(firstAttachment.url, "_blank");
+      } else {
+        window.alert(post.text || "Shared an update");
+      }
+    }
+  };
+
   const renderPosts = () => {
     if (!postList || !postEmpty) return;
     const posts = profileData?.posts ?? [];
@@ -3140,6 +4431,30 @@ async function initProfile() {
     posts.forEach((post) => {
       const item = document.createElement("li");
       item.className = "profile-post";
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.setAttribute("aria-haspopup", "dialog");
+      const labelSource = post.text?.trim() || "Shared an update";
+      const truncated = labelSource.length > 80 ? `${labelSource.slice(0, 77)}…` : labelSource;
+      item.setAttribute("aria-label", `View post: ${truncated}`);
+      const openPost = () => {
+        openPostViewer(post);
+      };
+      item.addEventListener("click", (event) => {
+        if (event.target.closest(".profile-post__actions")) {
+          return;
+        }
+        openPost();
+      });
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          if (event.target.closest(".profile-post__actions")) {
+            return;
+          }
+          event.preventDefault();
+          openPost();
+        }
+      });
       const header = document.createElement("div");
       header.className = "profile-post__header";
       const title = document.createElement("p");
@@ -3191,7 +4506,8 @@ async function initProfile() {
         editButton.className = "button button--ghost";
         editButton.type = "button";
         editButton.textContent = "Edit";
-        editButton.addEventListener("click", () => {
+        editButton.addEventListener("click", (event) => {
+          event.stopPropagation();
           openPostEditor(post);
         });
         actions.appendChild(editButton);
@@ -3199,7 +4515,8 @@ async function initProfile() {
         deleteButton.className = "button button--ghost";
         deleteButton.type = "button";
         deleteButton.textContent = "Delete";
-        deleteButton.addEventListener("click", async () => {
+        deleteButton.addEventListener("click", async (event) => {
+          event.stopPropagation();
           if (!window.confirm("Delete this post?")) return;
           try {
             await apiRequest(`/posts/${encodeURIComponent(post.id)}`, { method: "DELETE" });

@@ -132,31 +132,93 @@ const THREAD_SUMMARIES = [
     badges: ["Verified"],
     inbound: PEOPLE[0].inbound,
     outbound: PEOPLE[0].outbound,
+    participants: [
+      {
+        username: "skylar00401",
+        displayName: "Skylar Rivers",
+        nickname: "Sky",
+        avatar: "https://images.unsplash.com/photo-1544723795-3fb6469f5b39?auto=format&fit=crop&w=160&q=80",
+      },
+      {
+        username: AI_PREVIEW_USER.username,
+        displayName: AI_PREVIEW_USER.fullName,
+        nickname: "You",
+        avatar: "https://images.unsplash.com/photo-1544723795-3fb6469f5b39?auto=format&fit=crop&w=64&q=40",
+      },
+    ],
+    theme: {
+      id: "sunset-glow",
+      name: "Sunset glow",
+      background: "linear-gradient(135deg, #f9d976 0%, #f39f86 100%)",
+      outgoingBubble: "#242021",
+      incomingBubble: "rgba(255,255,255,0.85)",
+    },
     lastMessage: {
-      sender: "skylar",
+      sender: "skylar00401",
       text: "Let's plan our coffee walk after your preview!",
       createdAt: minutesAgo(referenceDate, 5),
+      readBy: [
+        { username: AI_PREVIEW_USER.username, readAt: minutesAgo(referenceDate, 4) },
+      ],
+      reactions: [
+        { emoji: "☕️", count: 2, reactors: [AI_PREVIEW_USER.username, "skylar00401"] },
+      ],
     },
     updatedAt: minutesAgo(referenceDate, 5),
     unreadCount: 0,
     totalMessages: 4,
   },
   {
-    username: "am1rpatty",
-    fullName: "Amir Patel",
-    displayName: "Amir Patel",
-    tagline: "Community builder & weekend chef",
+    username: "supper-club",
+    fullName: "Saturday Supper Club",
+    displayName: "Saturday Supper Club",
+    tagline: "Friends who cook, eat, and hype each other up",
     badges: [],
     inbound: PEOPLE[1].inbound,
     outbound: PEOPLE[1].outbound,
+    participants: [
+      {
+        username: "am1rpatty",
+        displayName: "Amir Patel",
+        avatar: "https://images.unsplash.com/photo-1544723795-3fb6469f5b39?auto=format&fit=crop&w=160&q=80",
+      },
+      {
+        username: "lucia-hsu",
+        displayName: "Lucia Hsu",
+        nickname: "DJ Spice",
+        avatar: "https://images.unsplash.com/photo-1520813792240-56fc4a3765a7?auto=format&fit=crop&w=160&q=80",
+      },
+      {
+        username: AI_PREVIEW_USER.username,
+        displayName: AI_PREVIEW_USER.fullName,
+        avatar: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=160&q=80",
+      },
+    ],
+    theme: {
+      id: "midnight",
+      name: "Midnight neon",
+      background: "linear-gradient(135deg, #10002b 0%, #240046 35%, #3c096c 100%)",
+      outgoingBubble: "rgba(255,255,255,0.1)",
+      incomingBubble: "rgba(16,0,43,0.72)",
+    },
     lastMessage: {
-      sender: "ai-preview",
+      sender: "am1rpatty",
       text: "Your dosa night invite sounds incredible!",
       createdAt: minutesAgo(referenceDate, 42),
+      attachments: [
+        {
+          type: "gif",
+          url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExd3VxOWl1ZG5zOWJqam1vaGJkYzQzb2xyY2VhdWN0MWl4NmI0Y3ltMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3ohs4BSacFKI7A717u/giphy.gif",
+          originalName: "friends-cheers.gif",
+        },
+      ],
+      reactions: [
+        { emoji: "🔥", count: 3, reactors: ["lucia-hsu", "am1rpatty", AI_PREVIEW_USER.username] },
+      ],
     },
     updatedAt: minutesAgo(referenceDate, 42),
     unreadCount: 0,
-    totalMessages: 3,
+    totalMessages: 6,
   },
   {
     username: "jordan733",
@@ -166,6 +228,24 @@ const THREAD_SUMMARIES = [
     badges: ["Verified"],
     inbound: PEOPLE[2].inbound,
     outbound: PEOPLE[2].outbound,
+    participants: [
+      {
+        username: "jordan733",
+        displayName: "Anonymous admirer",
+        anonymous: true,
+      },
+      {
+        username: AI_PREVIEW_USER.username,
+        displayName: AI_PREVIEW_USER.fullName,
+      },
+    ],
+    theme: {
+      id: "aurora",
+      name: "Aurora",
+      background: "linear-gradient(135deg, #00c6ff 0%, #0072ff 100%)",
+      outgoingBubble: "rgba(255,255,255,0.9)",
+      incomingBubble: "rgba(0,0,0,0.55)",
+    },
     lastMessage: null,
     updatedAt: minutesAgo(referenceDate, 205),
     unreadCount: 0,
@@ -182,6 +262,33 @@ const THREAD_DETAILS = new Map([
       displayName: "Skylar Rivers",
       tagline: "Product designer, loves morning coffee",
       badges: ["Verified"],
+      participants: [
+        {
+          username: "skylar00401",
+          displayName: "Skylar Rivers",
+          nickname: "Sky",
+          avatar: "https://images.unsplash.com/photo-1544723795-3fb6469f5b39?auto=format&fit=crop&w=160&q=80",
+        },
+        {
+          username: AI_PREVIEW_USER.username,
+          displayName: AI_PREVIEW_USER.fullName,
+          nickname: "You",
+        },
+      ],
+      nicknames: {
+        skylar00401: "Sky",
+      },
+      theme: {
+        id: "sunset-glow",
+        name: "Sunset glow",
+        background: "linear-gradient(135deg, #f9d976 0%, #f39f86 100%)",
+        outgoingBubble: "#242021",
+        incomingBubble: "rgba(255,255,255,0.85)",
+      },
+      messageTheme: {
+        id: "glow",
+        name: "Luminous",
+      },
       inbound: clone(PEOPLE[0].inbound),
       outbound: clone(PEOPLE[0].outbound),
       hasMore: false,
@@ -192,54 +299,191 @@ const THREAD_DETAILS = new Map([
           sender: "skylar00401",
           text: "Appreciate you checking the read-only tour!",
           createdAt: minutesAgo(referenceDate, 55),
+          reactions: [
+            { emoji: "💛", count: 1, reactors: [AI_PREVIEW_USER.username] },
+          ],
         },
         {
           id: "m-skylar-2",
           sender: "ai-preview",
           text: "Happy to have you walk people through the experience.",
           createdAt: minutesAgo(referenceDate, 50),
+          readBy: [
+            { username: "skylar00401", readAt: minutesAgo(referenceDate, 48) },
+          ],
         },
         {
           id: "m-skylar-3",
           sender: "skylar00401",
           text: "Let's plan our coffee walk after your preview!",
           createdAt: minutesAgo(referenceDate, 5),
+          readBy: [
+            { username: AI_PREVIEW_USER.username, readAt: minutesAgo(referenceDate, 4) },
+          ],
+          reactions: [
+            { emoji: "☕️", count: 2, reactors: [AI_PREVIEW_USER.username, "skylar00401"] },
+          ],
+        },
+        {
+          id: "m-skylar-4",
+          sender: "ai-preview",
+          text: "Dropped a latte inspo board—tap for the mood!",
+          createdAt: minutesAgo(referenceDate, 3),
+          replyTo: "m-skylar-1",
+          attachments: [
+            {
+              type: "image",
+              url: "https://images.unsplash.com/photo-1504753793650-d4a2b783c15e?auto=format&fit=crop&w=900&q=80",
+              originalName: "latte-art.jpg",
+            },
+            {
+              type: "image",
+              url: "https://images.unsplash.com/photo-1527169402691-feff5539e52c?auto=format&fit=crop&w=900&q=80",
+              originalName: "coffee-shop.jpg",
+            },
+          ],
+          readBy: [
+            { username: "skylar00401", readAt: minutesAgo(referenceDate, 1) },
+          ],
+          reactions: [
+            { emoji: "👏", count: 1, reactors: ["skylar00401"] },
+          ],
         },
       ],
-      totalMessages: 3,
+      totalMessages: 4,
       unreadCount: 0,
       updatedAt: minutesAgo(referenceDate, 5),
     },
   ],
   [
-    "am1rpatty",
+    "supper-club",
     {
-      username: "am1rpatty",
-      fullName: "Amir Patel",
-      displayName: "Amir Patel",
-      tagline: "Community builder & weekend chef",
+      username: "supper-club",
+      fullName: "Saturday Supper Club",
+      displayName: "Saturday Supper Club",
+      tagline: "Friends who cook, eat, and hype each other up",
       badges: [],
+      participants: [
+        {
+          username: "am1rpatty",
+          displayName: "Amir Patel",
+          avatar: "https://images.unsplash.com/photo-1544723795-3fb6469f5b39?auto=format&fit=crop&w=160&q=80",
+        },
+        {
+          username: "lucia-hsu",
+          displayName: "Lucia Hsu",
+          nickname: "DJ Spice",
+          avatar: "https://images.unsplash.com/photo-1520813792240-56fc4a3765a7?auto=format&fit=crop&w=160&q=80",
+        },
+        {
+          username: AI_PREVIEW_USER.username,
+          displayName: AI_PREVIEW_USER.fullName,
+          avatar: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=160&q=80",
+        },
+      ],
+      nicknames: {
+        "lucia-hsu": "DJ Spice",
+      },
+      theme: {
+        id: "midnight",
+        name: "Midnight neon",
+        background: "linear-gradient(135deg, #10002b 0%, #240046 35%, #3c096c 100%)",
+        outgoingBubble: "rgba(255,255,255,0.1)",
+        incomingBubble: "rgba(16,0,43,0.72)",
+      },
+      messageTheme: {
+        id: "vibrant",
+        name: "Vibrant",
+      },
       inbound: clone(PEOPLE[1].inbound),
       outbound: clone(PEOPLE[1].outbound),
       hasMore: false,
       previousCursor: null,
       messages: [
         {
-          id: "m-amir-1",
+          id: "m-supper-1",
           sender: "ai-preview",
           text: "Your dosa night invite sounds incredible!",
           createdAt: minutesAgo(referenceDate, 42),
+          attachments: [
+            {
+              type: "gif",
+              url: "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExd3VxOWl1ZG5zOWJqam1vaGJkYzQzb2xyY2VhdWN0MWl4NmI0Y3ltMCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/3ohs4BSacFKI7A717u/giphy.gif",
+              originalName: "friends-cheers.gif",
+            },
+          ],
+          reactions: [
+            { emoji: "🔥", count: 3, reactors: ["lucia-hsu", "am1rpatty", AI_PREVIEW_USER.username] },
+          ],
         },
         {
-          id: "m-amir-2",
+          id: "m-supper-2",
+          sender: "lucia-hsu",
+          text: "Theme suggestion: tropical disco. I'll cue the playlist!",
+          createdAt: minutesAgo(referenceDate, 36),
+          reactions: [
+            { emoji: "🎶", count: 1, reactors: ["am1rpatty"] },
+          ],
+        },
+        {
+          id: "m-supper-3",
           sender: "am1rpatty",
-          text: "I'll save you a plate once previews turn into parties.",
-          createdAt: minutesAgo(referenceDate, 37),
+          text: "Can someone drop the grocery inspo again?",
+          createdAt: minutesAgo(referenceDate, 28),
+        },
+        {
+          id: "m-supper-4",
+          sender: AI_PREVIEW_USER.username,
+          text: "Uploading the shared album—peep the video for plating inspo!",
+          createdAt: minutesAgo(referenceDate, 20),
+          attachments: [
+            {
+              type: "video",
+              url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+              originalName: "plating.mp4",
+            },
+            {
+              type: "image",
+              url: "https://images.unsplash.com/photo-1515003197210-e0cd71810b5f?auto=format&fit=crop&w=900&q=80",
+              originalName: "tapas-board.jpg",
+            },
+          ],
+          replyTo: "m-supper-3",
+          readBy: [
+            { username: "am1rpatty", readAt: minutesAgo(referenceDate, 15) },
+            { username: "lucia-hsu", readAt: minutesAgo(referenceDate, 14) },
+          ],
+        },
+        {
+          id: "m-supper-5",
+          sender: "am1rpatty",
+          text: "Seen! Adding these to the menu board now.",
+          createdAt: minutesAgo(referenceDate, 10),
+          readBy: [
+            { username: AI_PREVIEW_USER.username, readAt: minutesAgo(referenceDate, 8) },
+            { username: "lucia-hsu", readAt: minutesAgo(referenceDate, 7) },
+          ],
+          reactions: [
+            { emoji: "👍", count: 1, reactors: [AI_PREVIEW_USER.username] },
+          ],
+        },
+        {
+          id: "m-supper-6",
+          sender: "lucia-hsu",
+          text: "Nicknaming you Chef Supreme for this spread.",
+          createdAt: minutesAgo(referenceDate, 6),
+          readBy: [
+            { username: "am1rpatty", readAt: minutesAgo(referenceDate, 5) },
+            { username: AI_PREVIEW_USER.username, readAt: minutesAgo(referenceDate, 4) },
+          ],
+          reactions: [
+            { emoji: "😂", count: 1, reactors: ["am1rpatty"] },
+          ],
         },
       ],
-      totalMessages: 2,
+      totalMessages: 6,
       unreadCount: 0,
-      updatedAt: minutesAgo(referenceDate, 42),
+      updatedAt: minutesAgo(referenceDate, 6),
     },
   ],
   [
@@ -250,6 +494,24 @@ const THREAD_DETAILS = new Map([
       displayName: "Anonymous admirer",
       tagline: "Startup operator exploring the arts",
       badges: ["Verified"],
+      participants: [
+        {
+          username: "jordan733",
+          displayName: "Anonymous admirer",
+          anonymous: true,
+        },
+        {
+          username: AI_PREVIEW_USER.username,
+          displayName: AI_PREVIEW_USER.fullName,
+        },
+      ],
+      theme: {
+        id: "aurora",
+        name: "Aurora",
+        background: "linear-gradient(135deg, #00c6ff 0%, #0072ff 100%)",
+        outgoingBubble: "rgba(255,255,255,0.9)",
+        incomingBubble: "rgba(0,0,0,0.55)",
+      },
       inbound: clone(PEOPLE[2].inbound),
       outbound: clone(PEOPLE[2].outbound),
       hasMore: false,
@@ -271,7 +533,13 @@ const PROFILES = new Map([
         {
           id: "event-preview-1",
           text: "Today I guided more users through WantYou!",
-          attachments: [],
+          attachments: [
+            {
+              type: "image",
+              url: "https://images.unsplash.com/photo-1521336575822-6da63fb45455?auto=format&fit=crop&w=900&q=80",
+              originalName: "team-celebration.jpg",
+            },
+          ],
           createdAt: minutesAgo(referenceDate, 180),
           expiresAt: minutesAgo(referenceDate, -24 * 60),
           durationHours: 24,
@@ -283,7 +551,13 @@ const PROFILES = new Map([
         {
           id: "post-preview-1",
           text: "In this tour you can browse connections, messages, and profiles—no login required.",
-          attachments: [],
+          attachments: [
+            {
+              type: "image",
+              url: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=900&q=80",
+              originalName: "preview-dashboard.png",
+            },
+          ],
           createdAt: minutesAgo(referenceDate, 240),
           visibility: "public",
           updatedAt: minutesAgo(referenceDate, 60),
@@ -292,7 +566,18 @@ const PROFILES = new Map([
         {
           id: "post-preview-2",
           text: "Try filtering the lookup list or opening a thread to see what members can do.",
-          attachments: [],
+          attachments: [
+            {
+              type: "image",
+              url: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80",
+              originalName: "coffee-meetup.jpg",
+            },
+            {
+              type: "video",
+              url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+              originalName: "tour-recap.mp4",
+            },
+          ],
           createdAt: minutesAgo(referenceDate, 200),
           visibility: "public",
           updatedAt: minutesAgo(referenceDate, 120),
