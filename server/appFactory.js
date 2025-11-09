@@ -2364,7 +2364,7 @@ function createApp() {
     if (req.aiGuest) {
       const payload = aiPreview.getSelectedThreadPayload();
       if (!payload?.thread) {
-        res.status(404).json({ message: "No stored thread" });
+        res.status(204).end();
         return;
       }
       res.json(payload);
@@ -2373,7 +2373,8 @@ function createApp() {
     try {
       const thread = await getSelectedThread(req.user.username);
       if (!thread) {
-        return res.status(404).json({ message: "No stored thread" });
+        res.status(204).end();
+        return;
       }
       res.json({ thread });
     } catch (error) {

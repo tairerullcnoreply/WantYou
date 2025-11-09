@@ -198,7 +198,7 @@ const USER_BADGE_DEFINITIONS = Object.freeze({
 
 const USER_BADGE_ORDER = Object.freeze(["WantYou", "Verified"]);
 
-const TENOR_API_ENDPOINT = "https://tenor.googleapis.com/v2";
+const TENOR_API_ENDPOINT = "https://g.tenor.com/v1";
 const TENOR_API_KEY = "LIVDSRZULELA";
 const TENOR_CLIENT_KEY = "wantyou-messaging";
 const TENOR_SEARCH_LIMIT = 24;
@@ -2884,9 +2884,27 @@ async function initMessages() {
     if (!gifResults) return;
     const fragment = document.createDocumentFragment();
     items.forEach((item) => {
-      const media = item?.media_formats ?? {};
-      const fullUrl = media.gif?.url || item?.url || "";
-      const previewUrl = media.tinygif?.url || media.nanogif?.url || media.mediumgif?.url || fullUrl;
+      const mediaFormats = (() => {
+        if (item?.media_formats && typeof item.media_formats === "object") {
+          return item.media_formats;
+        }
+        if (Array.isArray(item?.media) && item.media.length) {
+          return item.media[0] || {};
+        }
+        return {};
+      })();
+      const fullUrl =
+        mediaFormats.gif?.url ||
+        mediaFormats.mediumgif?.url ||
+        mediaFormats.loopedmp4?.url ||
+        item?.url ||
+        "";
+      const previewUrl =
+        mediaFormats.tinygif?.url ||
+        mediaFormats.nanogif?.url ||
+        mediaFormats.gifpreview?.url ||
+        mediaFormats.mediumgif?.url ||
+        fullUrl;
       if (!fullUrl) {
         return;
       }
@@ -2920,15 +2938,24 @@ async function initMessages() {
     if (!gifPicker || gifState.loading) {
       return;
     }
+    if (!TENOR_API_KEY) {
+      setGifStatus("Add a Tenor API key to enable GIF search.");
+      if (gifMoreButton) {
+        gifMoreButton.hidden = true;
+      }
+      return;
+    }
     gifState.loading = true;
     gifState.query = query;
     const params = new URLSearchParams({
       key: TENOR_API_KEY,
-      client_key: TENOR_CLIENT_KEY,
       limit: String(TENOR_SEARCH_LIMIT),
-      media_filter: "gif,tinygif",
+      media_filter: "minimal",
       contentfilter: "high",
     });
+    if (TENOR_CLIENT_KEY) {
+      params.set("client_key", TENOR_CLIENT_KEY);
+    }
     if (query) {
       params.set("q", query);
     }
