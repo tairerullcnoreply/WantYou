@@ -215,8 +215,12 @@ const UPLOAD_ROOT = resolveUploadRoot();
 const AVATAR_UPLOAD_DIR = path.join(UPLOAD_ROOT, "avatars");
 const POST_UPLOAD_DIR = path.join(UPLOAD_ROOT, "posts");
 const EVENT_UPLOAD_DIR = path.join(UPLOAD_ROOT, "events");
+const MESSAGE_UPLOAD_DIR = path.join(UPLOAD_ROOT, "messages");
 const USE_EPHEMERAL_UPLOADS = UPLOAD_ROOT.startsWith(os.tmpdir());
 const USE_KV_MEDIA_STORAGE = USE_EPHEMERAL_UPLOADS && HAS_UPSTASH_CONFIG;
+
+const MESSAGE_ATTACHMENT_LIMIT = 6;
+const MESSAGE_GIF_LIMIT = 6;
 
 function ensureDirectory(directory) {
   try {
@@ -230,6 +234,7 @@ ensureDirectory(UPLOAD_ROOT);
 ensureDirectory(AVATAR_UPLOAD_DIR);
 ensureDirectory(POST_UPLOAD_DIR);
 ensureDirectory(EVENT_UPLOAD_DIR);
+ensureDirectory(MESSAGE_UPLOAD_DIR);
 
 function normalizeBadgeList(badges) {
   if (!Array.isArray(badges)) {
@@ -480,6 +485,8 @@ const uploadStorage = multer.diskStorage({
       directory = AVATAR_UPLOAD_DIR;
     } else if (target === "event") {
       directory = EVENT_UPLOAD_DIR;
+    } else if (target === "message") {
+      directory = MESSAGE_UPLOAD_DIR;
     }
     ensureDirectory(directory);
     cb(null, directory);
@@ -845,12 +852,20 @@ function upgradeConversationMeta(meta) {
 
   if (meta.lastMessage && typeof meta.lastMessage === "object") {
     const { id, sender, text, createdAt } = meta.lastMessage;
+    const attachmentCount = Number.isFinite(meta.lastMessage.attachmentCount)
+      ? Math.max(0, Math.floor(meta.lastMessage.attachmentCount))
+      : 0;
+    const gifCount = Number.isFinite(meta.lastMessage.gifCount)
+      ? Math.max(0, Math.floor(meta.lastMessage.gifCount))
+      : 0;
     if (id && sender && createdAt) {
       safe.lastMessage = {
         id,
         sender,
         text: typeof text === "string" ? text : "",
         createdAt,
+        attachmentCount,
+        gifCount,
       };
     }
   }
@@ -1683,7 +1698,7 @@ async function getConversationMessages(usernameA, usernameB, options = {}) {
   };
 }
 
-async function appendConversationMessage(from, to, text) {
+async function appendConversationMessage(from, to, payload = {}) {
   const id = conversationId(from, to);
   if (!id) {
     throw new Error("Conversation participants are required");
@@ -1693,12 +1708,28 @@ async function appendConversationMessage(from, to, text) {
   const existingMeta = upgradeConversationMeta(
     parseJsonSafe(await redisCommand(["GET", conversationMetaKey(id)]), null)
   );
+  const text = typeof payload.text === "string" ? payload.text : "";
+  const attachments = Array.isArray(payload.attachments)
+    ? payload.attachments.map((attachment) => ({ ...attachment }))
+    : [];
+  const gifUrls = Array.isArray(payload.gifUrls) ? payload.gifUrls.slice() : [];
+  const replyToId = typeof payload.replyToId === "string" ? payload.replyToId.trim() : "";
+  const createdAt = new Date().toISOString();
   const message = {
     id: crypto.randomUUID(),
     sender,
     text,
-    createdAt: new Date().toISOString(),
+    createdAt,
   };
+  if (attachments.length) {
+    message.attachments = attachments;
+  }
+  if (gifUrls.length) {
+    message.gifUrls = gifUrls;
+  }
+  if (replyToId) {
+    message.replyToId = replyToId;
+  }
   const unread = { ...existingMeta.unread };
   if (sender) {
     unread[sender] = 0;
@@ -1710,8 +1741,9 @@ async function appendConversationMessage(from, to, text) {
   if (sender) {
     readAt[sender] = message.createdAt;
   }
+  const summary = summarizeConversationMessage(message);
   const meta = {
-    lastMessage: message,
+    lastMessage: summary,
     updatedAt: message.createdAt,
     unread,
     readAt,
@@ -1727,7 +1759,7 @@ async function appendConversationMessage(from, to, text) {
     ["RPUSH", conversationMessagesKey(id), JSON.stringify(message)],
     ["SET", conversationMetaKey(id), JSON.stringify(meta)],
   ]);
-  return message;
+  return formatConversationMessage(message);
 }
 
 async function getConversationMetaRecords(currentUsername, people) {
@@ -2053,6 +2085,108 @@ function normalizeAttachments(attachments) {
       size: attachment.size ?? 0,
     }))
     .filter((attachment) => Boolean(attachment.url));
+}
+
+function normalizeGifUrlList(value, limit = MESSAGE_GIF_LIMIT) {
+  if (!value) {
+    return [];
+  }
+  const raw = Array.isArray(value) ? value : [value];
+  const seen = new Set();
+  const urls = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        continue;
+      }
+      parsed.hash = "";
+      const normalized = parsed.toString();
+      if (seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      urls.push(normalized);
+      if (Number.isFinite(limit) && limit > 0 && urls.length >= limit) {
+        break;
+      }
+    } catch (error) {
+      continue;
+    }
+  }
+  return urls;
+}
+
+function formatLastMessageSummary(summary) {
+  if (!summary || typeof summary !== "object") {
+    return null;
+  }
+  const attachmentCount = Number.isFinite(summary.attachmentCount)
+    ? Math.max(0, Math.floor(summary.attachmentCount))
+    : 0;
+  const gifCount = Number.isFinite(summary.gifCount)
+    ? Math.max(0, Math.floor(summary.gifCount))
+    : 0;
+  return {
+    id: summary.id,
+    sender: summary.sender,
+    text: typeof summary.text === "string" ? summary.text : "",
+    createdAt: summary.createdAt ?? null,
+    attachmentCount,
+    gifCount,
+  };
+}
+
+function formatConversationMessage(message) {
+  if (!message || typeof message !== "object") {
+    return null;
+  }
+  const attachments = normalizeAttachments(message.attachments);
+  const gifUrls = Array.isArray(message.gifUrls)
+    ? message.gifUrls
+        .map((url) => (typeof url === "string" ? url.trim() : ""))
+        .filter((url) => Boolean(url))
+    : [];
+  const formatted = {
+    ...message,
+    text: typeof message.text === "string" ? message.text : "",
+    createdAt: message.createdAt ?? null,
+    attachments,
+    gifUrls,
+    attachmentCount: attachments.length,
+    gifCount: gifUrls.length,
+  };
+  if (typeof formatted.replyToId === "string") {
+    const trimmed = formatted.replyToId.trim();
+    if (trimmed) {
+      formatted.replyToId = trimmed;
+    } else {
+      delete formatted.replyToId;
+    }
+  }
+  if (!Array.isArray(message.reactions)) {
+    delete formatted.reactions;
+  }
+  return formatted;
+}
+
+function summarizeConversationMessage(message) {
+  if (!message || typeof message !== "object") {
+    return null;
+  }
+  const attachmentCount = Array.isArray(message.attachments) ? message.attachments.length : 0;
+  const gifCount = Array.isArray(message.gifUrls) ? message.gifUrls.length : 0;
+  return {
+    id: message.id,
+    sender: message.sender,
+    text: typeof message.text === "string" ? message.text : "",
+    createdAt: message.createdAt,
+    attachmentCount,
+    gifCount,
+  };
 }
 
 function isAiReference(value) {
@@ -2441,13 +2575,7 @@ function createApp() {
             badges: Array.isArray(person.badges) ? person.badges : [],
             inbound,
             outbound,
-            lastMessage: lastMessage
-              ? {
-                  sender: lastMessage.sender,
-                  text: lastMessage.text,
-                  createdAt: lastMessage.createdAt,
-                }
-              : null,
+            lastMessage: lastMessage ? formatLastMessageSummary(lastMessage) : null,
             updatedAt,
             unreadCount: meta?.unread?.[req.user.username] ?? 0,
             totalMessages: meta?.totalMessages ?? 0,
@@ -2499,6 +2627,8 @@ function createApp() {
         ]);
       const inbound = connectionStateFor(normalizedTarget, incoming);
       const outbound = connectionStateFor(normalizedTarget, outgoing);
+      const formattedMessages = messages.map((message) => formatConversationMessage(message)).filter(Boolean);
+      const lastMessage = formattedMessages[formattedMessages.length - 1] ?? formatLastMessageSummary(meta?.lastMessage ?? null);
       const thread = {
         username: targetUser.username,
         fullName: targetUser.fullName,
@@ -2508,15 +2638,11 @@ function createApp() {
         inbound,
         outbound,
         alias: formatAliasForCurrentUser(req.user, outbound),
-        messages: messages.map((message) => ({
-          id: message.id,
-          sender: message.sender,
-          text: message.text,
-          createdAt: message.createdAt,
-        })),
+        messages: formattedMessages,
+        lastMessage,
         hasMore,
         previousCursor,
-        totalMessages: Number.isFinite(total) ? total : messages.length,
+        totalMessages: Number.isFinite(total) ? total : formattedMessages.length,
         unreadCount: meta?.unread?.[req.user.username] ?? 0,
       };
       res.json({ thread });
@@ -2526,38 +2652,84 @@ function createApp() {
     }
   });
 
-  app.post("/api/messages/thread/:username", authenticate, async (req, res) => {
-    const normalizedTarget = normalizeUsername(req.params.username);
-    const { text } = req.body ?? {};
-    if (!normalizedTarget) {
-      return res.status(400).json({ message: "A valid username is required" });
-    }
-    const trimmed = text?.trim();
-    if (!trimmed) {
-      return res.status(400).json({ message: "A message is required" });
-    }
-    try {
-      const targetUser = await getUser(normalizedTarget);
-      if (!targetUser) {
-        return res.status(404).json({ message: "User not found" });
+  app.post("/api/messages/thread/:username", authenticate, (req, res) => {
+    const submitMessage = async () => {
+      const attachments = [];
+      if (Array.isArray(req.files)) {
+        try {
+          for (const file of req.files) {
+            const described = await describeAttachment(file);
+            if (described) {
+              attachments.push(described);
+            }
+          }
+        } catch (error) {
+          console.error("Failed to process attachments", error);
+          await cleanupAttachments(attachments);
+          res.status(400).json({ message: "Unable to process attachments" });
+          return;
+        }
       }
-      const message = await appendConversationMessage(
-        req.user.username,
-        normalizedTarget,
-        trimmed
-      );
-      res.status(201).json({
-        message: {
-          id: message.id,
-          sender: message.sender,
-          text: message.text,
-          createdAt: message.createdAt,
-        },
+      const normalizedTarget = normalizeUsername(req.params.username);
+      if (!normalizedTarget) {
+        await cleanupAttachments(attachments);
+        res.status(400).json({ message: "A valid username is required" });
+        return;
+      }
+      const textValue = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+      const gifUrls = normalizeGifUrlList(req.body?.gifUrls, MESSAGE_GIF_LIMIT);
+      const replyToId = typeof req.body?.replyTo === "string" ? req.body.replyTo.trim() : "";
+      if (!textValue && !attachments.length && !gifUrls.length) {
+        await cleanupAttachments(attachments);
+        res
+          .status(400)
+          .json({ message: "Say something or attach media to send a message" });
+        return;
+      }
+      try {
+        const targetUser = await getUser(normalizedTarget);
+        if (!targetUser) {
+          await cleanupAttachments(attachments);
+          res.status(404).json({ message: "User not found" });
+          return;
+        }
+        const message = await appendConversationMessage(req.user.username, normalizedTarget, {
+          text: textValue,
+          attachments,
+          gifUrls,
+          replyToId,
+        });
+        res.status(201).json({ message });
+      } catch (error) {
+        console.error("Failed to save message", error);
+        await cleanupAttachments(attachments);
+        res.status(500).json({ message: "Unable to send message" });
+      }
+    };
+
+    const contentType = req.headers["content-type"] || "";
+    if (/multipart\/form-data/i.test(contentType)) {
+      req.uploadTarget = "message";
+      uploadMiddleware.array("attachments", MESSAGE_ATTACHMENT_LIMIT)(req, res, (error) => {
+        if (error) {
+          uploadErrorResponse(res, error);
+          return;
+        }
+        submitMessage().catch((err) => {
+          console.error("Failed to save message", err);
+          if (!res.headersSent) {
+            res.status(500).json({ message: "Unable to send message" });
+          }
+        });
       });
-    } catch (error) {
-      console.error("Failed to save message", error);
-      res.status(500).json({ message: "Unable to send message" });
+      return;
     }
+    submitMessage().catch((error) => {
+      console.error("Failed to save message", error);
+      if (!res.headersSent) {
+        res.status(500).json({ message: "Unable to send message" });
+      }
+    });
   });
 
   app.post("/api/messages/thread/:username/read", authenticate, async (req, res) => {

@@ -455,6 +455,49 @@ function normalizeConnectionState(state) {
   };
 }
 
+function normalizeMessageEntry(message) {
+  if (!message || typeof message !== "object") {
+    return null;
+  }
+  const normalized = { ...message };
+  normalized.text = typeof message.text === "string" ? message.text : "";
+  normalized.attachments = Array.isArray(message.attachments)
+    ? message.attachments
+        .map((attachment) => {
+          if (!attachment) return null;
+          if (typeof attachment === "string") {
+            return { url: attachment, type: "image" };
+          }
+          if (attachment.url) {
+            return attachment;
+          }
+          return null;
+        })
+        .filter(Boolean)
+    : [];
+  normalized.gifUrls = Array.isArray(message.gifUrls)
+    ? message.gifUrls
+        .map((url) => (typeof url === "string" ? url.trim() : ""))
+        .filter((url) => Boolean(url))
+    : [];
+  normalized.attachmentCount = Number.isFinite(message.attachmentCount)
+    ? Math.max(0, Math.floor(message.attachmentCount))
+    : normalized.attachments.length;
+  normalized.gifCount = Number.isFinite(message.gifCount)
+    ? Math.max(0, Math.floor(message.gifCount))
+    : normalized.gifUrls.length;
+  normalized.reactions = Array.isArray(message.reactions) ? message.reactions : [];
+  if (typeof normalized.replyToId === "string") {
+    const trimmed = normalized.replyToId.trim();
+    if (trimmed) {
+      normalized.replyToId = trimmed;
+    } else {
+      delete normalized.replyToId;
+    }
+  }
+  return normalized;
+}
+
 function normalizeThread(thread) {
   if (!thread) return null;
   const unreadCount = Number.isFinite(thread.unreadCount) && thread.unreadCount > 0 ? Math.floor(thread.unreadCount) : 0;
@@ -485,6 +528,12 @@ function normalizeThread(thread) {
         })
         .filter(Boolean)
     : [];
+  const messages = Array.isArray(thread.messages)
+    ? thread.messages.map((message) => normalizeMessageEntry(message)).filter(Boolean)
+    : [];
+  const lastMessage = thread.lastMessage
+    ? normalizeMessageEntry(thread.lastMessage)
+    : messages[messages.length - 1] ?? null;
   return {
     ...thread,
     inbound: normalizeConnectionState(thread.inbound),
@@ -494,6 +543,8 @@ function normalizeThread(thread) {
     hasMore: Boolean(thread.hasMore),
     previousCursor,
     participants,
+    messages,
+    lastMessage,
   };
 }
 
@@ -3603,10 +3654,30 @@ async function initMessages() {
         ? `<span class="messages-list__alias">(aka ${escapeHtml(thread.displayName)})</span>`
         : "";
       const timeText = formatRelativeTime(thread.updatedAt) || "";
+      const lastMessage = thread.lastMessage ?? null;
+      const attachmentCount = Number.isFinite(lastMessage?.attachmentCount)
+        ? Math.max(0, lastMessage.attachmentCount)
+        : 0;
+      const gifCount = Number.isFinite(lastMessage?.gifCount)
+        ? Math.max(0, lastMessage.gifCount)
+        : 0;
+      const mediaCount = attachmentCount + gifCount;
       let previewText;
-      if (thread.lastMessage?.text) {
-        const safeText = escapeHtml(thread.lastMessage.text);
+      if (lastMessage?.text) {
+        const safeText = escapeHtml(lastMessage.text);
         previewText = `“${safeText}”`;
+      } else if (mediaCount) {
+        const mediaParts = [];
+        if (attachmentCount) {
+          mediaParts.push(
+            `${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`
+          );
+        }
+        if (gifCount) {
+          mediaParts.push(`${gifCount} GIF${gifCount === 1 ? "" : "s"}`);
+        }
+        const label = mediaParts.join(" and ") || "media";
+        previewText = `Sent ${escapeHtml(label)}.`;
       } else if (inbound.status && inbound.status !== "none") {
         previewText = `${escapeHtml(thread.displayName)} marked you as ${escapeHtml(
           statusName

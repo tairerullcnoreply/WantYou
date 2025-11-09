@@ -40,3 +40,4 @@ WantYou is a social platform that enables users to discover and connect with oth
 * [11/19/2025; 7:45 PM UTC] Added resilient invite-link copying with graceful fallbacks for unsupported clipboards
 * [11/20/2025; 9:15 AM UTC] Integrated full emoji picker support and Tenor-powered GIF search with richer attachment previews in chats
 * [11/20/2025; 1:05 PM UTC] Restored Tenor GIF loading via the v1 API and returned empty chat selections without console errors
+* [11/20/2025; 4:45 PM UTC] Enabled GIF and media attachments in chats by persisting uploads and surfacing media previews in conversation lists
