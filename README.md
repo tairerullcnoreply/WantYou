@@ -36,3 +36,6 @@ WantYou is a social platform that enables users to discover and connect with oth
 * [11/18/2025; 6:05 PM UTC] Introduced the ?ref=AI read-only tour with demo data, AI navigation helpers, and landing page guidance
 * [11/19/2025; 9:15 AM UTC] Added verified birthdate tracking with age-range matchmaking and the Surprise Me lookup button
 * [11/19/2025; 1:40 PM UTC] Fixed profile loading for non-owners by initializing verification permissions before use
+* [11/19/2025; 4:50 PM UTC] Revamped messaging with group chat tools, themed conversations, media uploads, reactions, replies, and read receipts
+* [11/19/2025; 7:45 PM UTC] Added resilient invite-link copying with graceful fallbacks for unsupported clipboards
+* [11/20/2025; 9:15 AM UTC] Integrated full emoji picker support and Tenor-powered GIF search with richer attachment previews in chats

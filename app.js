@@ -198,6 +198,41 @@ const USER_BADGE_DEFINITIONS = Object.freeze({
 
 const USER_BADGE_ORDER = Object.freeze(["WantYou", "Verified"]);
 
+const TENOR_API_ENDPOINT = "https://tenor.googleapis.com/v2";
+const TENOR_API_KEY = "LIVDSRZULELA";
+const TENOR_CLIENT_KEY = "wantyou-messaging";
+const TENOR_SEARCH_LIMIT = 24;
+
+const NICKNAME_STORAGE_KEY = "wantyou_chat_nicknames_v2";
+const THREAD_THEME_STORAGE_KEY = "wantyou_chat_themes_v1";
+const DEFAULT_REACTION_OPTIONS = Object.freeze([
+  "👍",
+  "❤️",
+  "😂",
+  "🎉",
+  "😮",
+  "🔥",
+  "🙏",
+  "👀",
+  "🥰",
+  "💯",
+]);
+
+const BACKGROUND_THEME_OPTIONS = Object.freeze([
+  { value: "default", label: "Classic" },
+  { value: "sunrise", label: "Sunrise glow" },
+  { value: "ocean", label: "Ocean breeze" },
+  { value: "violet", label: "Violet hour" },
+]);
+
+const BUBBLE_THEME_OPTIONS = Object.freeze([
+  { value: "default", label: "WantYou classic" },
+  { value: "citrus", label: "Citrus pop" },
+  { value: "lagoon", label: "Lagoon" },
+  { value: "dusk", label: "Dusk" },
+  { value: "mono", label: "Minimal mono" },
+]);
+
 const POST_VISIBILITY_LABELS = Object.freeze({
   public: "Public",
   connections: "Connections",
@@ -429,6 +464,27 @@ function normalizeThread(thread) {
     ? thread.messages.length
     : 0;
   const previousCursor = typeof thread.previousCursor === "string" ? thread.previousCursor : null;
+  const participants = Array.isArray(thread.participants)
+    ? thread.participants
+        .map((participant) => {
+          if (!participant) return null;
+          const username = participant.username ?? participant.id ?? null;
+          return {
+            username,
+            id: participant.id ?? username ?? null,
+            displayName:
+              participant.displayName ??
+              participant.fullName ??
+              participant.username ??
+              participant.id ??
+              "Member",
+            fullName: participant.fullName ?? participant.displayName ?? participant.username ?? null,
+            nickname: participant.nickname ?? getStoredNickname(username ?? ""),
+            role: participant.role ?? "member",
+          };
+        })
+        .filter(Boolean)
+    : [];
   return {
     ...thread,
     inbound: normalizeConnectionState(thread.inbound),
@@ -437,6 +493,7 @@ function normalizeThread(thread) {
     totalMessages,
     hasMore: Boolean(thread.hasMore),
     previousCursor,
+    participants,
   };
 }
 
@@ -473,6 +530,439 @@ function renderUserBadges(container, badges) {
     badge.textContent = definition.label;
     container.appendChild(badge);
   });
+}
+
+function loadStoredMap(key) {
+  if (typeof window === "undefined") {
+    return {};
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return parsed;
+    }
+  } catch (error) {
+    // ignore storage issues
+  }
+  return {};
+}
+
+function saveStoredMap(key, value) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    // ignore storage issues
+  }
+}
+
+function getStoredNickname(username) {
+  if (!username) return "";
+  const map = loadStoredMap(NICKNAME_STORAGE_KEY);
+  const value = map[username];
+  return typeof value === "string" ? value : "";
+}
+
+function setStoredNickname(username, nickname) {
+  if (!username) return;
+  const map = loadStoredMap(NICKNAME_STORAGE_KEY);
+  if (!nickname) {
+    delete map[username];
+  } else {
+    map[username] = nickname;
+  }
+  saveStoredMap(NICKNAME_STORAGE_KEY, map);
+}
+
+function getStoredThreadTheme(username) {
+  if (!username) {
+    return { background: "default", bubbles: "default" };
+  }
+  const map = loadStoredMap(THREAD_THEME_STORAGE_KEY);
+  const entry = map[username];
+  if (!entry || typeof entry !== "object") {
+    return { background: "default", bubbles: "default" };
+  }
+  const backgroundValues = new Set(BACKGROUND_THEME_OPTIONS.map((option) => option.value));
+  const bubbleValues = new Set(BUBBLE_THEME_OPTIONS.map((option) => option.value));
+  const background = backgroundValues.has(entry.background) ? entry.background : "default";
+  const bubbles = bubbleValues.has(entry.bubbles) ? entry.bubbles : "default";
+  return { background, bubbles };
+}
+
+function saveStoredThreadTheme(username, theme) {
+  if (!username || !theme) return;
+  const map = loadStoredMap(THREAD_THEME_STORAGE_KEY);
+  map[username] = {
+    background: theme.background ?? "default",
+    bubbles: theme.bubbles ?? "default",
+  };
+  saveStoredMap(THREAD_THEME_STORAGE_KEY, map);
+}
+
+function applyThreadTheme(section, theme) {
+  if (!section) return;
+  if (theme?.background && theme.background !== "default") {
+    section.dataset.backgroundTheme = theme.background;
+  } else {
+    delete section.dataset.backgroundTheme;
+  }
+  if (theme?.bubbles && theme.bubbles !== "default") {
+    section.dataset.bubbleTheme = theme.bubbles;
+  } else {
+    delete section.dataset.bubbleTheme;
+  }
+}
+
+function getThreadDisplayName(thread) {
+  if (!thread) return "";
+  const inbound = normalizeConnectionState(thread.inbound);
+  if (connectionIsAnonymous(inbound)) {
+    return thread.displayName;
+  }
+  const nickname = getStoredNickname(thread.username);
+  if (nickname) {
+    return nickname;
+  }
+  return thread.displayName;
+}
+
+function formatParticipantName(participant) {
+  if (!participant) return "";
+  const options = [participant.nickname, participant.displayName, participant.fullName, participant.username];
+  for (const value of options) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "Member";
+}
+
+function findParticipant(participants, username) {
+  if (!Array.isArray(participants) || !username) {
+    return null;
+  }
+  return (
+    participants.find((participant) => participant?.username === username) ||
+    participants.find((participant) => participant?.id === username) ||
+    null
+  );
+}
+
+function getThreadParticipants(thread) {
+  const participants = [];
+  if (Array.isArray(thread?.participants)) {
+    thread.participants.forEach((participant) => {
+      if (!participant) return;
+      const key = participant.username || participant.id || participant.displayName;
+      if (!key) return;
+      const normalized = {
+        username: participant.username ?? participant.id ?? null,
+        id: participant.id ?? participant.username ?? null,
+        displayName: participant.displayName ?? participant.fullName ?? participant.username ?? participant.id ?? "Member",
+        fullName: participant.fullName ?? participant.displayName ?? participant.username ?? null,
+        nickname: participant.nickname ?? getStoredNickname(participant.username ?? participant.id ?? ""),
+        role: participant.role ?? "member",
+      };
+      if (!participants.some((existing) => existing.username && existing.username === normalized.username)) {
+        participants.push(normalized);
+      }
+    });
+  }
+
+  const existingUsernames = new Set(participants.map((participant) => participant.username));
+  if (thread?.username && !existingUsernames.has(thread.username)) {
+    participants.push({
+      username: thread.username,
+      displayName: thread.displayName,
+      fullName: thread.fullName,
+      nickname: getStoredNickname(thread.username),
+      role: "member",
+    });
+  }
+  if (sessionUser?.username && !existingUsernames.has(sessionUser.username)) {
+    participants.push({
+      username: sessionUser.username,
+      displayName: sessionUser.fullName ?? sessionUser.username,
+      fullName: sessionUser.fullName ?? sessionUser.username,
+      nickname: "",
+      role: "you",
+    });
+  }
+  return participants;
+}
+
+function describeReadReceipt(message, participants) {
+  if (!message) return null;
+  const recipients = [];
+  const sources = Array.isArray(message.readBy)
+    ? message.readBy
+    : Array.isArray(message.readReceipts)
+    ? message.readReceipts
+    : [];
+
+  sources.forEach((entry) => {
+    if (!entry) return;
+    const username = entry.username ?? entry.user ?? entry.userId ?? null;
+    const participant = findParticipant(participants, username);
+    const name = entry.displayName || entry.name || formatParticipantName(participant);
+    const at = entry.readAt ?? entry.seenAt ?? entry.at ?? null;
+    if (name) {
+      recipients.push({ name, at });
+    }
+  });
+
+  if (!recipients.length) {
+    const participant = participants.find((member) => member.role !== "you");
+    const fallbackName = formatParticipantName(participant);
+    const at = message.readAt ?? message.seenAt ?? null;
+    if (!at && !message.readAt && !message.seenAt) {
+      return null;
+    }
+    recipients.push({ name: fallbackName, at });
+  }
+
+  const unique = [];
+  const seen = new Set();
+  recipients.forEach((recipient) => {
+    const key = recipient.name || "Member";
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    unique.push(recipient);
+  });
+
+  if (!unique.length) {
+    return null;
+  }
+
+  const timestamp =
+    unique.find((entry) => Boolean(entry.at))?.at ?? message.readAt ?? message.seenAt ?? null;
+  return {
+    names: unique.map((entry) => entry.name || "Member"),
+    at: timestamp,
+  };
+}
+
+function formatReadReceiptText(receipt) {
+  if (!receipt) return "";
+  const names = receipt.names ?? [];
+  if (!names.length) return "";
+  const visible = names.slice(0, 3);
+  let label;
+  if (visible.length === 1) {
+    label = `Seen by ${visible[0]}`;
+  } else if (visible.length === 2) {
+    label = `Seen by ${visible[0]} and ${visible[1]}`;
+  } else {
+    const [first, second, third] = visible;
+    label = `Seen by ${first}, ${second}, and ${third}`;
+  }
+  if (names.length > visible.length) {
+    label += ` +${names.length - visible.length}`;
+  }
+  if (receipt.at) {
+    const formatted = formatTimestamp(receipt.at);
+    if (formatted) {
+      label += ` · ${formatted}`;
+    }
+  }
+  return label;
+}
+
+function collectThreadReactions(messages) {
+  const counts = new Map();
+  (messages ?? []).forEach((message) => {
+    const reactions = Array.isArray(message?.reactions) ? message.reactions : [];
+    reactions.forEach((reaction) => {
+      const emoji = reaction?.emoji ?? reaction?.value;
+      if (!emoji) return;
+      const amount = Number.isFinite(reaction?.count) ? reaction.count : 1;
+      counts.set(emoji, (counts.get(emoji) ?? 0) + amount);
+    });
+  });
+  return counts;
+}
+
+function truncateText(value, limit = 120) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (trimmed.length <= limit) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function promptForCustomNickname(initialNickname = "", targetName = "this member") {
+  const initial = typeof initialNickname === "string" ? initialNickname.trim() : "";
+  const response = window.prompt(`Set a nickname for ${targetName}`, initial);
+  if (response === null) {
+    return null;
+  }
+  const trimmed = response.trim();
+  if (!trimmed) {
+    if (!initial) {
+      window.alert("Nickname cannot be empty.");
+      return null;
+    }
+    const confirmRemoval = window.confirm("Remove this nickname?");
+    return confirmRemoval ? "" : null;
+  }
+  if (trimmed.length > MAX_ALIAS_LENGTH) {
+    window.alert(`Nicknames must be ${MAX_ALIAS_LENGTH} characters or fewer.`);
+    return null;
+  }
+  return trimmed;
+}
+
+function renderThreadParticipants(listElement, emptyState, participants) {
+  if (!listElement) return;
+  listElement.innerHTML = "";
+  const members = Array.isArray(participants) ? participants : [];
+  if (!members.length) {
+    if (emptyState) {
+      emptyState.hidden = false;
+    }
+    return;
+  }
+  if (emptyState) {
+    emptyState.hidden = true;
+  }
+  const fragment = document.createDocumentFragment();
+  members.forEach((participant) => {
+    const item = document.createElement("li");
+    item.className = "thread-participant";
+    if (participant.username) {
+      item.dataset.username = participant.username;
+    }
+    const meta = document.createElement("div");
+    meta.className = "thread-participant__meta";
+    const name = document.createElement("span");
+    name.className = "thread-participant__name";
+    name.textContent = formatParticipantName(participant);
+    meta.appendChild(name);
+    const role = document.createElement("span");
+    role.className = "thread-participant__role";
+    let roleLabel = "Member";
+    if (participant.role === "owner") {
+      roleLabel = "Owner";
+    } else if (participant.role === "admin") {
+      roleLabel = "Admin";
+    } else if (participant.role === "you") {
+      roleLabel = "You";
+    }
+    role.textContent = roleLabel;
+    meta.appendChild(role);
+    const storedNickname = participant.nickname ?? getStoredNickname(participant.username ?? "");
+    if (storedNickname) {
+      const nickname = document.createElement("span");
+      nickname.className = "thread-participant__nickname";
+      nickname.textContent = `Nickname: ${storedNickname}`;
+      meta.appendChild(nickname);
+    }
+    item.appendChild(meta);
+    const actions = document.createElement("div");
+    actions.className = "thread-participant__actions";
+    if (participant.username && participant.role !== "you") {
+      const nicknameButton = document.createElement("button");
+      nicknameButton.type = "button";
+      nicknameButton.dataset.action = "set-participant-nickname";
+      nicknameButton.dataset.username = participant.username;
+      nicknameButton.textContent = storedNickname ? "Edit nickname" : "Add nickname";
+      actions.appendChild(nicknameButton);
+    }
+    if (!actions.childElementCount) {
+      const placeholder = document.createElement("span");
+      placeholder.className = "thread-participant__role";
+      placeholder.textContent = "Manage from profile";
+      actions.appendChild(placeholder);
+    }
+    item.appendChild(actions);
+    fragment.appendChild(item);
+  });
+  listElement.appendChild(fragment);
+}
+
+function renderReactionSamples(container, counts) {
+  if (!container) return;
+  container.innerHTML = "";
+  const entries = counts && typeof counts.forEach === "function" ? Array.from(counts.entries()) : [];
+  if (!entries.length) {
+    DEFAULT_REACTION_OPTIONS.slice(0, 5).forEach((emoji) => {
+      const item = document.createElement("li");
+      item.textContent = emoji;
+      container.appendChild(item);
+    });
+    return;
+  }
+  entries
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .forEach(([emoji, count]) => {
+      const item = document.createElement("li");
+      item.textContent = count > 1 ? `${emoji} ×${count}` : emoji;
+      container.appendChild(item);
+    });
+}
+
+function resolveReplyTarget(message, messageIndex, participants) {
+  if (!message) return null;
+  let reference = message.replyTo ?? message.parentMessage ?? null;
+  if (!reference && typeof message.replyToId === "string") {
+    reference = message.replyToId;
+  }
+  if (typeof reference === "string" && messageIndex instanceof Map) {
+    reference = messageIndex.get(reference) ?? reference;
+  }
+  if (!reference) {
+    return null;
+  }
+  if (typeof reference === "string") {
+    return null;
+  }
+  const targetMessage = reference.message ?? reference;
+  if (!targetMessage) {
+    return null;
+  }
+  const sender = targetMessage.sender ?? targetMessage.username ?? null;
+  const participant = findParticipant(participants, sender);
+  const author = targetMessage.senderDisplayName || targetMessage.displayName || formatParticipantName(participant);
+  const previewText = truncateText(
+    targetMessage.text || targetMessage.body ||
+      (Array.isArray(targetMessage.attachments) && targetMessage.attachments.length
+        ? `${targetMessage.attachments.length} attachment${
+            targetMessage.attachments.length === 1 ? "" : "s"
+          }`
+        : "")
+  );
+  return {
+    author: author || "Someone",
+    text: previewText || "Attachment",
+  };
+}
+
+function getLatestReadReceipt(messages, participants) {
+  if (!Array.isArray(messages)) {
+    return null;
+  }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.sender !== sessionUser?.username) {
+      continue;
+    }
+    const receipt = describeReadReceipt(message, participants);
+    if (receipt) {
+      return receipt;
+    }
+  }
+  return null;
 }
 
 function promptForAlias(currentAlias = "") {
@@ -1863,6 +2353,17 @@ function renderThreadView(context, thread, options = {}) {
     composer,
     placeholder,
     loadMoreButton,
+    threadSection,
+    readStatus,
+    threadDetails,
+    participantsList,
+    participantsEmpty,
+    nicknameInput,
+    nicknameNote,
+    nicknameTarget,
+    backgroundSelect,
+    bubbleSelect,
+    reactionSamples,
   } = context;
 
   const inbound = normalizeConnectionState(thread.inbound);
@@ -1885,7 +2386,8 @@ function renderThreadView(context, thread, options = {}) {
   }
 
   statusLabel.textContent = STATUS_LABELS[inbound.status] ?? STATUS_LABELS.none;
-  title.textContent = thread.displayName;
+  const displayName = getThreadDisplayName(thread);
+  title.textContent = displayName;
   if (threadBadges) {
     if (inboundAnonymous) {
       threadBadges.hidden = true;
@@ -1930,32 +2432,230 @@ function renderThreadView(context, thread, options = {}) {
     requestReveal.disabled = !inboundAnonymous;
   }
 
+  const theme = getStoredThreadTheme(thread.username);
+  if (backgroundSelect && backgroundSelect.value !== theme.background) {
+    backgroundSelect.value = theme.background;
+  }
+  if (bubbleSelect && bubbleSelect.value !== theme.bubbles) {
+    bubbleSelect.value = theme.bubbles;
+  }
+  applyThreadTheme(threadSection, theme);
+
+  const participants = getThreadParticipants(thread);
+  thread.participants = participants;
+  renderThreadParticipants(participantsList, participantsEmpty, participants);
+
+  if (nicknameTarget) {
+    nicknameTarget.textContent = thread.displayName;
+  }
+
+  if (nicknameInput) {
+    const storedNickname = inboundAnonymous ? "" : getStoredNickname(thread.username);
+    nicknameInput.value = storedNickname;
+    nicknameInput.disabled = inboundAnonymous;
+    nicknameInput.placeholder = inboundAnonymous
+      ? "Nicknames unavailable while they stay anonymous"
+      : "Add a nickname";
+    if (nicknameNote) {
+      if (inboundAnonymous) {
+        nicknameNote.hidden = false;
+        nicknameNote.textContent = "Nicknames are hidden until they reveal themselves.";
+      } else if (storedNickname) {
+        nicknameNote.hidden = false;
+        nicknameNote.innerHTML = `Original name: <strong>${escapeHtml(thread.displayName)}</strong>`;
+      } else {
+        nicknameNote.hidden = true;
+      }
+    }
+  }
+
+  if (threadDetails && !context.detailsVisible) {
+    threadDetails.hidden = true;
+  }
+
   const incomingAuthor = inboundAnonymous
     ? inbound.alias?.trim() || "Anonymous"
-    : thread.displayName;
+    : displayName;
 
-  messageLog.innerHTML = (thread.messages ?? [])
-    .map((message) => {
-      const outgoing = message.sender === sessionUser?.username;
-      const direction = outgoing ? "outgoing" : "incoming";
-      const author = outgoing ? "You" : incomingAuthor;
-      const timestamp = formatTimestamp(message.createdAt);
-      const meta = `${escapeHtml(author)}${
-        timestamp ? ` · ${escapeHtml(timestamp)}` : ""
-      }`;
-      return `
-        <li class="message message--${direction}" data-message-id="${escapeHtml(
-          message.id ?? ""
-        )}">
-          <span class="message__meta">${meta}</span>
-          <p>${escapeHtml(message.text ?? "")}</p>
-        </li>
-      `;
-    })
-    .join("");
+  const messages = Array.isArray(thread.messages) ? thread.messages : [];
+  const messageIndex = new Map();
+  const fragment = document.createDocumentFragment();
 
-  if (!messageLog.innerHTML.trim()) {
-    messageLog.innerHTML = "<li class=\"message message--empty\"><p>No messages yet. Say hi!</p></li>";
+  messages.forEach((message, index) => {
+    if (!message) return;
+    const messageKey =
+      message.id ??
+      message.uuid ??
+      message.clientId ??
+      `local-${thread.username}-${index}-${message.createdAt ?? Date.now()}`;
+    messageIndex.set(messageKey, message);
+    const outgoing = message.sender === sessionUser?.username;
+    const direction = outgoing ? "outgoing" : "incoming";
+    const author = outgoing
+      ? "You"
+      : message.senderDisplayName ||
+        formatParticipantName(findParticipant(participants, message.sender)) ||
+        incomingAuthor;
+    const timestampText = formatTimestamp(message.createdAt);
+    const metaText = `${author}${timestampText ? ` · ${timestampText}` : ""}`;
+
+    const item = document.createElement("li");
+    item.className = `message message--${direction}`;
+    item.dataset.messageId = messageKey;
+    if (message.sender) {
+      item.dataset.sender = message.sender;
+    }
+
+    const meta = document.createElement("span");
+    meta.className = "message__meta";
+    meta.textContent = metaText;
+    item.appendChild(meta);
+
+    const body = document.createElement("div");
+    body.className = "message__body";
+
+    const replyTarget = resolveReplyTarget(message, messageIndex, participants);
+    if (replyTarget) {
+      const replyBlock = document.createElement("blockquote");
+      replyBlock.className = "message__reply";
+      replyBlock.innerHTML = `<strong>${escapeHtml(replyTarget.author)}</strong>: ${escapeHtml(
+        replyTarget.text
+      )}`;
+      body.appendChild(replyBlock);
+    }
+
+    const text = typeof message.text === "string" ? message.text.trim() : "";
+    if (text) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = text;
+      body.appendChild(paragraph);
+    }
+
+    const attachments = [];
+    if (Array.isArray(message.attachments)) {
+      message.attachments.forEach((attachment) => {
+        if (!attachment) return;
+        if (typeof attachment === "string") {
+          attachments.push({ url: attachment, type: "image" });
+        } else if (attachment.url) {
+          attachments.push(attachment);
+        }
+      });
+    }
+    const gifUrls = [];
+    if (Array.isArray(message.gifUrls)) {
+      message.gifUrls.forEach((url) => {
+        if (typeof url === "string" && url.trim()) {
+          gifUrls.push({ url: url.trim(), type: "gif" });
+        }
+      });
+    }
+    if (Array.isArray(message.gifs)) {
+      message.gifs.forEach((gif) => {
+        if (!gif) return;
+        if (typeof gif === "string") {
+          gifUrls.push({ url: gif, type: "gif" });
+        } else if (gif.url) {
+          gifUrls.push({ url: gif.url, type: "gif" });
+        }
+      });
+    }
+    const media = [...attachments, ...gifUrls].filter((attachment) => attachment?.url);
+    if (media.length) {
+      const mediaContainer = document.createElement("div");
+      mediaContainer.className = "message__attachments";
+      mediaContainer.appendChild(createMediaFragment(media));
+      body.appendChild(mediaContainer);
+    }
+
+    item.appendChild(body);
+
+    const reactions = Array.isArray(message.reactions) ? message.reactions : [];
+    if (reactions.length) {
+      const reactionList = document.createElement("ul");
+      reactionList.className = "message__reactions";
+      reactions.forEach((reaction) => {
+        if (!reaction) return;
+        const emoji = reaction.emoji ?? reaction.value;
+        if (!emoji) return;
+        const listItem = document.createElement("li");
+        listItem.className = "message__reaction";
+        const emojiSpan = document.createElement("span");
+        emojiSpan.textContent = emoji;
+        listItem.appendChild(emojiSpan);
+        if (Number.isFinite(reaction.count) && reaction.count > 1) {
+          const count = document.createElement("span");
+          count.className = "message__reaction-count";
+          count.textContent = `×${reaction.count}`;
+          listItem.appendChild(count);
+        }
+        reactionList.appendChild(listItem);
+      });
+      item.appendChild(reactionList);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "message__actions";
+    if (!inboundAnonymous || outgoing) {
+      const replyButton = document.createElement("button");
+      replyButton.type = "button";
+      replyButton.className = "message__action";
+      replyButton.dataset.action = "reply-to-message";
+      replyButton.dataset.messageId = messageKey;
+      replyButton.textContent = "Reply";
+      actions.appendChild(replyButton);
+
+      const reactButton = document.createElement("button");
+      reactButton.type = "button";
+      reactButton.className = "message__action";
+      reactButton.dataset.action = "react-to-message";
+      reactButton.dataset.messageId = messageKey;
+      reactButton.textContent = "React";
+      actions.appendChild(reactButton);
+    }
+    if (actions.childElementCount) {
+      item.appendChild(actions);
+    }
+
+    if (outgoing) {
+      const receipt = describeReadReceipt(message, participants);
+      const textContent = formatReadReceiptText(receipt);
+      if (textContent) {
+        const receiptElement = document.createElement("span");
+        receiptElement.className = "message__read-receipt";
+        receiptElement.textContent = textContent;
+        item.appendChild(receiptElement);
+      }
+    }
+
+    fragment.appendChild(item);
+  });
+
+  messageLog.innerHTML = "";
+  if (!fragment.childElementCount) {
+    const empty = document.createElement("li");
+    empty.className = "message message--empty";
+    empty.innerHTML = "<p>No messages yet. Say hi!</p>";
+    messageLog.appendChild(empty);
+  } else {
+    messageLog.appendChild(fragment);
+  }
+
+  if (reactionSamples) {
+    const reactionCounts = collectThreadReactions(messages);
+    renderReactionSamples(reactionSamples, reactionCounts);
+  }
+
+  if (readStatus) {
+    const receipt = getLatestReadReceipt(messages, participants);
+    const textContent = formatReadReceiptText(receipt);
+    if (textContent) {
+      readStatus.hidden = false;
+      readStatus.textContent = textContent;
+    } else {
+      readStatus.hidden = true;
+      readStatus.textContent = "";
+    }
   }
 
   if (!preserveScroll && messageLog.scrollHeight) {
@@ -1966,6 +2666,15 @@ function renderThreadView(context, thread, options = {}) {
     if (delta > 0) {
       messageLog.scrollTop = delta;
     }
+  }
+
+  context.messageIndex = messageIndex;
+  context.participants = participants;
+  if (typeof context.updateAttachmentPreview === "function") {
+    context.updateAttachmentPreview();
+  }
+  if (typeof context.updateReplyPreview === "function") {
+    context.updateReplyPreview();
   }
 }
 
@@ -1987,8 +2696,41 @@ async function initMessages() {
   const input = document.getElementById("message-input");
   const placeholder = threadSection.querySelector("[data-thread-placeholder]");
   const newChatButton = document.querySelector('[data-action="new-chat"]');
+  const newGroupChatButton = document.querySelector('[data-action="new-group-chat"]');
   const loadMoreButton = threadSection.querySelector('[data-action="load-more"]');
   const searchInput = document.querySelector('.app-search input[type="search"]');
+  const readStatus = threadSection.querySelector("[data-thread-read-status]");
+  const threadDetails = threadSection.querySelector("[data-thread-details]");
+  const participantsList = threadDetails?.querySelector("[data-thread-participants]");
+  const participantsEmpty = threadDetails?.querySelector("[data-thread-participants-empty]");
+  const nicknameInput = threadDetails?.querySelector("[data-thread-nickname]");
+  const nicknameNote = threadDetails?.querySelector("[data-nickname-note]");
+  const nicknameTarget = threadDetails?.querySelector("[data-nickname-target]");
+  const backgroundSelect = threadDetails?.querySelector("[data-thread-background]");
+  const bubbleSelect = threadDetails?.querySelector("[data-thread-bubbles]");
+  const reactionSamples = threadDetails?.querySelector("[data-reaction-samples]");
+  const closeDetailsButton = threadDetails?.querySelector('[data-action="close-thread-details"]');
+  const manageParticipantsButton = threadDetails?.querySelector('[data-action="manage-participants"]');
+  const shareInviteButton = threadDetails?.querySelector('[data-action="share-invite"]');
+  const emojiPicker = composer?.querySelector("[data-emoji-picker]");
+  const emojiSurface = emojiPicker?.querySelector("[data-emoji-surface]") ?? emojiPicker;
+  const emojiButton = composer?.querySelector('[data-action="composer-emoji"]');
+  const gifButton = composer?.querySelector('[data-action="composer-gif"]');
+  const gifPicker = composer?.querySelector("[data-gif-picker]");
+  const gifSearchForm = gifPicker?.querySelector("[data-gif-search]");
+  const gifSearchInput = gifPicker?.querySelector("[data-gif-search-input]");
+  const gifResults = gifPicker?.querySelector("[data-gif-results]");
+  const gifStatus = gifPicker?.querySelector("[data-gif-status]");
+  const gifMoreButton = gifPicker?.querySelector('[data-action="more-gifs"]');
+  const gifCloseButton = gifPicker?.querySelector('[data-action="close-gif-picker"]');
+  const themeToggleButton = composer?.querySelector('[data-action="composer-theme"]');
+  const replyPreview = composer?.querySelector("[data-reply-preview]");
+  const replyAuthor = composer?.querySelector("[data-reply-author]");
+  const replyText = composer?.querySelector("[data-reply-text]");
+  const cancelReply = composer?.querySelector('[data-action="cancel-reply"]');
+  const attachmentPreview = composer?.querySelector("[data-attachment-preview]");
+  const imageInput = composer?.querySelector('input[data-upload="image"]');
+  const videoInput = composer?.querySelector('input[data-upload="video"]');
   if (!statusHeader || !statusLabel || !title || !messageLog || !composer || !placeholder) {
     return;
   }
@@ -1998,6 +2740,322 @@ async function initMessages() {
     window.location.href = withAiRef("/lookup/");
   });
 
+  newGroupChatButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    window.location.href = withAiRef("/messages/new?group=1");
+  });
+
+  const composerState = {
+    attachments: [],
+    gifs: [],
+    replyTo: null,
+  };
+
+  const setGifStatus = (message) => {
+    if (!gifStatus) return;
+    gifStatus.textContent = message || "";
+  };
+
+  const updateAttachmentPreview = () => {
+    if (!attachmentPreview) return;
+    const items = [...composerState.attachments, ...composerState.gifs];
+    if (!items.length) {
+      attachmentPreview.innerHTML = "";
+      attachmentPreview.hidden = true;
+      return;
+    }
+    attachmentPreview.hidden = false;
+    attachmentPreview.innerHTML = "";
+    items.forEach((item) => {
+      const element = document.createElement("li");
+      element.className = "composer__attachment";
+      element.dataset.attachmentId = item.id;
+
+      if (item.kind === "gif" && item.preview) {
+        const previewImage = document.createElement("img");
+        previewImage.className = "composer__attachment-thumb";
+        previewImage.src = item.preview;
+        previewImage.alt = item.name ? `${item.name} GIF preview` : "Selected GIF preview";
+        previewImage.loading = "lazy";
+        element.appendChild(previewImage);
+      }
+
+      const info = document.createElement("div");
+      info.className = "composer__attachment-info";
+      const name = document.createElement("span");
+      name.className = "composer__attachment-name";
+      if (item.kind === "gif") {
+        name.textContent = item.name || "GIF";
+      } else {
+        name.textContent = item.file?.name || item.name || "Attachment";
+      }
+      const meta = document.createElement("span");
+      meta.className = "composer__attachment-meta";
+      if (item.kind === "gif") {
+        meta.textContent = item.provider || truncateText(item.url ?? "", 36);
+      } else if (item.file) {
+        meta.textContent = formatFileSize(item.file.size);
+      } else if (item.size) {
+        meta.textContent = formatFileSize(item.size);
+      } else {
+        meta.textContent = "Attached";
+      }
+      info.appendChild(name);
+      info.appendChild(meta);
+      element.appendChild(info);
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "composer__attachment-remove";
+      removeButton.dataset.action = "remove-attachment";
+      removeButton.dataset.attachmentId = item.id;
+      removeButton.textContent = "Remove";
+      element.appendChild(removeButton);
+
+      attachmentPreview.appendChild(element);
+    });
+  };
+
+  const updateReplyPreview = () => {
+    if (!replyPreview || !replyAuthor || !replyText) return;
+    if (!composerState.replyTo) {
+      replyPreview.hidden = true;
+      replyAuthor.textContent = "";
+      replyText.textContent = "";
+      return;
+    }
+    replyPreview.hidden = false;
+    replyAuthor.textContent = composerState.replyTo.author;
+    replyText.textContent = composerState.replyTo.text;
+  };
+
+  const resetComposerState = () => {
+    composerState.attachments = [];
+    composerState.gifs = [];
+    composerState.replyTo = null;
+    updateAttachmentPreview();
+    updateReplyPreview();
+  };
+
+  const addFileAttachments = (fileList, kind) => {
+    const files = Array.from(fileList || []);
+    files.forEach((file) => {
+      composerState.attachments.push({
+        id: `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        file,
+        kind,
+      });
+    });
+    updateAttachmentPreview();
+  };
+
+  const addGifAttachment = (gif) => {
+    if (!gif) return;
+    const normalizedUrl = typeof gif === "string" ? gif.trim() : String(gif.url ?? "").trim();
+    if (!normalizedUrl) {
+      return;
+    }
+    const alreadyAdded = composerState.gifs.some((item) => item.url === normalizedUrl);
+    if (alreadyAdded) {
+      if (gifPicker && !gifPicker.hidden) {
+        setGifStatus?.("You already attached that GIF.");
+      }
+      return;
+    }
+    composerState.gifs.push({
+      id: `gif-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      url: normalizedUrl,
+      preview: typeof gif === "string" ? undefined : gif.preview || gif.tiny || normalizedUrl,
+      name: typeof gif === "string" ? "GIF" : gif.name || gif.description || "GIF",
+      provider: typeof gif === "string" ? undefined : gif.provider || "Tenor",
+      kind: "gif",
+    });
+    updateAttachmentPreview();
+  };
+
+  const gifState = {
+    query: "",
+    next: null,
+    loading: false,
+    initialized: false,
+  };
+
+  const renderGifResults = (items, { append = false } = {}) => {
+    if (!gifResults) return;
+    const fragment = document.createDocumentFragment();
+    items.forEach((item) => {
+      const media = item?.media_formats ?? {};
+      const fullUrl = media.gif?.url || item?.url || "";
+      const previewUrl = media.tinygif?.url || media.nanogif?.url || media.mediumgif?.url || fullUrl;
+      if (!fullUrl) {
+        return;
+      }
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "gif-picker__result";
+      button.dataset.gifChoice = "1";
+      button.dataset.gifUrl = fullUrl;
+      if (previewUrl) {
+        button.dataset.gifPreview = previewUrl;
+      }
+      if (item?.id) {
+        button.dataset.gifId = item.id;
+      }
+      const description = item?.content_description || item?.title || "GIF";
+      button.dataset.gifDescription = description;
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.src = previewUrl || fullUrl;
+      img.alt = description ? `${description} GIF` : "GIF preview";
+      button.appendChild(img);
+      fragment.appendChild(button);
+    });
+    if (!append) {
+      gifResults.innerHTML = "";
+    }
+    gifResults.appendChild(fragment);
+  };
+
+  const fetchGifResults = async ({ query = "", next = null, append = false } = {}) => {
+    if (!gifPicker || gifState.loading) {
+      return;
+    }
+    gifState.loading = true;
+    gifState.query = query;
+    const params = new URLSearchParams({
+      key: TENOR_API_KEY,
+      client_key: TENOR_CLIENT_KEY,
+      limit: String(TENOR_SEARCH_LIMIT),
+      media_filter: "gif,tinygif",
+      contentfilter: "high",
+    });
+    if (query) {
+      params.set("q", query);
+    }
+    if (next) {
+      params.set("pos", next);
+    }
+    const endpoint = query ? "search" : "featured";
+    setGifStatus(query ? `Searching “${query}”…` : "Loading trending GIFs…");
+    try {
+      const response = await fetch(`${TENOR_API_ENDPOINT}/${endpoint}?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error(`Tenor request failed with status ${response.status}`);
+      }
+      const payload = await response.json();
+      const results = Array.isArray(payload?.results) ? payload.results : [];
+      renderGifResults(results, { append });
+      gifState.next = payload?.next ?? null;
+      if (!results.length) {
+        setGifStatus(query ? "No GIFs found. Try another search." : "No GIFs to show right now. Try searching instead.");
+      } else {
+        setGifStatus("");
+      }
+      if (gifMoreButton) {
+        gifMoreButton.hidden = !gifState.next;
+      }
+      gifState.initialized = true;
+    } catch (error) {
+      console.error("Unable to load GIFs", error);
+      if (!append && gifResults) {
+        gifResults.innerHTML = "";
+      }
+      setGifStatus("We couldn’t load GIFs right now. Try again.");
+      gifState.next = null;
+      if (gifMoreButton) {
+        gifMoreButton.hidden = true;
+      }
+    } finally {
+      gifState.loading = false;
+    }
+  };
+
+  const ensureGifResults = async () => {
+    if (!gifPicker) return;
+    if (!gifState.initialized && !gifState.loading) {
+      await fetchGifResults({ query: "", append: false });
+    }
+  };
+
+  function hideGifPicker() {
+    if (!gifPicker) return;
+    if (!gifPicker.hidden) {
+      gifPicker.hidden = true;
+      gifButton?.setAttribute("aria-expanded", "false");
+      setGifStatus("");
+    }
+  }
+
+  async function showGifPicker() {
+    if (!gifPicker || !gifButton) return;
+    hideEmojiPicker();
+    gifPicker.hidden = false;
+    gifButton.setAttribute("aria-expanded", "true");
+    await ensureGifResults();
+    if (gifSearchInput) {
+      gifSearchInput.focus();
+      gifSearchInput.select();
+    }
+  }
+
+  async function toggleGifPicker() {
+    if (!gifPicker || !gifButton) return;
+    if (gifPicker.hidden) {
+      await showGifPicker();
+    } else {
+      hideGifPicker();
+    }
+  }
+
+  async function waitForEmojiPicker() {
+    if (!window.customElements) {
+      return;
+    }
+    if (window.customElements.get("emoji-picker")) {
+      return;
+    }
+    if (typeof window.customElements.whenDefined === "function") {
+      try {
+        await window.customElements.whenDefined("emoji-picker");
+      } catch (error) {
+        // Ignore failures; the picker will fallback to native emoji input.
+      }
+    }
+  }
+
+  function hideEmojiPicker() {
+    if (!emojiPicker) return;
+    if (!emojiPicker.hidden) {
+      emojiPicker.hidden = true;
+      emojiButton?.setAttribute("aria-expanded", "false");
+    }
+  }
+
+  async function toggleEmojiPicker() {
+    if (!emojiPicker || !emojiButton) return;
+    const willShow = Boolean(emojiPicker.hidden);
+    if (willShow) {
+      await waitForEmojiPicker();
+      hideGifPicker();
+    }
+    emojiPicker.hidden = !willShow;
+    emojiButton.setAttribute("aria-expanded", String(willShow));
+    if (willShow && emojiSurface && typeof emojiSurface.focus === "function") {
+      emojiSurface.focus();
+    }
+  }
+
+  let activeReactionPicker = null;
+
+  const closeReactionPicker = () => {
+    if (activeReactionPicker) {
+      activeReactionPicker.remove();
+      activeReactionPicker = null;
+    }
+  };
+
+  updateAttachmentPreview();
+  updateReplyPreview();
   placeholder.hidden = false;
   statusHeader.hidden = true;
   composer.hidden = true;
@@ -2030,7 +3088,413 @@ async function initMessages() {
     composer,
     placeholder,
     loadMoreButton,
+    threadSection,
+    readStatus,
+    threadDetails,
+    participantsList,
+    participantsEmpty,
+    nicknameInput,
+    nicknameNote,
+    nicknameTarget,
+    backgroundSelect,
+    bubbleSelect,
+    reactionSamples,
+    updateAttachmentPreview,
+    updateReplyPreview,
+    detailsVisible: false,
+    messageIndex: new Map(),
+    participants: [],
   };
+
+  if (backgroundSelect && !backgroundSelect.options.length) {
+    BACKGROUND_THEME_OPTIONS.forEach((option) => {
+      const choice = document.createElement("option");
+      choice.value = option.value;
+      choice.textContent = option.label;
+      backgroundSelect.appendChild(choice);
+    });
+    backgroundSelect.value = "default";
+  }
+
+  if (bubbleSelect && !bubbleSelect.options.length) {
+    BUBBLE_THEME_OPTIONS.forEach((option) => {
+      const choice = document.createElement("option");
+      choice.value = option.value;
+      choice.textContent = option.label;
+      bubbleSelect.appendChild(choice);
+    });
+    bubbleSelect.value = "default";
+  }
+
+  if (reactionSamples) {
+    renderReactionSamples(reactionSamples, new Map());
+  }
+
+  backgroundSelect?.addEventListener("change", () => {
+    const value = backgroundSelect.value || "default";
+    if (activeThread) {
+      const currentTheme = getStoredThreadTheme(activeThread.username);
+      const nextTheme = { background: value, bubbles: currentTheme.bubbles };
+      saveStoredThreadTheme(activeThread.username, nextTheme);
+      applyThreadTheme(threadSection, nextTheme);
+    } else {
+      applyThreadTheme(threadSection, { background: value, bubbles: bubbleSelect?.value || "default" });
+    }
+  });
+
+  bubbleSelect?.addEventListener("change", () => {
+    const value = bubbleSelect.value || "default";
+    if (activeThread) {
+      const currentTheme = getStoredThreadTheme(activeThread.username);
+      const nextTheme = { background: currentTheme.background, bubbles: value };
+      saveStoredThreadTheme(activeThread.username, nextTheme);
+      applyThreadTheme(threadSection, nextTheme);
+    } else {
+      applyThreadTheme(threadSection, { background: backgroundSelect?.value || "default", bubbles: value });
+    }
+  });
+
+  imageInput?.addEventListener("change", () => {
+    addFileAttachments(imageInput.files, "image");
+    if (imageInput.value) {
+      imageInput.value = "";
+    }
+  });
+
+  videoInput?.addEventListener("change", () => {
+    addFileAttachments(videoInput.files, "video");
+    if (videoInput.value) {
+      videoInput.value = "";
+    }
+  });
+
+  attachmentPreview?.addEventListener("click", (event) => {
+    const target = event.target;
+    const button = target?.closest?.('[data-action="remove-attachment"]');
+    if (!button) return;
+    const id = button.dataset.attachmentId;
+    composerState.attachments = composerState.attachments.filter((item) => item.id !== id);
+    composerState.gifs = composerState.gifs.filter((item) => item.id !== id);
+    updateAttachmentPreview();
+  });
+
+  gifButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleGifPicker();
+  });
+
+  emojiButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleEmojiPicker();
+  });
+
+  emojiPicker?.addEventListener("emoji-click", (event) => {
+    if (!input) return;
+    const detail = event.detail ?? {};
+    let emoji = detail.unicode || detail.emoji?.unicode || detail.emoji || "";
+    if (Array.isArray(emoji)) {
+      emoji = emoji[0] ?? "";
+    }
+    if (!emoji || typeof emoji !== "string") {
+      return;
+    }
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    const text = input.value ?? "";
+    input.value = `${text.slice(0, start)}${emoji}${text.slice(end)}`;
+    const nextCursor = start + emoji.length;
+    input.focus();
+    try {
+      input.setSelectionRange(nextCursor, nextCursor);
+    } catch (error) {
+      // ignore selection errors in older browsers
+    }
+    hideEmojiPicker();
+  });
+
+  gifSearchForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (gifState.loading) return;
+    const query = gifSearchInput?.value?.trim() ?? "";
+    gifState.next = null;
+    fetchGifResults({ query, append: false });
+  });
+
+  gifSearchInput?.addEventListener("input", (event) => {
+    const value = event.target?.value ?? "";
+    if (!value.trim() && gifState.query && !gifState.loading) {
+      gifState.next = null;
+      fetchGifResults({ query: "", append: false });
+    }
+  });
+
+  gifResults?.addEventListener("click", (event) => {
+    const choice = event.target?.closest?.("[data-gif-choice]");
+    if (!choice) return;
+    event.preventDefault();
+    const url = choice.dataset.gifUrl || "";
+    if (!url) return;
+    addGifAttachment({
+      url,
+      preview: choice.dataset.gifPreview || url,
+      name: choice.dataset.gifDescription || "GIF",
+      description: choice.dataset.gifDescription || "GIF",
+      provider: "Tenor",
+    });
+    hideGifPicker();
+  });
+
+  gifMoreButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (!gifState.next || gifState.loading) return;
+    fetchGifResults({ query: gifState.query, next: gifState.next, append: true });
+  });
+
+  gifCloseButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    hideGifPicker();
+  });
+
+  cancelReply?.addEventListener("click", (event) => {
+    event.preventDefault();
+    composerState.replyTo = null;
+    updateReplyPreview();
+  });
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    if (emojiPicker && !emojiPicker.hidden) {
+      if (!emojiPicker.contains(target) && !emojiButton?.contains(target)) {
+        hideEmojiPicker();
+      }
+    }
+    if (gifPicker && !gifPicker.hidden) {
+      if (!gifPicker.contains(target) && !gifButton?.contains(target)) {
+        hideGifPicker();
+      }
+    }
+    if (activeReactionPicker && !activeReactionPicker.contains(target)) {
+      if (!target.closest('[data-action="react-to-message"]')) {
+        closeReactionPicker();
+      }
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      const pickerWasOpen = (!emojiPicker?.hidden) || (!gifPicker?.hidden) || Boolean(activeReactionPicker);
+      if (pickerWasOpen) {
+        event.stopPropagation();
+      }
+      hideEmojiPicker();
+      hideGifPicker();
+      closeReactionPicker();
+    }
+  });
+
+  const openThreadDetails = () => {
+    if (!threadDetails) return;
+    context.detailsVisible = true;
+    threadDetails.hidden = false;
+  };
+
+  const closeThreadDetails = () => {
+    if (!threadDetails) return;
+    context.detailsVisible = false;
+    threadDetails.hidden = true;
+  };
+
+  themeToggleButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (!threadDetails) return;
+    if (context.detailsVisible) {
+      closeThreadDetails();
+    } else {
+      openThreadDetails();
+    }
+  });
+
+  closeDetailsButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeThreadDetails();
+  });
+
+  manageParticipantsButton?.addEventListener("click", () => {
+    window.alert("Group member management is coming soon. For now, invite friends with the share link.");
+  });
+
+  const copyInviteLink = async (link) => {
+    if (!link) return "error";
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      try {
+        await navigator.clipboard.writeText(link);
+        return "clipboard";
+      } catch (error) {
+        // continue to fallbacks
+      }
+    }
+    const tempInput = document.createElement("input");
+    tempInput.type = "text";
+    tempInput.value = link;
+    tempInput.setAttribute("aria-hidden", "true");
+    tempInput.style.position = "fixed";
+    tempInput.style.opacity = "0";
+    document.body.appendChild(tempInput);
+    let copied = false;
+    try {
+      tempInput.focus();
+      tempInput.select();
+      if (typeof document.execCommand === "function") {
+        copied = document.execCommand("copy");
+      }
+    } catch (error) {
+      copied = false;
+    }
+    document.body.removeChild(tempInput);
+    if (copied) {
+      return "execCommand";
+    }
+    return "prompt";
+  };
+
+  shareInviteButton?.addEventListener("click", async () => {
+    if (!activeThread) {
+      window.alert("Open a conversation to share an invite link.");
+      return;
+    }
+    const inviteLink = `${window.location.origin}/messages/thread/${encodeURIComponent(activeThread.username)}`;
+    const method = await copyInviteLink(inviteLink);
+    if (method === "clipboard" || method === "execCommand") {
+      window.alert("Invite link copied to your clipboard!");
+      return;
+    }
+    window.prompt("Copy this invite link", inviteLink);
+  });
+
+  participantsList?.addEventListener("click", (event) => {
+    const button = event.target?.closest?.('[data-action="set-participant-nickname"]');
+    if (!button || !activeThread) return;
+    const username = button.dataset.username;
+    const participant = findParticipant(context.participants, username);
+    const currentNickname = getStoredNickname(username);
+    const response = promptForCustomNickname(currentNickname, formatParticipantName(participant));
+    if (response === null) {
+      return;
+    }
+    setStoredNickname(username, response);
+    renderThreadView(context, activeThread, {
+      preserveScroll: true,
+      previousScrollHeight: messageLog.scrollHeight,
+    });
+    attachThreadControls(activeThread);
+    renderList();
+  });
+
+  const saveNicknameInput = () => {
+    if (!nicknameInput || !activeThread) return;
+    const inboundState = normalizeConnectionState(activeThread.inbound);
+    if (connectionIsAnonymous(inboundState)) {
+      return;
+    }
+    const value = nicknameInput.value.trim();
+    setStoredNickname(activeThread.username, value);
+    renderThreadView(context, activeThread, {
+      preserveScroll: true,
+      previousScrollHeight: messageLog.scrollHeight,
+    });
+    attachThreadControls(activeThread);
+    renderList();
+  };
+
+  nicknameInput?.addEventListener("change", saveNicknameInput);
+  nicknameInput?.addEventListener("blur", saveNicknameInput);
+
+  messageLog?.addEventListener("click", (event) => {
+    const replyButton = event.target?.closest?.('[data-action="reply-to-message"]');
+    if (replyButton) {
+      const messageId = replyButton.dataset.messageId;
+      if (!messageId) return;
+      const message = context.messageIndex?.get(messageId);
+      if (!message || !input) return;
+      const participant = findParticipant(context.participants, message.sender);
+      const authorName =
+        message.sender === sessionUser?.username
+          ? "You"
+          : formatParticipantName(participant) || context.title?.textContent || "Someone";
+      let preview = message.text || "";
+      if (!preview) {
+        const attachmentCount = Array.isArray(message.attachments) ? message.attachments.length : 0;
+        const gifCount = Array.isArray(message.gifUrls) ? message.gifUrls.length : 0;
+        const totalMedia = attachmentCount + gifCount;
+        if (totalMedia > 0) {
+          preview = `${totalMedia} attachment${totalMedia === 1 ? "" : "s"}`;
+        }
+      }
+      composerState.replyTo = {
+        id: messageId,
+        author: authorName,
+        text: truncateText(preview || "Attachment"),
+      };
+      updateReplyPreview();
+      input.focus();
+      return;
+    }
+
+    const reactButton = event.target?.closest?.('[data-action="react-to-message"]');
+    if (reactButton) {
+      event.preventDefault();
+      const messageElement = reactButton.closest(".message");
+      const messageId = reactButton.dataset.messageId;
+      if (!messageElement || !messageId) return;
+      if (activeReactionPicker && activeReactionPicker.parentElement === messageElement) {
+        closeReactionPicker();
+        return;
+      }
+      closeReactionPicker();
+      const picker = document.createElement("div");
+      picker.className = "message__reaction-picker";
+      DEFAULT_REACTION_OPTIONS.forEach((emoji) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.reactionOption = emoji;
+        button.textContent = emoji;
+        picker.appendChild(button);
+      });
+      messageElement.appendChild(picker);
+      activeReactionPicker = picker;
+      return;
+    }
+
+    const reactionChoice = event.target?.closest?.('[data-reaction-option]');
+    if (reactionChoice) {
+      const emoji = reactionChoice.dataset.reactionOption || reactionChoice.textContent || "";
+      const messageElement = reactionChoice.closest(".message");
+      const messageId = messageElement?.dataset.messageId;
+      if (!emoji || !messageId || !activeThread) return;
+      closeReactionPicker();
+      const targetMessage = context.messageIndex?.get(messageId);
+      if (!targetMessage) return;
+      const reactions = Array.isArray(targetMessage.reactions)
+        ? targetMessage.reactions.slice()
+        : [];
+      const existing = reactions.find((reaction) => reaction?.emoji === emoji || reaction?.value === emoji);
+      if (existing) {
+        existing.count = Number.isFinite(existing.count) ? existing.count + 1 : 2;
+        existing.emoji = emoji;
+      } else {
+        reactions.push({ emoji, count: 1 });
+      }
+      targetMessage.reactions = reactions;
+      renderThreadView(context, activeThread, {
+        preserveScroll: true,
+        previousScrollHeight: messageLog.scrollHeight,
+      });
+      attachThreadControls(activeThread);
+    }
+  });
 
   const fetchThreads = async () => {
     const data = await apiRequest("/messages/threads");
@@ -2070,7 +3534,8 @@ async function initMessages() {
     const isSearching = normalizedTerm.length > 0;
     const filteredThreads = threads.filter((thread) => {
       if (!isSearching) return true;
-      const haystacks = [thread.displayName, thread.fullName, thread.lastMessage?.text]
+      const nickname = getStoredNickname(thread.username);
+      const haystacks = [thread.displayName, thread.fullName, thread.lastMessage?.text, nickname]
         .filter(Boolean)
         .map((value) => value.toLowerCase());
       return haystacks.some((value) => value.includes(normalizedTerm));
@@ -2105,6 +3570,11 @@ async function initMessages() {
       const statusClass = tagClassForStatus(inbound.status ?? "none");
       const statusText = STATUS_LABELS[inbound.status ?? "none"] ?? STATUS_LABELS.none;
       const statusName = STATUS_NAMES[inbound.status ?? "none"] ?? inbound.status ?? "none";
+      const nickname = connectionIsAnonymous(inbound) ? "" : getStoredNickname(thread.username);
+      const displayTitle = nickname || thread.displayName;
+      const aliasMarkup = nickname
+        ? `<span class="messages-list__alias">(aka ${escapeHtml(thread.displayName)})</span>`
+        : "";
       const timeText = formatRelativeTime(thread.updatedAt) || "";
       let previewText;
       if (thread.lastMessage?.text) {
@@ -2135,7 +3605,8 @@ async function initMessages() {
           ${timeMarkup}
         </span>
         <span class="messages-list__name-row">
-          <span class="messages-list__name">${escapeHtml(thread.displayName)}</span>
+          <span class="messages-list__name">${escapeHtml(displayTitle)}</span>
+          ${aliasMarkup}
           <span class="user-badges user-badges--compact user-badges--inline" data-user-badges hidden></span>
         </span>
         <span class="messages-list__row messages-list__row--bottom">
@@ -2359,14 +3830,54 @@ async function initMessages() {
     }
     composer.onsubmit = async (event) => {
       event.preventDefault();
-      const text = input?.value.trim();
-      if (!text) return;
+      const textValue = input?.value.trim() ?? "";
+      const hasText = textValue.length > 0;
+      const hasAttachments = composerState.attachments.length > 0;
+      const hasGifs = composerState.gifs.length > 0;
+      if (!hasText && !hasAttachments && !hasGifs) {
+        return;
+      }
+      const usingFormData = hasAttachments;
+      let body;
+      if (usingFormData) {
+        const formData = new FormData();
+        if (hasText) {
+          formData.append("text", textValue);
+        }
+        composerState.attachments.forEach((attachment) => {
+          if (attachment.file) {
+            formData.append("attachments", attachment.file, attachment.file.name);
+          }
+        });
+        composerState.gifs.forEach((gif) => {
+          if (gif.url) {
+            formData.append("gifUrls", gif.url);
+          }
+        });
+        if (composerState.replyTo?.id) {
+          formData.append("replyTo", composerState.replyTo.id);
+        }
+        body = formData;
+      } else {
+        const payload = {};
+        if (hasText) {
+          payload.text = textValue;
+        }
+        if (hasGifs) {
+          payload.gifUrls = composerState.gifs.map((gif) => gif.url);
+        }
+        if (composerState.replyTo?.id) {
+          payload.replyTo = composerState.replyTo.id;
+        }
+        body = JSON.stringify(payload);
+      }
+
       try {
         const response = await apiRequest(
           `/messages/thread/${encodeURIComponent(thread.username)}`,
           {
             method: "POST",
-            body: JSON.stringify({ text }),
+            body,
           }
         );
         const message = response?.message;
@@ -2397,6 +3908,9 @@ async function initMessages() {
             summary.totalMessages = thread.totalMessages;
           }
           renderList();
+          resetComposerState();
+          hideEmojiPicker();
+          closeReactionPicker();
         }
       } catch (error) {
         const message = error?.message || "We couldn't send that message.";
@@ -2464,10 +3978,14 @@ async function initMessages() {
         }
         renderList();
       }
-      activeThread = thread;
-      updateListSelection(username);
-      renderThreadView(context, thread);
-      attachThreadControls(thread);
+    activeThread = thread;
+    updateListSelection(username);
+    resetComposerState();
+    hideEmojiPicker();
+    closeReactionPicker();
+    closeThreadDetails();
+    renderThreadView(context, thread);
+    attachThreadControls(thread);
       if (thread.unreadCount > 0) {
         thread.unreadCount = 0;
         const summary = threads.find((entry) => entry.username === thread.username);

@@ -12,6 +12,7 @@
     />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="icon" href="/assets/wantyou-icon.svg" type="image/svg+xml">
+    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
   </head>
   <body data-page="messages">
     <header class="app-header">
@@ -37,10 +38,18 @@
       <aside class="messages-list" aria-label="Conversation list">
         <header class="messages-list__header">
           <h1>Chats</h1>
-          <button class="button button--ghost" data-action="new-chat">
-            New chat
-          </button>
+          <div class="messages-list__actions">
+            <button class="button button--ghost" data-action="new-chat">
+              New chat
+            </button>
+            <button class="button button--ghost" data-action="new-group-chat">
+              New group chat
+            </button>
+          </div>
         </header>
+        <p class="messages-list__note">
+          Start private or group conversations, theme your chats, and share emojis, GIFs, and reactions.
+        </p>
         <ul id="conversation-list" aria-live="polite">
           <li data-empty-conversations class="messages-list__empty">
             No conversations yet.
@@ -64,6 +73,7 @@
               ></span>
             </div>
             <p class="messages-thread__note" data-alias hidden></p>
+            <p class="messages-thread__read-status" data-thread-read-status hidden></p>
           </div>
           <div class="messages-thread__actions">
             <label class="toggle">
@@ -88,10 +98,71 @@
         <ul class="messages" id="message-log"></ul>
 
         <form class="composer composer--messages" id="message-composer" hidden>
+          <div class="composer__reply-preview" data-reply-preview hidden>
+            <div class="composer__reply-body">
+              <strong data-reply-author></strong>
+              <p data-reply-text></p>
+            </div>
+            <button type="button" class="composer__reply-cancel" data-action="cancel-reply">
+              Cancel reply
+            </button>
+          </div>
+          <div class="composer__toolbelt" role="toolbar" aria-label="Message tools" data-composer-toolbelt>
+            <button type="button" class="composer-tool" data-action="composer-emoji" aria-haspopup="true" aria-expanded="false">
+              <span aria-hidden="true">😀</span>
+              <span class="visually-hidden">Add emoji</span>
+            </button>
+            <button type="button" class="composer-tool" data-action="composer-gif">
+              <span aria-hidden="true">GIF</span>
+              <span class="visually-hidden">Add GIF</span>
+            </button>
+            <label class="composer-tool composer-tool--upload">
+              <input type="file" accept="image/*" multiple data-upload="image" />
+              <span aria-hidden="true">🖼</span>
+              <span class="visually-hidden">Upload images</span>
+            </label>
+            <label class="composer-tool composer-tool--upload">
+              <input type="file" accept="video/*" multiple data-upload="video" />
+              <span aria-hidden="true">🎬</span>
+              <span class="visually-hidden">Upload videos</span>
+            </label>
+            <button type="button" class="composer-tool" data-action="composer-theme">
+              <span aria-hidden="true">🎨</span>
+              <span class="visually-hidden">Toggle chat themes</span>
+            </button>
+          </div>
+          <div class="emoji-picker" data-emoji-picker hidden role="dialog" aria-label="Emoji picker">
+            <emoji-picker data-emoji-surface skin-tones-enabled="true"></emoji-picker>
+          </div>
+          <section class="gif-picker" data-gif-picker hidden role="dialog" aria-label="GIF picker">
+            <header class="gif-picker__header">
+              <form class="gif-picker__search" data-gif-search>
+                <label class="visually-hidden" for="gif-search-input">Search Tenor GIFs</label>
+                <input
+                  type="search"
+                  id="gif-search-input"
+                  name="gif-search"
+                  placeholder="Search Tenor GIFs"
+                  autocomplete="off"
+                  data-gif-search-input
+                />
+                <button type="submit" class="button button--small">Search</button>
+              </form>
+              <button type="button" class="button button--ghost button--small" data-action="close-gif-picker">
+                Close
+              </button>
+            </header>
+            <p class="gif-picker__status" data-gif-status role="status"></p>
+            <div class="gif-picker__results" data-gif-results role="list"></div>
+            <button type="button" class="button button--ghost gif-picker__more" data-action="more-gifs" hidden>
+              Load more GIFs
+            </button>
+          </section>
           <label class="form__field">
             <span class="visually-hidden">Your message</span>
             <textarea id="message-input" rows="3" placeholder="Send a reply" required></textarea>
           </label>
+          <ul class="composer__attachment-preview" data-attachment-preview hidden></ul>
           <div class="composer__actions">
             <button type="button" class="button button--ghost" data-action="request-reveal">
               Ask to reveal
@@ -99,6 +170,55 @@
             <button type="submit" class="button">Send</button>
           </div>
         </form>
+
+        <section class="thread-details" data-thread-details hidden aria-label="Conversation settings">
+          <header class="thread-details__header">
+            <h3>Conversation settings</h3>
+            <button type="button" class="button button--ghost button--small" data-action="close-thread-details">
+              Close
+            </button>
+          </header>
+          <div class="thread-details__grid">
+            <div class="thread-details__group">
+              <h4>Participants</h4>
+              <ul class="thread-participants" data-thread-participants>
+                <li class="thread-participants__empty" data-thread-participants-empty>
+                  No one else is here yet.
+                </li>
+              </ul>
+              <div class="thread-details__group-actions">
+                <button type="button" class="chip" data-action="manage-participants">
+                  Manage members
+                </button>
+                <button type="button" class="chip" data-action="share-invite">
+                  Share invite link
+                </button>
+              </div>
+            </div>
+            <div class="thread-details__group">
+              <h4>Personalize</h4>
+              <label class="thread-details__field">
+                <span>Background theme</span>
+                <select data-thread-background></select>
+              </label>
+              <label class="thread-details__field">
+                <span>Message theme</span>
+                <select data-thread-bubbles></select>
+              </label>
+              <label class="thread-details__field thread-details__field--nickname">
+                <span>
+                  Nickname for <strong data-nickname-target>this chat</strong>
+                </span>
+                <input type="text" maxlength="40" data-thread-nickname placeholder="Add a nickname" />
+              </label>
+              <p class="thread-details__hint" data-nickname-note hidden></p>
+            </div>
+          </div>
+          <div class="thread-details__footer">
+            <p>Tip: Long-press or hover messages to add quick reactions.</p>
+            <ul class="reaction-samples" data-reaction-samples aria-label="Popular reactions"></ul>
+          </div>
+        </section>
       </section>
     </main>
 
