@@ -466,12 +466,24 @@ function normalizeMessageEntry(message) {
         .map((attachment) => {
           if (!attachment) return null;
           if (typeof attachment === "string") {
-            return { url: attachment, type: "image" };
+            const url = attachment.trim();
+            if (!url) {
+              return null;
+            }
+            return { url, type: "image" };
           }
-          if (attachment.url) {
-            return attachment;
+          const url = resolveAttachmentUrl(attachment);
+          if (!url) {
+            return null;
           }
-          return null;
+          const type = getAttachmentType(attachment);
+          return {
+            ...attachment,
+            url,
+            type,
+            originalName: typeof attachment.originalName === "string" ? attachment.originalName : "",
+            mimeType: typeof attachment.mimeType === "string" ? attachment.mimeType : "",
+          };
         })
         .filter(Boolean)
     : [];
@@ -1113,22 +1125,56 @@ function escapeHtml(value = "") {
     .replace(/'/g, "&#39;");
 }
 
+function resolveAttachmentUrl(attachment) {
+  if (!attachment) {
+    return "";
+  }
+  const directUrl = typeof attachment.url === "string" ? attachment.url.trim() : "";
+  if (directUrl) {
+    return directUrl;
+  }
+  const location = typeof attachment.location === "string" ? attachment.location.trim() : "";
+  if (!location) {
+    return "";
+  }
+  if (location.startsWith("kv://")) {
+    return `/api/media/${location.slice("kv://".length)}`;
+  }
+  return location;
+}
+
+function getAttachmentType(attachment) {
+  if (!attachment) {
+    return "image";
+  }
+  if (attachment.type === "video" || attachment.type === "image") {
+    return attachment.type;
+  }
+  const mime = typeof attachment.mimeType === "string" ? attachment.mimeType.toLowerCase() : "";
+  if (mime.startsWith("video/")) {
+    return "video";
+  }
+  return "image";
+}
+
 function createMediaFragment(attachments = []) {
   const fragment = document.createDocumentFragment();
   attachments.forEach((attachment) => {
-    if (!attachment?.url) {
+    const url = resolveAttachmentUrl(attachment);
+    if (!url) {
       return;
     }
-    if (attachment.type === "video") {
+    const type = getAttachmentType(attachment);
+    if (type === "video") {
       const video = document.createElement("video");
       video.controls = true;
-      video.src = attachment.url;
+      video.src = url;
       video.preload = "metadata";
       fragment.appendChild(video);
     } else {
       const img = document.createElement("img");
-      img.src = attachment.url;
-      img.alt = attachment.originalName || "";
+      img.src = url;
+      img.alt = attachment?.originalName || "";
       fragment.appendChild(img);
     }
   });
@@ -2529,32 +2575,44 @@ function renderThreadView(context, thread, options = {}) {
     : displayName;
 
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
+  if (!Array.isArray(thread.messages)) {
+    thread.messages = messages;
+  }
   const messageIndex = new Map();
   const fragment = document.createDocumentFragment();
 
   messages.forEach((message, index) => {
     if (!message) return;
+    const normalizedMessage = normalizeMessageEntry(message) ?? {
+      ...message,
+      attachments: Array.isArray(message.attachments) ? message.attachments : [],
+      gifUrls: Array.isArray(message.gifUrls) ? message.gifUrls : [],
+    };
+    thread.messages[index] = normalizedMessage;
     const messageKey =
+      normalizedMessage.id ??
       message.id ??
+      normalizedMessage.uuid ??
       message.uuid ??
+      normalizedMessage.clientId ??
       message.clientId ??
-      `local-${thread.username}-${index}-${message.createdAt ?? Date.now()}`;
-    messageIndex.set(messageKey, message);
-    const outgoing = message.sender === sessionUser?.username;
+      `local-${thread.username}-${index}-${normalizedMessage.createdAt ?? message.createdAt ?? Date.now()}`;
+    messageIndex.set(messageKey, normalizedMessage);
+    const outgoing = normalizedMessage.sender === sessionUser?.username;
     const direction = outgoing ? "outgoing" : "incoming";
     const author = outgoing
       ? "You"
-      : message.senderDisplayName ||
-        formatParticipantName(findParticipant(participants, message.sender)) ||
+      : normalizedMessage.senderDisplayName ||
+        formatParticipantName(findParticipant(participants, normalizedMessage.sender)) ||
         incomingAuthor;
-    const timestampText = formatTimestamp(message.createdAt);
+    const timestampText = formatTimestamp(normalizedMessage.createdAt);
     const metaText = `${author}${timestampText ? ` · ${timestampText}` : ""}`;
 
     const item = document.createElement("li");
     item.className = `message message--${direction}`;
     item.dataset.messageId = messageKey;
-    if (message.sender) {
-      item.dataset.sender = message.sender;
+    if (normalizedMessage.sender) {
+      item.dataset.sender = normalizedMessage.sender;
     }
 
     const meta = document.createElement("span");
@@ -2565,7 +2623,7 @@ function renderThreadView(context, thread, options = {}) {
     const body = document.createElement("div");
     body.className = "message__body";
 
-    const replyTarget = resolveReplyTarget(message, messageIndex, participants);
+    const replyTarget = resolveReplyTarget(normalizedMessage, messageIndex, participants);
     if (replyTarget) {
       const replyBlock = document.createElement("blockquote");
       replyBlock.className = "message__reply";
@@ -2575,7 +2633,7 @@ function renderThreadView(context, thread, options = {}) {
       body.appendChild(replyBlock);
     }
 
-    const text = typeof message.text === "string" ? message.text.trim() : "";
+    const text = typeof normalizedMessage.text === "string" ? normalizedMessage.text.trim() : "";
     if (text) {
       const paragraph = document.createElement("p");
       paragraph.textContent = text;
@@ -2583,26 +2641,28 @@ function renderThreadView(context, thread, options = {}) {
     }
 
     const attachments = [];
-    if (Array.isArray(message.attachments)) {
-      message.attachments.forEach((attachment) => {
+    if (Array.isArray(normalizedMessage.attachments)) {
+      normalizedMessage.attachments.forEach((attachment) => {
         if (!attachment) return;
-        if (typeof attachment === "string") {
-          attachments.push({ url: attachment, type: "image" });
-        } else if (attachment.url) {
-          attachments.push(attachment);
-        }
+        const url = resolveAttachmentUrl(attachment);
+        if (!url) return;
+        attachments.push({
+          ...attachment,
+          url,
+          type: getAttachmentType(attachment),
+        });
       });
     }
     const gifUrls = [];
-    if (Array.isArray(message.gifUrls)) {
-      message.gifUrls.forEach((url) => {
+    if (Array.isArray(normalizedMessage.gifUrls)) {
+      normalizedMessage.gifUrls.forEach((url) => {
         if (typeof url === "string" && url.trim()) {
           gifUrls.push({ url: url.trim(), type: "gif" });
         }
       });
     }
-    if (Array.isArray(message.gifs)) {
-      message.gifs.forEach((gif) => {
+    if (Array.isArray(normalizedMessage.gifs)) {
+      normalizedMessage.gifs.forEach((gif) => {
         if (!gif) return;
         if (typeof gif === "string") {
           gifUrls.push({ url: gif, type: "gif" });
@@ -2621,7 +2681,7 @@ function renderThreadView(context, thread, options = {}) {
 
     item.appendChild(body);
 
-    const reactions = Array.isArray(message.reactions) ? message.reactions : [];
+    const reactions = Array.isArray(normalizedMessage.reactions) ? normalizedMessage.reactions : [];
     if (reactions.length) {
       const reactionList = document.createElement("ul");
       reactionList.className = "message__reactions";
@@ -2669,7 +2729,7 @@ function renderThreadView(context, thread, options = {}) {
     }
 
     if (outgoing) {
-      const receipt = describeReadReceipt(message, participants);
+      const receipt = describeReadReceipt(normalizedMessage, participants);
       const textContent = formatReadReceiptText(receipt);
       if (textContent) {
         const receiptElement = document.createElement("span");
@@ -3988,14 +4048,15 @@ async function initMessages() {
           }
         );
         const message = response?.message;
-        if (message) {
-          thread.messages = thread.messages ?? [];
+        const normalizedMessage = normalizeMessageEntry(message) ?? message ?? null;
+        if (normalizedMessage) {
+          thread.messages = Array.isArray(thread.messages) ? thread.messages : [];
           const currentCount = Number.isFinite(thread.totalMessages)
             ? thread.totalMessages
             : thread.messages.length;
-          thread.messages.push(message);
-          thread.lastMessage = message;
-          thread.updatedAt = message.createdAt;
+          thread.messages.push(normalizedMessage);
+          thread.lastMessage = normalizedMessage;
+          thread.updatedAt = normalizedMessage.createdAt;
           thread.totalMessages = currentCount + 1;
           thread.unreadCount = 0;
           threadMap.set(thread.username, thread);
@@ -4007,8 +4068,8 @@ async function initMessages() {
           }
           const summary = threads.find((entry) => entry.username === thread.username);
           if (summary) {
-            summary.lastMessage = message;
-            summary.updatedAt = message.createdAt;
+            summary.lastMessage = normalizedMessage;
+            summary.updatedAt = normalizedMessage.createdAt;
             summary.outbound = thread.outbound;
             summary.inbound = thread.inbound;
             summary.unreadCount = 0;

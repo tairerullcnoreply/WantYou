@@ -42,3 +42,4 @@ WantYou is a social platform that enables users to discover and connect with oth
 * [11/20/2025; 1:05 PM UTC] Restored Tenor GIF loading via the v1 API and returned empty chat selections without console errors
 * [11/20/2025; 4:45 PM UTC] Enabled GIF and media attachments in chats by persisting uploads and surfacing media previews in conversation lists
 * [11/20/2025; 7:20 PM UTC] Allowed media-only messages, fixed emoji-only sends, and kept the emoji picker open for multi-emoji replies
+* [11/20/2025; 9:50 PM UTC] Normalized chat sends so emoji-only messages post and freshly attached GIFs and uploads render instantly in threads
