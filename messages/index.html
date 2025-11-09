@@ -97,7 +97,7 @@
 
         <ul class="messages" id="message-log"></ul>
 
-        <form class="composer composer--messages" id="message-composer" hidden>
+        <form class="composer composer--messages" id="message-composer" hidden novalidate>
           <div class="composer__reply-preview" data-reply-preview hidden>
             <div class="composer__reply-body">
               <strong data-reply-author></strong>
@@ -160,7 +160,7 @@
           </section>
           <label class="form__field">
             <span class="visually-hidden">Your message</span>
-            <textarea id="message-input" rows="3" placeholder="Send a reply" required></textarea>
+            <textarea id="message-input" rows="3" placeholder="Send a reply" aria-required="true"></textarea>
           </label>
           <ul class="composer__attachment-preview" data-attachment-preview hidden></ul>
           <div class="composer__actions">

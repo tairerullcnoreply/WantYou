@@ -2786,6 +2786,16 @@ async function initMessages() {
     return;
   }
 
+  composer.noValidate = true;
+  if (input) {
+    try {
+      input.required = false;
+      input.removeAttribute("required");
+    } catch (error) {
+      // Ignore if the attribute is already absent or cannot be removed.
+    }
+  }
+
   newChatButton?.addEventListener("click", (event) => {
     event.preventDefault();
     window.location.href = withAiRef("/lookup/");
@@ -3287,7 +3297,6 @@ async function initMessages() {
     } catch (error) {
       // ignore selection errors in older browsers
     }
-    hideEmojiPicker();
   });
 
   gifSearchForm?.addEventListener("submit", (event) => {
