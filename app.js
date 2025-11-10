@@ -5428,6 +5428,7 @@ async function initData() {
     key,
     value,
     defaultValue,
+    layout,
   }) => {
     const node = document.createElement("article");
     node.className = "data-node";
@@ -5623,11 +5624,28 @@ async function initData() {
       return current;
     };
 
-    const refreshStructure = () => {
-      renderBlocks();
-      updatePreview();
-      syncNodeState();
-      updateEdges();
+    const blockNodes = new Map();
+    const blockPrefix = `block:${id}`;
+
+    const pathToKey = (path) =>
+      (path.length
+        ? path
+            .map((part) => (typeof part === "number" ? `#${part}` : String(part)))
+            .join(".")
+        : "root");
+
+    const pathToNodeId = (path) => `${blockPrefix}:${pathToKey(path)}`;
+
+    const getDefaultBlockPosition = (path, siblingIndex = 0, siblingCount = 1) => {
+      const parentId = path.length ? pathToNodeId(path.slice(0, -1)) : id;
+      const parentNode = currentNodes.get(parentId);
+      const baseX = Number.parseFloat(parentNode?.dataset?.x || "0");
+      const baseY = Number.parseFloat(parentNode?.dataset?.y || "0");
+      const offsetX = 260;
+      const offsetY = 200;
+      const spread = Math.max(0, siblingCount - 1) * offsetY;
+      const y = baseY - spread / 2 + siblingIndex * offsetY;
+      return { x: baseX + offsetX, y };
     };
 
     const renderEmptyMessage = (message) => {
@@ -5637,98 +5655,220 @@ async function initData() {
       return paragraph;
     };
 
-    const renderBlock = ({ value: blockValue, path, title: blockTitle, isRoot = false }) => {
-      const type = getValueType(blockValue);
-      const block = document.createElement("section");
-      block.className = "data-block";
-      if (isRoot) {
-        block.classList.add("data-block--root");
-      }
+    const ensureBlockNode = ({
+      path,
+      title: blockTitle,
+      type,
+      isRoot,
+      siblingIndex,
+      siblingCount,
+    }) => {
+      const keyPath = pathToKey(path);
+      let entry = blockNodes.get(keyPath);
+      const nodeId = pathToNodeId(path);
+      if (!entry) {
+        const blockNode = document.createElement("article");
+        blockNode.className = "data-node data-node--block";
+        blockNode.dataset.nodeId = nodeId;
+        blockNode.setAttribute("data-node", nodeId);
+        blockNode.dataset.parentNode = path.length ? pathToNodeId(path.slice(0, -1)) : id;
+        applyNodeAnimation(blockNode);
 
-      const header = document.createElement("div");
-      header.className = "data-block__header";
-      const heading = document.createElement("h4");
-      heading.className = "data-block__title";
-      heading.textContent = blockTitle;
-      header.appendChild(heading);
-      const typeBadge = document.createElement("span");
-      typeBadge.className = "data-block__type";
-      typeBadge.textContent = typeLabels[type] || type;
-      header.appendChild(typeBadge);
+        const handle = document.createElement("header");
+        handle.className = "data-node__handle data-node__handle--block";
+        blockNode.appendChild(handle);
 
-      if (!isRoot) {
+        const heading = document.createElement("h4");
+        heading.className = "data-block__title";
+        handle.appendChild(heading);
+
+        const typeBadge = document.createElement("span");
+        typeBadge.className = "data-block__type";
+        handle.appendChild(typeBadge);
+
         const removeButton = document.createElement("button");
         removeButton.type = "button";
         removeButton.className = "button button--ghost button--small data-block__remove";
         removeButton.textContent = "Remove";
-        removeButton.addEventListener("click", () => {
+        handle.appendChild(removeButton);
+
+        const content = document.createElement("div");
+        content.className = "data-node__content data-node__content--block";
+        const body = document.createElement("div");
+        body.className = "data-block__body";
+        content.appendChild(body);
+        blockNode.appendChild(content);
+
+        blockNodes.set(keyPath, {
+          node: blockNode,
+          heading,
+          typeBadge,
+          removeButton,
+          body,
+          nodeId,
+        });
+        entry = blockNodes.get(keyPath);
+      }
+
+      entry.heading.textContent = blockTitle;
+      entry.typeBadge.textContent = typeLabels[type] || type;
+      entry.node.dataset.nodePath = JSON.stringify(path);
+      entry.node.dataset.blockType = type;
+
+      if (isRoot) {
+        entry.removeButton.hidden = true;
+        entry.removeButton.onclick = null;
+      } else {
+        entry.removeButton.hidden = false;
+        entry.removeButton.onclick = () => {
           removeValueAtPath(path);
           refreshStructure();
-        });
-        header.appendChild(removeButton);
+        };
       }
 
-      block.appendChild(header);
-
-      const body = document.createElement("div");
-      body.className = "data-block__body";
-
-      if (type === "object") {
-        const entries = Object.entries(blockValue ?? {});
-        if (!entries.length) {
-          body.appendChild(renderEmptyMessage("No fields"));
-        } else {
-          entries.forEach(([childKey, childValue]) => {
-            body.appendChild(
-              renderBlock({
-                value: childValue,
-                path: [...path, childKey],
-                title: childKey,
-              }),
-            );
-          });
-        }
-        body.appendChild(createObjectAdder(path, blockValue ?? {}));
-      } else if (type === "array") {
-        const items = Array.isArray(blockValue) ? blockValue : [];
-        if (!items.length) {
-          body.appendChild(renderEmptyMessage("No items"));
-        } else {
-          items.forEach((item, index) => {
-            body.appendChild(
-              renderBlock({
-                value: item,
-                path: [...path, index],
-                title: `Item ${index + 1}`,
-              }),
-            );
-          });
-        }
-        body.appendChild(createArrayAdder(path, items));
-      } else {
-        body.appendChild(
-          renderPrimitiveEditor({
-            value: blockValue,
-            path,
-            title: blockTitle,
-          }),
-        );
+      if (!entry.node.isConnected) {
+        canvasElement.appendChild(entry.node);
+        const savedPosition = layout?.nodes?.[nodeId];
+        const defaultPosition = savedPosition || getDefaultBlockPosition(path, siblingIndex, siblingCount);
+        applyNodePosition(entry.node, defaultPosition);
+        attachNodeDrag(entry.node, nodeId, username);
       }
 
-      block.appendChild(body);
-      return block;
+      currentNodes.set(nodeId, entry.node);
+      entry.body.innerHTML = "";
+      return entry;
     };
 
     const renderBlocks = () => {
-      blocksContainer.innerHTML = "";
-      blocksContainer.appendChild(
-        renderBlock({
-          value: draftValue,
-          path: [],
-          title: label,
-          isRoot: true,
-        }),
+      const activeKeys = new Set();
+      const nextEdges = [];
+
+      const buildBlock = ({
+        value: blockValue,
+        path,
+        title: blockTitle,
+        siblingIndex = 0,
+        siblingCount = 1,
+      }) => {
+        const type = getValueType(blockValue);
+        const isRoot = path.length === 0;
+        const entry = ensureBlockNode({
+          path,
+          title: blockTitle,
+          type,
+          isRoot,
+          siblingIndex,
+          siblingCount,
+        });
+        activeKeys.add(pathToKey(path));
+
+        const nodeId = pathToNodeId(path);
+        const parentId = path.length ? pathToNodeId(path.slice(0, -1)) : id;
+        nextEdges.push([parentId, nodeId]);
+
+        const body = entry.body;
+        body.innerHTML = "";
+
+        if (type === "object") {
+          const objectValue =
+            blockValue && typeof blockValue === "object" && !Array.isArray(blockValue)
+              ? blockValue
+              : {};
+          const entries = Object.entries(objectValue);
+          if (!entries.length) {
+            body.appendChild(renderEmptyMessage("No fields"));
+          } else {
+            const summary = document.createElement("p");
+            summary.className = "data-block__summary";
+            summary.textContent = `${entries.length} field${entries.length === 1 ? "" : "s"} connected below.`;
+            body.appendChild(summary);
+          }
+          body.appendChild(createObjectAdder(path, objectValue));
+          entries.forEach(([childKey, childValue], childIndex) => {
+            buildBlock({
+              value: childValue,
+              path: [...path, childKey],
+              title: childKey,
+              siblingIndex: childIndex,
+              siblingCount: entries.length || 1,
+            });
+          });
+        } else if (type === "array") {
+          const items = Array.isArray(blockValue) ? blockValue : [];
+          if (!items.length) {
+            body.appendChild(renderEmptyMessage("No items"));
+          } else {
+            const summary = document.createElement("p");
+            summary.className = "data-block__summary";
+            summary.textContent = `${items.length} item${items.length === 1 ? "" : "s"} connected below.`;
+            body.appendChild(summary);
+          }
+          body.appendChild(createArrayAdder(path, items));
+          items.forEach((item, itemIndex) => {
+            buildBlock({
+              value: item,
+              path: [...path, itemIndex],
+              title: `Item ${itemIndex + 1}`,
+              siblingIndex: itemIndex,
+              siblingCount: items.length || 1,
+            });
+          });
+        } else {
+          body.appendChild(
+            renderPrimitiveEditor({
+              value: blockValue,
+              path,
+              title: blockTitle,
+            }),
+          );
+        }
+      };
+
+      buildBlock({ value: draftValue, path: [], title: label, siblingIndex: 0, siblingCount: 1 });
+
+      let layoutChanged = false;
+      blockNodes.forEach((entry, key) => {
+        if (!activeKeys.has(key)) {
+          if (entry.node.isConnected) {
+            entry.node.remove();
+          }
+          currentNodes.delete(entry.nodeId);
+          if (layout?.nodes?.[entry.nodeId]) {
+            delete layout.nodes[entry.nodeId];
+            layoutChanged = true;
+          }
+          blockNodes.delete(key);
+        }
+      });
+
+      if (layoutChanged) {
+        saveLayouts(layouts);
+      }
+
+      currentEdges = currentEdges.filter(
+        ([source, target]) => !source.startsWith(blockPrefix) && !target.startsWith(blockPrefix),
       );
+      nextEdges.forEach((edge) => {
+        currentEdges.push(edge);
+      });
+
+      blocksContainer.innerHTML = "";
+      const connectedCount = Math.max(0, activeKeys.size - 1);
+      const summary = document.createElement("p");
+      summary.className = "data-node__block-note";
+      if (connectedCount === 0) {
+        summary.textContent = "Edit the connected root block to update this dataset.";
+      } else {
+        summary.textContent = `Manage ${connectedCount} connected block${connectedCount === 1 ? "" : "s"} to update this dataset.`;
+      }
+      blocksContainer.appendChild(summary);
+    };
+
+    const refreshStructure = () => {
+      renderBlocks();
+      updatePreview();
+      syncNodeState();
+      updateEdges();
     };
 
     const createArrayAdder = (path, arrayValue) => {
@@ -5982,7 +6122,7 @@ async function initData() {
       return wrapper;
     };
 
-    refreshStructure();
+    node.refreshStructure = refreshStructure;
 
     resetButton.addEventListener("click", () => {
       draftValue = cloneValue(originalValue);
@@ -6152,6 +6292,7 @@ async function initData() {
       const node = createEditableNode({
         ...definition,
         username,
+        layout,
       });
       canvasElement.appendChild(node);
       const savedPosition = layout.nodes[definition.id] || DEFAULT_NODE_POSITIONS[definition.id] || {
@@ -6162,6 +6303,9 @@ async function initData() {
       attachNodeDrag(node, definition.id, username);
       currentNodes.set(definition.id, node);
       currentEdges.push(["account", definition.id]);
+      if (typeof node.refreshStructure === "function") {
+        node.refreshStructure();
+      }
     });
 
     attachNodeDrag(accountNode, "account", username);
