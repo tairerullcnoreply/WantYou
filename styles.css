@@ -3092,28 +3092,11 @@ body[data-page="press"] {
   white-space: pre-wrap;
 }
 
+
 .data-node__form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-}
-
-.data-node__textarea {
-  width: 100%;
-  min-height: 220px;
-  padding: 0.85rem 1rem;
-  font-family: "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  font-size: 0.85rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(31, 31, 31, 0.18);
-  background: rgba(255, 255, 255, 0.95);
-  resize: vertical;
-}
-
-.data-node__textarea:focus {
-  outline: none;
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(255, 122, 0, 0.18);
+  gap: 0.9rem;
 }
 
 .data-node__hint {
@@ -3128,21 +3111,180 @@ body[data-page="press"] {
   gap: 0.65rem;
 }
 
-.data-node[data-state="editing"] .data-node__preview {
-  display: none;
-}
-
-.data-node[data-state="editing"] .data-node__form {
+.data-node__blocks {
   display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
 }
 
-.data-node[data-state="ready"] .data-node__form {
-  display: none;
+.data-node[data-state="editing"] {
+  border-color: rgba(255, 122, 0, 0.45);
+  box-shadow: 0 32px 56px rgba(255, 122, 0, 0.18);
 }
 
-.data-node[data-state="saving"] {
-  opacity: 0.6;
-  pointer-events: none;
+.data-node[data-state="editing"] .data-node__preview {
+  border-color: rgba(255, 122, 0, 0.35);
+}
+
+.data-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(31, 31, 31, 0.12);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 18px 44px rgba(31, 31, 31, 0.08);
+}
+
+.data-block--root {
+  border-width: 1.5px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 186, 94, 0.2));
+}
+
+.data-block__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid rgba(31, 31, 31, 0.08);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.data-block__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.data-block__type {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(31, 31, 31, 0.08);
+  color: rgba(31, 31, 31, 0.7);
+}
+
+.data-block__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.data-block__empty {
+  margin: 0;
+  padding: 0.35rem 0;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.data-block__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(31, 31, 31, 0.1);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.data-block__field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.data-block__field-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.data-block__type-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+
+.data-block__field-control {
+  display: flex;
+  flex-direction: column;
+}
+
+.data-block__input,
+.data-block__textarea,
+.data-block__select {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(31, 31, 31, 0.18);
+  background: rgba(255, 255, 255, 0.96);
+  padding: 0.65rem 0.75rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: inherit;
+}
+
+.data-block__textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.data-block__select {
+  padding-right: 2rem;
+}
+
+.data-block__input:focus,
+.data-block__textarea:focus,
+.data-block__select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(255, 122, 0, 0.18);
+}
+
+.data-block__null {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.data-block__adder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem;
+  border-radius: var(--radius-sm);
+  border: 1px dashed rgba(31, 31, 31, 0.16);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.data-block__adder-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: rgba(31, 31, 31, 0.7);
+}
+
+.data-block__adder-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.data-block__adder-input {
+  min-height: 80px;
+}
+
+.data-block__remove {
+  margin-left: auto;
+}
+
+.data-block__select--type {
+  width: auto;
 }
 
 .data-node--account {

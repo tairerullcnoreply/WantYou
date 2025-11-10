@@ -4815,6 +4815,24 @@ async function initData() {
     }
   };
 
+  const cloneValue = (input) => {
+    if (typeof structuredClone === "function") {
+      try {
+        return structuredClone(input);
+      } catch (error) {
+        // Fall through to JSON cloning
+      }
+    }
+    if (input === undefined) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(JSON.stringify(input));
+    } catch (error) {
+      return input;
+    }
+  };
+
   const defaultValueForKey = (key) => {
     if (key === "events" || key === "posts") {
       return [];
@@ -5438,22 +5456,17 @@ async function initData() {
       content.appendChild(descriptionEl);
     }
 
-    const preview = document.createElement("pre");
-    preview.className = "data-node__preview";
-    preview.textContent = formatJson(value);
-    content.appendChild(preview);
+    const hint = document.createElement("p");
+    hint.className = "data-node__hint";
+    hint.textContent = "Adjust nested blocks to update this dataset.";
+    content.appendChild(hint);
 
     const form = document.createElement("form");
     form.className = "data-node__form";
-    const textarea = document.createElement("textarea");
-    textarea.className = "data-node__textarea";
-    textarea.value = formatJson(value);
-    form.appendChild(textarea);
 
-    const hint = document.createElement("p");
-    hint.className = "data-node__hint";
-    hint.textContent = "Edit JSON to sync changes directly to WantYou.";
-    form.appendChild(hint);
+    const blocksContainer = document.createElement("div");
+    blocksContainer.className = "data-node__blocks";
+    form.appendChild(blocksContainer);
 
     const actions = document.createElement("div");
     actions.className = "data-node__actions";
@@ -5462,78 +5475,551 @@ async function initData() {
     saveButton.className = "button";
     saveButton.textContent = "Save changes";
     actions.appendChild(saveButton);
-    const cancelButton = document.createElement("button");
-    cancelButton.type = "button";
-    cancelButton.className = "button button--ghost";
-    cancelButton.textContent = "Cancel";
-    actions.appendChild(cancelButton);
+    const resetButton = document.createElement("button");
+    resetButton.type = "button";
+    resetButton.className = "button button--ghost";
+    resetButton.textContent = "Reset changes";
+    actions.appendChild(resetButton);
     form.appendChild(actions);
 
-    const editButton = document.createElement("button");
-    editButton.type = "button";
-    editButton.className = "button button--ghost";
-    editButton.textContent = "Edit JSON";
-    content.appendChild(editButton);
     content.appendChild(form);
+
+    const preview = document.createElement("pre");
+    preview.className = "data-node__preview";
+    content.appendChild(preview);
 
     node.appendChild(content);
 
-    const toggleEditing = (editing) => {
-      if (editing) {
-        node.dataset.state = "editing";
-        requestAnimationFrame(() => {
-          textarea.focus();
-          const length = textarea.value.length;
-          textarea.setSelectionRange(length, length);
-        });
-      } else {
-        node.dataset.state = "ready";
-        textarea.value = preview.textContent;
+    const nodeDefaultValue = cloneValue(defaultValue);
+    const initialValue = value === undefined ? defaultValue : value;
+    let originalValue = cloneValue(initialValue === undefined ? null : initialValue);
+    let draftValue = cloneValue(initialValue === undefined ? null : initialValue);
+    let originalSnapshot = JSON.stringify(originalValue ?? null);
+    let fieldIdCounter = 0;
+
+    const getValueType = (input) => {
+      if (Array.isArray(input)) {
+        return "array";
+      }
+      if (input === null) {
+        return "null";
+      }
+      if (typeof input === "undefined") {
+        return "undefined";
+      }
+      return typeof input;
+    };
+
+    const typeLabels = {
+      string: "String",
+      number: "Number",
+      boolean: "Boolean",
+      null: "Null",
+      object: "Object",
+      array: "Array",
+      undefined: "Undefined",
+    };
+
+    const getSnapshot = (input) => JSON.stringify(input ?? null);
+
+    const updatePreview = () => {
+      preview.textContent = formatJson(draftValue);
+    };
+
+    const updateActionButtons = () => {
+      const state = node.dataset.state;
+      const isSaving = state === "saving";
+      const isEditing = state === "editing";
+      saveButton.disabled = isSaving || !isEditing;
+      resetButton.disabled = isSaving || !isEditing;
+    };
+
+    const syncNodeState = () => {
+      const draftSnapshot = getSnapshot(draftValue);
+      node.dataset.state = draftSnapshot === originalSnapshot ? "ready" : "editing";
+      updateActionButtons();
+    };
+
+    const getValueAtPath = (path, source = draftValue) =>
+      path.reduce((accumulator, keyPart) => {
+        if (accumulator === undefined || accumulator === null) {
+          return undefined;
+        }
+        return accumulator[keyPart];
+      }, source);
+
+    const getDefaultAtPath = (path) => getValueAtPath(path, nodeDefaultValue);
+
+    const assignValueAtPath = (path, nextValue) => {
+      if (!path.length) {
+        draftValue = nextValue;
+        return;
+      }
+      let target = draftValue;
+      for (let index = 0; index < path.length - 1; index += 1) {
+        const keyPart = path[index];
+        if (target[keyPart] === undefined) {
+          target[keyPart] = typeof path[index + 1] === "number" ? [] : {};
+        }
+        target = target[keyPart];
+      }
+      target[path[path.length - 1]] = nextValue;
+    };
+
+    const removeValueAtPath = (path) => {
+      if (!path.length) {
+        draftValue = null;
+        return;
+      }
+      const parentPath = path.slice(0, -1);
+      const keyPart = path[path.length - 1];
+      const parent = parentPath.length ? getValueAtPath(parentPath) : draftValue;
+      if (Array.isArray(parent)) {
+        parent.splice(Number(keyPart), 1);
+      } else if (parent && typeof parent === "object") {
+        delete parent[keyPart];
       }
     };
 
-    editButton.addEventListener("click", () => {
-      toggleEditing(true);
-    });
+    const convertValueToType = (current, nextType) => {
+      if (nextType === "string") {
+        if (typeof current === "string") {
+          return current;
+        }
+        if (current === null || typeof current === "undefined") {
+          return "";
+        }
+        try {
+          return JSON.stringify(current);
+        } catch (error) {
+          return String(current);
+        }
+      }
+      if (nextType === "number") {
+        const parsed = Number(current);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+      if (nextType === "boolean") {
+        if (typeof current === "string") {
+          const normalized = current.trim().toLowerCase();
+          if (["true", "1", "yes"].includes(normalized)) {
+            return true;
+          }
+          if (["false", "0", "no"].includes(normalized)) {
+            return false;
+          }
+        }
+        return Boolean(current);
+      }
+      if (nextType === "null") {
+        return null;
+      }
+      if (nextType === "object") {
+        return {};
+      }
+      if (nextType === "array") {
+        return [];
+      }
+      return current;
+    };
 
-    cancelButton.addEventListener("click", () => {
-      toggleEditing(false);
+    const refreshStructure = () => {
+      renderBlocks();
+      updatePreview();
+      syncNodeState();
+      updateEdges();
+    };
+
+    const renderEmptyMessage = (message) => {
+      const paragraph = document.createElement("p");
+      paragraph.className = "data-block__empty";
+      paragraph.textContent = message;
+      return paragraph;
+    };
+
+    const renderBlock = ({ value: blockValue, path, title: blockTitle, isRoot = false }) => {
+      const type = getValueType(blockValue);
+      const block = document.createElement("section");
+      block.className = "data-block";
+      if (isRoot) {
+        block.classList.add("data-block--root");
+      }
+
+      const header = document.createElement("div");
+      header.className = "data-block__header";
+      const heading = document.createElement("h4");
+      heading.className = "data-block__title";
+      heading.textContent = blockTitle;
+      header.appendChild(heading);
+      const typeBadge = document.createElement("span");
+      typeBadge.className = "data-block__type";
+      typeBadge.textContent = typeLabels[type] || type;
+      header.appendChild(typeBadge);
+
+      if (!isRoot) {
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "button button--ghost button--small data-block__remove";
+        removeButton.textContent = "Remove";
+        removeButton.addEventListener("click", () => {
+          removeValueAtPath(path);
+          refreshStructure();
+        });
+        header.appendChild(removeButton);
+      }
+
+      block.appendChild(header);
+
+      const body = document.createElement("div");
+      body.className = "data-block__body";
+
+      if (type === "object") {
+        const entries = Object.entries(blockValue ?? {});
+        if (!entries.length) {
+          body.appendChild(renderEmptyMessage("No fields"));
+        } else {
+          entries.forEach(([childKey, childValue]) => {
+            body.appendChild(
+              renderBlock({
+                value: childValue,
+                path: [...path, childKey],
+                title: childKey,
+              }),
+            );
+          });
+        }
+        body.appendChild(createObjectAdder(path, blockValue ?? {}));
+      } else if (type === "array") {
+        const items = Array.isArray(blockValue) ? blockValue : [];
+        if (!items.length) {
+          body.appendChild(renderEmptyMessage("No items"));
+        } else {
+          items.forEach((item, index) => {
+            body.appendChild(
+              renderBlock({
+                value: item,
+                path: [...path, index],
+                title: `Item ${index + 1}`,
+              }),
+            );
+          });
+        }
+        body.appendChild(createArrayAdder(path, items));
+      } else {
+        body.appendChild(
+          renderPrimitiveEditor({
+            value: blockValue,
+            path,
+            title: blockTitle,
+          }),
+        );
+      }
+
+      block.appendChild(body);
+      return block;
+    };
+
+    const renderBlocks = () => {
+      blocksContainer.innerHTML = "";
+      blocksContainer.appendChild(
+        renderBlock({
+          value: draftValue,
+          path: [],
+          title: label,
+          isRoot: true,
+        }),
+      );
+    };
+
+    const createArrayAdder = (path, arrayValue) => {
+      const formElement = document.createElement("form");
+      formElement.className = "data-block__adder";
+      formElement.setAttribute("data-array-adder", "true");
+
+      const titleEl = document.createElement("span");
+      titleEl.className = "data-block__adder-title";
+      titleEl.textContent = "Add item";
+      formElement.appendChild(titleEl);
+
+      const valueInput = document.createElement("textarea");
+      valueInput.className = "data-block__textarea data-block__adder-input";
+      valueInput.placeholder = "Optional JSON value";
+      formElement.appendChild(valueInput);
+
+      const controls = document.createElement("div");
+      controls.className = "data-block__adder-actions";
+      const addButton = document.createElement("button");
+      addButton.type = "submit";
+      addButton.className = "button button--small";
+      addButton.textContent = "Add item";
+      controls.appendChild(addButton);
+      formElement.appendChild(controls);
+
+      formElement.addEventListener("submit", (event) => {
+        event.preventDefault();
+        let nextItem;
+        const rawValue = valueInput.value.trim();
+        if (rawValue) {
+          try {
+            nextItem = JSON.parse(rawValue);
+          } catch (error) {
+            setStatus("Unable to parse new array item.", "error");
+            valueInput.focus();
+            return;
+          }
+        } else if (arrayValue.length) {
+          nextItem = cloneValue(arrayValue[arrayValue.length - 1]);
+        } else {
+          const defaultArray = getDefaultAtPath(path);
+          if (Array.isArray(defaultArray) && defaultArray.length) {
+            nextItem = cloneValue(defaultArray[0]);
+          } else {
+            nextItem = null;
+          }
+        }
+        arrayValue.push(nextItem);
+        valueInput.value = "";
+        refreshStructure();
+      });
+
+      return formElement;
+    };
+
+    const createObjectAdder = (path, objectValue) => {
+      const formElement = document.createElement("form");
+      formElement.className = "data-block__adder";
+      formElement.setAttribute("data-object-adder", "true");
+
+      const titleEl = document.createElement("span");
+      titleEl.className = "data-block__adder-title";
+      titleEl.textContent = "Add field";
+      formElement.appendChild(titleEl);
+
+      const nameInput = document.createElement("input");
+      nameInput.className = "data-block__input";
+      nameInput.type = "text";
+      nameInput.placeholder = "Field name";
+      nameInput.autocomplete = "off";
+      formElement.appendChild(nameInput);
+
+      const valueInput = document.createElement("textarea");
+      valueInput.className = "data-block__textarea data-block__adder-input";
+      valueInput.placeholder = "Optional JSON value";
+      formElement.appendChild(valueInput);
+
+      const controls = document.createElement("div");
+      controls.className = "data-block__adder-actions";
+      const addButton = document.createElement("button");
+      addButton.type = "submit";
+      addButton.className = "button button--small";
+      addButton.textContent = "Add field";
+      controls.appendChild(addButton);
+      formElement.appendChild(controls);
+
+      formElement.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const fieldName = nameInput.value.trim();
+        if (!fieldName) {
+          setStatus("Provide a field name to continue.", "error");
+          nameInput.focus();
+          return;
+        }
+        if (Object.prototype.hasOwnProperty.call(objectValue, fieldName)) {
+          setStatus(`Field "${fieldName}" already exists.`, "error");
+          nameInput.focus();
+          return;
+        }
+        let initialValue;
+        const rawValue = valueInput.value.trim();
+        if (rawValue) {
+          try {
+            initialValue = JSON.parse(rawValue);
+          } catch (error) {
+            setStatus("Unable to parse field value.", "error");
+            valueInput.focus();
+            return;
+          }
+        } else {
+          const defaultValueAtPath = getDefaultAtPath([...path, fieldName]);
+          initialValue = defaultValueAtPath !== undefined ? cloneValue(defaultValueAtPath) : null;
+        }
+        objectValue[fieldName] = initialValue;
+        nameInput.value = "";
+        valueInput.value = "";
+        refreshStructure();
+      });
+
+      return formElement;
+    };
+
+    const renderPrimitiveEditor = ({ value: primitiveValue, path, title: primitiveTitle }) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "data-block__field";
+
+      const controlId = `data-block-${id}-${fieldIdCounter += 1}`;
+
+      const header = document.createElement("div");
+      header.className = "data-block__field-header";
+
+      const labelEl = document.createElement("label");
+      labelEl.className = "data-block__field-label";
+      labelEl.setAttribute("for", controlId);
+      labelEl.textContent = primitiveTitle;
+      header.appendChild(labelEl);
+
+      const typeWrapper = document.createElement("label");
+      typeWrapper.className = "data-block__type-label";
+      typeWrapper.textContent = "Type";
+      const typeSelect = document.createElement("select");
+      typeSelect.className = "data-block__select data-block__select--type";
+      ["string", "number", "boolean", "null", "object", "array"].forEach((optionType) => {
+        const option = document.createElement("option");
+        option.value = optionType;
+        option.textContent = typeLabels[optionType];
+        typeSelect.appendChild(option);
+      });
+      typeWrapper.appendChild(typeSelect);
+      header.appendChild(typeWrapper);
+
+      wrapper.appendChild(header);
+
+      const controlContainer = document.createElement("div");
+      controlContainer.className = "data-block__field-control";
+      wrapper.appendChild(controlContainer);
+
+      const renderControl = () => {
+        const currentValue = getValueAtPath(path);
+        const currentType = getValueType(currentValue);
+        typeSelect.value = currentType === "undefined" ? "null" : currentType;
+        controlContainer.innerHTML = "";
+
+        if (currentType === "string") {
+          const textarea = document.createElement("textarea");
+          textarea.className = "data-block__textarea";
+          textarea.id = controlId;
+          textarea.value = typeof currentValue === "string" ? currentValue : "";
+          textarea.addEventListener("input", () => {
+            assignValueAtPath(path, textarea.value);
+            updatePreview();
+            syncNodeState();
+          });
+          controlContainer.appendChild(textarea);
+          labelEl.setAttribute("for", controlId);
+          return;
+        }
+
+        if (currentType === "number") {
+          const input = document.createElement("input");
+          input.className = "data-block__input";
+          input.id = controlId;
+          input.type = "number";
+          input.value = Number.isFinite(currentValue) ? String(currentValue) : "";
+          input.addEventListener("change", () => {
+            const parsed = Number(input.value);
+            if (!Number.isFinite(parsed)) {
+              setStatus("Enter a valid number.", "error");
+              input.focus();
+              return;
+            }
+            assignValueAtPath(path, parsed);
+            updatePreview();
+            syncNodeState();
+          });
+          controlContainer.appendChild(input);
+          labelEl.setAttribute("for", controlId);
+          return;
+        }
+
+        if (currentType === "boolean") {
+          const select = document.createElement("select");
+          select.className = "data-block__select";
+          select.id = controlId;
+          [
+            { value: "true", label: "True" },
+            { value: "false", label: "False" },
+          ].forEach((entry) => {
+            const option = document.createElement("option");
+            option.value = entry.value;
+            option.textContent = entry.label;
+            select.appendChild(option);
+          });
+          select.value = currentValue ? "true" : "false";
+          select.addEventListener("change", () => {
+            assignValueAtPath(path, select.value === "true");
+            updatePreview();
+            syncNodeState();
+          });
+          controlContainer.appendChild(select);
+          labelEl.setAttribute("for", controlId);
+          return;
+        }
+
+        if (currentType === "null" || currentType === "undefined") {
+          const note = document.createElement("p");
+          note.className = "data-block__null";
+          note.textContent = "Value is null.";
+          controlContainer.appendChild(note);
+          labelEl.removeAttribute("for");
+          return;
+        }
+
+        const note = document.createElement("p");
+        note.className = "data-block__null";
+        note.textContent = "Use type controls to edit this value.";
+        controlContainer.appendChild(note);
+        labelEl.removeAttribute("for");
+      };
+
+      renderControl();
+
+      typeSelect.addEventListener("change", () => {
+        const latestValue = getValueAtPath(path);
+        const nextValue = convertValueToType(latestValue, typeSelect.value);
+        assignValueAtPath(path, nextValue);
+        refreshStructure();
+      });
+
+      return wrapper;
+    };
+
+    refreshStructure();
+
+    resetButton.addEventListener("click", () => {
+      draftValue = cloneValue(originalValue);
+      refreshStructure();
     });
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      let parsed;
-      try {
-        const trimmed = textarea.value.trim();
-        parsed = trimmed ? JSON.parse(trimmed) : defaultValue;
-      } catch (error) {
-        setStatus(`Unable to parse ${label.toLowerCase()} JSON.`, "error");
-        textarea.focus();
+      if (node.dataset.state !== "editing") {
+        setStatus(`No changes to save for ${label.toLowerCase()}.`, "info");
         return;
       }
       node.dataset.state = "saving";
+      updateActionButtons();
       try {
         const body = {};
-        body[key] = parsed;
+        body[key] = draftValue;
         await apiRequest(`/admin/users/${encodeURIComponent(username)}`, {
           method: "PUT",
           body: JSON.stringify(body),
         });
         setStatus(`Saved ${label.toLowerCase()} for @${username}.`, "success");
         await loadData({ silent: true });
+        if (node.isConnected) {
+          originalValue = cloneValue(draftValue);
+          originalSnapshot = getSnapshot(originalValue);
+          node.dataset.state = "ready";
+          updateActionButtons();
+          updatePreview();
+          updateEdges();
+        }
       } catch (error) {
         setStatus(error?.message || `Unable to save ${label.toLowerCase()}.`, "error");
         if (node.isConnected) {
           node.dataset.state = "editing";
+          updateActionButtons();
         }
-        return;
-      }
-      if (node.isConnected) {
-        preview.textContent = formatJson(parsed);
-        textarea.value = preview.textContent;
-        node.dataset.state = "ready";
-        toggleEditing(false);
-        updateEdges();
       }
     });
 

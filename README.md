@@ -41,3 +41,4 @@ WantYou is a social platform that enables users to discover and connect with oth
 * [11/21/2025; 9:45 AM UTC] Added animated searchable account lists, owner username renaming, and hyper-animated data graph visuals in /data/
 * [11/22/2025; 1:30 PM UTC] Revamped posts with full-screen media viewer and added like, comment, repost, and share interactions
 * [11/24/2025; 11:10 AM UTC] Added conversation read receipts with backend metadata, UI indicators, and AI preview data updates
+* [11/25/2025; 2:05 PM UTC] Replaced /data/ JSON text editors with nested block controls for structured account management
