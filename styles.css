@@ -481,6 +481,7 @@ img {
   content: "";
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   pointer-events: none;
   opacity: 0.65;
   z-index: -1;
@@ -2592,6 +2593,7 @@ body[data-page="press"] {
   content: "";
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   background: radial-gradient(circle at top right, rgba(255, 122, 0, 0.12), transparent 55%);
   pointer-events: none;
 }
