@@ -2410,6 +2410,220 @@ body[data-page="press"] {
   color: #ffb347;
 }
 
+.data-layout {
+  padding: 3rem 0 4rem;
+}
+
+.data-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.data-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.data-panel__titles h1 {
+  margin: 0;
+  font-size: 2rem;
+}
+
+.data-panel__titles p {
+  margin: 0.35rem 0 0 0;
+  color: var(--color-muted);
+}
+
+.data-status {
+  margin: 0;
+  padding: 0.85rem 1.1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-weight: 500;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.data-status[data-status-variant="success"] {
+  background: rgba(19, 163, 122, 0.14);
+  border-color: rgba(19, 163, 122, 0.32);
+  color: #0f7759;
+}
+
+.data-status[data-status-variant="error"] {
+  background: rgba(219, 68, 55, 0.12);
+  border-color: rgba(219, 68, 55, 0.32);
+  color: #b53024;
+}
+
+.data-status[data-status-variant="warning"] {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #915200;
+}
+
+.data-status[data-status-variant="info"] {
+  background: rgba(0, 129, 255, 0.08);
+  border-color: rgba(0, 129, 255, 0.25);
+  color: #0a6cd4;
+}
+
+.data-grid {
+  display: grid;
+  gap: 1.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.data-card {
+  background: var(--color-surface-strong);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(31, 31, 31, 0.08);
+  box-shadow: 0 22px 36px rgba(31, 31, 31, 0.08);
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.data-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.data-card__header h2 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.data-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.data-card__meta {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.data-block {
+  border-top: 1px solid var(--color-border);
+  padding-top: 1.3rem;
+  margin-top: 1.3rem;
+}
+
+.data-block:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.data-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.data-block__header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.data-block__description {
+  margin: 0.5rem 0 0.85rem 0;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.data-block__preview {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid rgba(31, 31, 31, 0.08);
+  max-height: 320px;
+  overflow: auto;
+  font-family: "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.data-block__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.data-block__textarea {
+  width: 100%;
+  min-height: 240px;
+  padding: 0.9rem 1rem;
+  font-family: "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.9rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(31, 31, 31, 0.18);
+  background: #fff;
+  resize: vertical;
+}
+
+.data-block__textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(255, 122, 0, 0.18);
+}
+
+.data-block__hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.data-block__form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.data-block--saving {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.data-empty {
+  margin: 0;
+  padding: 2rem;
+  text-align: center;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-weight: 500;
+}
+
+@media (max-width: 960px) {
+  .data-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .data-panel__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .data-panel__header .button {
+    width: 100%;
+  }
+}
+
 @media (max-width: 960px) {
   .press-hero__grid {
     grid-template-columns: 1fr;

@@ -295,12 +295,39 @@ function setSessionToken(token) {
 
 function clearSessionToken() {
   setSessionToken(null);
+  updateAdminNav(null);
 }
 
 function updateProfileLinks(username) {
   const target = buildProfileUrl(username);
   document.querySelectorAll("[data-nav-profile]").forEach((anchor) => {
     anchor.setAttribute("href", target);
+  });
+}
+
+function updateAdminNav(user) {
+  const isOwner = Boolean(user && user.username === OWNER_USERNAME);
+  document.querySelectorAll(".app-nav").forEach((nav) => {
+    let link = nav.querySelector("[data-nav-admin]");
+    if (isOwner) {
+      if (!link) {
+        link = document.createElement("a");
+        link.dataset.navAdmin = "";
+        link.textContent = "Data";
+        nav.appendChild(link);
+      }
+      link.href = withAiRef("/data/");
+      link.hidden = false;
+      link.removeAttribute("aria-hidden");
+    } else if (link) {
+      if (link.getAttribute("aria-current") === "page") {
+        link.hidden = true;
+        link.setAttribute("aria-hidden", "true");
+        link.href = "/data/";
+      } else {
+        link.remove();
+      }
+    }
   });
 }
 
@@ -599,11 +626,13 @@ async function loadSession() {
     const data = await apiRequest("/session");
     sessionUser = data?.user ?? null;
     updateProfileLinks(sessionUser?.username ?? null);
+    updateAdminNav(sessionUser);
     return sessionUser;
   } catch (error) {
     if (error.status === 401) {
       sessionUser = null;
       updateProfileLinks(null);
+      updateAdminNav(null);
     }
     throw error;
   }
@@ -4072,6 +4101,334 @@ async function initProfile() {
   });
 }
 
+async function initData() {
+  const statusElement = document.querySelector("[data-data-status]");
+  const gridElement = document.querySelector("[data-data-grid]");
+  const refreshButton = document.querySelector('[data-action="refresh-data"]');
+
+  if (!statusElement || !gridElement) {
+    return;
+  }
+
+  const setStatus = (message, variant = "info") => {
+    statusElement.textContent = message;
+    statusElement.setAttribute("data-status-variant", variant);
+  };
+
+  const disableRefresh = () => {
+    if (refreshButton) {
+      refreshButton.disabled = true;
+    }
+  };
+
+  const enableRefresh = () => {
+    if (refreshButton) {
+      refreshButton.disabled = false;
+    }
+  };
+
+  const formatJson = (value) => {
+    try {
+      return JSON.stringify(value ?? null, null, 2);
+    } catch (error) {
+      return JSON.stringify(null, null, 2);
+    }
+  };
+
+  if (isAiGuestMode()) {
+    disableRefresh();
+    gridElement.hidden = true;
+    setStatus("Data tools are disabled in AI preview mode.", "warning");
+    return;
+  }
+
+  let ownerUser;
+  try {
+    ownerUser = await requireSession();
+  } catch (error) {
+    disableRefresh();
+    gridElement.hidden = true;
+    if (error.status === 401) {
+      setStatus("Sign in as the WantYou owner to access this workspace.", "error");
+    } else {
+      setStatus(error?.message || "Unable to verify session.", "error");
+    }
+    return;
+  }
+
+  if (!ownerUser || ownerUser.username !== OWNER_USERNAME) {
+    disableRefresh();
+    gridElement.hidden = true;
+    setStatus("Owner access required to view or edit account data.", "error");
+    return;
+  }
+
+  enableRefresh();
+
+  const defaultValueForKey = (key) => {
+    if (key === "events" || key === "posts") {
+      return [];
+    }
+    if (key === "connections") {
+      return { incoming: {}, outgoing: {} };
+    }
+    return {};
+  };
+
+  function renderUsers(users = []) {
+    gridElement.innerHTML = "";
+    if (!users.length) {
+      const empty = document.createElement("p");
+      empty.className = "data-empty";
+      empty.textContent = "No accounts found.";
+      gridElement.appendChild(empty);
+      gridElement.hidden = false;
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    users.forEach((user) => {
+      fragment.appendChild(createUserCard(user));
+    });
+    gridElement.appendChild(fragment);
+    gridElement.hidden = false;
+  }
+
+  function createUserCard(user) {
+    const username = user?.profile?.username ?? "";
+    const card = document.createElement("section");
+    card.className = "data-card";
+    card.dataset.username = username;
+
+    const header = document.createElement("header");
+    header.className = "data-card__header";
+
+    const title = document.createElement("h2");
+    const fullName = user?.profile?.fullName?.trim();
+    title.textContent = fullName ? `${fullName} (@${username})` : `@${username}`;
+    header.appendChild(title);
+
+    if (Array.isArray(user?.profile?.badges) && user.profile.badges.length) {
+      const badgeList = document.createElement("div");
+      badgeList.className = "data-card__badges";
+      user.profile.badges.forEach((badge) => {
+        const badgeEl = document.createElement("span");
+        badgeEl.className = "badge badge--muted";
+        badgeEl.textContent = badge;
+        badgeList.appendChild(badgeEl);
+      });
+      header.appendChild(badgeList);
+    }
+
+    const meta = document.createElement("p");
+    meta.className = "data-card__meta";
+    const incomingCount = Object.keys(user?.connections?.incoming || {}).length;
+    const outgoingCount = Object.keys(user?.connections?.outgoing || {}).length;
+    const eventCount = Array.isArray(user?.events) ? user.events.length : 0;
+    const postCount = Array.isArray(user?.posts) ? user.posts.length : 0;
+    meta.textContent = `Connections: ${incomingCount} inbound • ${outgoingCount} outbound · Events: ${eventCount} · Posts: ${postCount}`;
+    header.appendChild(meta);
+
+    card.appendChild(header);
+
+    const blocks = [
+      {
+        key: "profile",
+        label: "Profile",
+        description: "Identity, biography, badges, and preferences.",
+        value: user?.profile ?? defaultValueForKey("profile"),
+      },
+      {
+        key: "connections",
+        label: "Connections",
+        description: "Inbound and outbound relationship states.",
+        value: user?.connections ?? defaultValueForKey("connections"),
+      },
+      {
+        key: "events",
+        label: "Events",
+        description: "Active and scheduled profile events.",
+        value: user?.events ?? defaultValueForKey("events"),
+      },
+      {
+        key: "posts",
+        label: "Posts",
+        description: "Timeline entries shared on the profile.",
+        value: user?.posts ?? defaultValueForKey("posts"),
+      },
+    ];
+
+    blocks.forEach((block) => {
+      card.appendChild(createBlock({ username, ...block }));
+    });
+
+    return card;
+  }
+
+  function createBlock({ username, key, label, description, value }) {
+    const block = document.createElement("article");
+    block.className = "data-block";
+    block.dataset.key = key;
+
+    const header = document.createElement("header");
+    header.className = "data-block__header";
+
+    const heading = document.createElement("h3");
+    heading.textContent = label;
+    header.appendChild(heading);
+
+    const actions = document.createElement("div");
+    actions.className = "data-block__actions";
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "button button--ghost data-block__edit";
+    editButton.textContent = "Edit JSON";
+    actions.appendChild(editButton);
+    header.appendChild(actions);
+
+    block.appendChild(header);
+
+    if (description) {
+      const descriptionEl = document.createElement("p");
+      descriptionEl.className = "data-block__description";
+      descriptionEl.textContent = description;
+      block.appendChild(descriptionEl);
+    }
+
+    const preview = document.createElement("pre");
+    preview.className = "data-block__preview";
+    const defaultValue = defaultValueForKey(key);
+    const initialValue = value ?? defaultValue;
+    preview.textContent = formatJson(initialValue);
+    block.appendChild(preview);
+
+    const form = document.createElement("form");
+    form.className = "data-block__form";
+    form.hidden = true;
+
+    const textarea = document.createElement("textarea");
+    textarea.className = "data-block__textarea";
+    textarea.value = formatJson(initialValue);
+    form.appendChild(textarea);
+
+    const hint = document.createElement("p");
+    hint.className = "data-block__hint";
+    hint.textContent = "Edit the JSON below and save to sync changes.";
+    form.appendChild(hint);
+
+    const formActions = document.createElement("div");
+    formActions.className = "data-block__form-actions";
+    const saveButton = document.createElement("button");
+    saveButton.type = "submit";
+    saveButton.className = "button";
+    saveButton.textContent = "Save changes";
+    formActions.appendChild(saveButton);
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "button button--ghost";
+    cancelButton.textContent = "Cancel";
+    formActions.appendChild(cancelButton);
+    form.appendChild(formActions);
+    block.appendChild(form);
+
+    const toggleEditing = (editing) => {
+      if (editing) {
+        block.classList.add("data-block--editing");
+        preview.hidden = true;
+        form.hidden = false;
+        textarea.focus();
+        const length = textarea.value.length;
+        textarea.setSelectionRange(length, length);
+      } else {
+        block.classList.remove("data-block--editing");
+        preview.hidden = false;
+        form.hidden = true;
+        textarea.value = preview.textContent;
+      }
+    };
+
+    editButton.addEventListener("click", () => {
+      toggleEditing(true);
+    });
+
+    cancelButton.addEventListener("click", () => {
+      toggleEditing(false);
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      let parsed;
+      try {
+        const trimmed = textarea.value.trim();
+        parsed = trimmed ? JSON.parse(trimmed) : defaultValue;
+      } catch (error) {
+        setStatus(`Unable to parse ${label.toLowerCase()} JSON.`, "error");
+        textarea.focus();
+        return;
+      }
+      block.classList.add("data-block--saving");
+      try {
+        const body = {};
+        body[key] = parsed;
+        await apiRequest(`/admin/users/${encodeURIComponent(username)}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        await loadData({ silent: true });
+        setStatus(`Saved ${label.toLowerCase()} for @${username}.`, "success");
+        toggleEditing(false);
+      } catch (error) {
+        setStatus(error?.message || `Unable to save ${label.toLowerCase()}.`, "error");
+      } finally {
+        block.classList.remove("data-block--saving");
+      }
+    });
+
+    return block;
+  }
+
+  let loading = false;
+
+  async function loadData({ silent = false } = {}) {
+    if (loading) {
+      return;
+    }
+    loading = true;
+    if (!silent) {
+      setStatus("Loading account data…", "info");
+      gridElement.hidden = true;
+    }
+    disableRefresh();
+    try {
+      const payload = await apiRequest("/admin/data");
+      const users = Array.isArray(payload?.users) ? payload.users : [];
+      renderUsers(users);
+      if (!silent) {
+        const count = users.length;
+        setStatus(`Loaded ${count} ${count === 1 ? "account" : "accounts"}.`, "success");
+      }
+      return users;
+    } catch (error) {
+      setStatus(error?.message || "Unable to load account data.", "error");
+      gridElement.hidden = true;
+      throw error;
+    } finally {
+      loading = false;
+      enableRefresh();
+    }
+  }
+
+  refreshButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    loadData().catch(() => {});
+  });
+
+  try {
+    await loadData();
+  } catch (error) {
+    // Status already updated in loadData
+  }
+}
+
 function initApp() {
   const page = document.body.dataset.page;
   switch (page) {
@@ -4089,6 +4446,9 @@ function initApp() {
       break;
     case "profile":
       initProfile();
+      break;
+    case "data":
+      initData();
       break;
     default:
       break;

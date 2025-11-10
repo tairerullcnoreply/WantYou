@@ -70,6 +70,10 @@ const DEFAULT_RELATIONSHIP_STATUS = RELATIONSHIP_STATUS.OPEN;
 const MINIMUM_VERIFIED_AGE = 13;
 const MAXIMUM_VERIFIED_AGE = 120;
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function normalizeBirthdateInput(value) {
   if (typeof value !== "string") {
     return null;
@@ -1502,6 +1506,54 @@ async function saveConnection(actorUsername, targetUsername, state) {
   return buildConnectionState(safeState);
 }
 
+async function applyOutgoingConnectionMap(username, map = {}) {
+  const normalizedUsername = normalizeUsername(username);
+  if (!normalizedUsername || !isPlainObject(map)) {
+    return;
+  }
+  const current = await getOutgoingConnections(normalizedUsername);
+  const desiredEntries = Object.entries(map);
+  const retained = new Set();
+  for (const [targetUsername, state] of desiredEntries) {
+    const normalizedTarget = normalizeUsername(targetUsername);
+    if (!normalizedTarget || normalizedTarget === normalizedUsername) {
+      continue;
+    }
+    retained.add(normalizedTarget);
+    const nextState = buildConnectionState(state);
+    await saveConnection(normalizedUsername, normalizedTarget, nextState);
+  }
+  for (const existingTarget of Object.keys(current)) {
+    if (!retained.has(existingTarget)) {
+      await saveConnection(normalizedUsername, existingTarget, { status: "none" });
+    }
+  }
+}
+
+async function applyIncomingConnectionMap(username, map = {}) {
+  const normalizedUsername = normalizeUsername(username);
+  if (!normalizedUsername || !isPlainObject(map)) {
+    return;
+  }
+  const current = await getIncomingConnections(normalizedUsername);
+  const desiredEntries = Object.entries(map);
+  const retained = new Set();
+  for (const [sourceUsername, state] of desiredEntries) {
+    const normalizedSource = normalizeUsername(sourceUsername);
+    if (!normalizedSource || normalizedSource === normalizedUsername) {
+      continue;
+    }
+    retained.add(normalizedSource);
+    const nextState = buildConnectionState(state);
+    await saveConnection(normalizedSource, normalizedUsername, nextState);
+  }
+  for (const existingSource of Object.keys(current)) {
+    if (!retained.has(existingSource)) {
+      await saveConnection(existingSource, normalizedUsername, { status: "none" });
+    }
+  }
+}
+
 async function saveSelectedThread(username, thread) {
   await redisPipeline([
     ["SET", selectedThreadKey(username), JSON.stringify(thread), "EX", "3600"],
@@ -2007,6 +2059,40 @@ async function updateUserPost(username, postId, updates) {
   return merged;
 }
 
+async function buildAdminUserPayload(username) {
+  const user = await getUser(username);
+  if (!user) {
+    return null;
+  }
+  const [incoming, outgoing, events, posts] = await Promise.all([
+    getIncomingConnections(user.username),
+    getOutgoingConnections(user.username),
+    listUserEvents(user.username),
+    listUserPosts(user.username),
+  ]);
+  const { passwordHash: _passwordHash, ...profile } = user;
+  return {
+    profile,
+    connections: { incoming, outgoing },
+    events,
+    posts,
+  };
+}
+
+async function listAdminUsers() {
+  const summaries = await listUsers();
+  const usernames = summaries.map((entry) => entry.username).filter(Boolean);
+  const users = [];
+  for (const username of usernames) {
+    const payload = await buildAdminUserPayload(username);
+    if (payload) {
+      users.push(payload);
+    }
+  }
+  users.sort((a, b) => a.profile.username.localeCompare(b.profile.username));
+  return users;
+}
+
 function publicUser(user) {
   const badges = enforceBadgeRules(user.username, user.badges);
   return {
@@ -2130,6 +2216,16 @@ function createApp() {
     res.sendFile(path.join(PROJECT_ROOT, ...segments));
   }
 
+  function ensureOwner(req, res, next) {
+    if (req.aiGuest) {
+      return res.status(403).json({ message: "Owner tools are unavailable in AI preview mode" });
+    }
+    if (!req.user || req.user.username !== OWNER_USERNAME) {
+      return res.status(403).json({ message: "Owner access required" });
+    }
+    return next();
+  }
+
   app.get("/lookup", (req, res) => {
     res.redirect(301, "/lookup/");
   });
@@ -2167,6 +2263,13 @@ function createApp() {
   });
   app.get("/profile/@:username/", (req, res) => {
     sendPage(res, "profile", "index.html");
+  });
+
+  app.get("/data", (req, res) => {
+    res.redirect(301, "/data/");
+  });
+  app.get("/data/", (req, res) => {
+    sendPage(res, "data", "index.html");
   });
 
   app.get("/feed.html", (req, res) => {
@@ -2413,6 +2516,92 @@ function createApp() {
     } catch (error) {
       console.error("Failed to list users", error);
       res.status(500).json({ message: "Unable to load users" });
+    }
+  });
+
+  app.get("/api/admin/data", authenticate, ensureOwner, async (req, res) => {
+    try {
+      const users = await listAdminUsers();
+      res.json({ users, generatedAt: new Date().toISOString() });
+    } catch (error) {
+      console.error("Failed to load admin data", error);
+      res.status(500).json({ message: "Unable to load account data" });
+    }
+  });
+
+  app.put("/api/admin/users/:username", authenticate, ensureOwner, async (req, res) => {
+    const normalizedTarget = normalizeUsername(req.params.username);
+    if (!normalizedTarget) {
+      return res.status(400).json({ message: "A valid username is required" });
+    }
+    try {
+      let currentRecord = await getUser(normalizedTarget);
+      if (!currentRecord) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const { profile, connections, events, posts } = req.body ?? {};
+      let changed = false;
+
+      if (isPlainObject(profile) && Object.keys(profile).length) {
+        try {
+          currentRecord = await writeUserRecord({
+            ...currentRecord,
+            ...profile,
+            username: currentRecord.username,
+            userId: currentRecord.userId,
+            passwordHash: currentRecord.passwordHash,
+          });
+          changed = true;
+        } catch (error) {
+          return res.status(400).json({ message: error.message || "Profile update invalid" });
+        }
+      }
+
+      if (isPlainObject(connections)) {
+        if (isPlainObject(connections.outgoing)) {
+          await applyOutgoingConnectionMap(currentRecord.username, connections.outgoing);
+          changed = true;
+        }
+        if (isPlainObject(connections.incoming)) {
+          await applyIncomingConnectionMap(currentRecord.username, connections.incoming);
+          changed = true;
+        }
+      }
+
+      if (Array.isArray(events)) {
+        try {
+          const sanitizedEvents = sortEventsForDisplay(
+            events.map((event) => sanitizeEventRecord(event))
+          );
+          await rewriteList(userEventsKey(currentRecord.username), sanitizedEvents);
+          changed = true;
+        } catch (error) {
+          return res.status(400).json({ message: "Events payload is invalid" });
+        }
+      }
+
+      if (Array.isArray(posts)) {
+        try {
+          const sanitizedPosts = sortPostsForDisplay(
+            posts.map((post) => sanitizePostRecord(post))
+          );
+          await rewriteList(userPostsKey(currentRecord.username), sanitizedPosts);
+          changed = true;
+        } catch (error) {
+          return res.status(400).json({ message: "Posts payload is invalid" });
+        }
+      }
+
+      if (!changed) {
+        return res.status(400).json({ message: "Provide account changes to save" });
+      }
+
+      const payload = await buildAdminUserPayload(currentRecord.username);
+      res.json({ user: payload });
+    } catch (error) {
+      console.error("Failed to update account", error);
+      res.status(500).json({ message: "Unable to save account changes" });
     }
   });
 
