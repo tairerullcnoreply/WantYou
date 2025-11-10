@@ -1,6 +1,7 @@
 # WantYou
 WantYou is a social platform that enables users to discover and connect with others through a unique relationship marking system. Users can create an account, mark people as "Know you", "Want you", or "Both", with the option to keep "Want you" connections anonymous. The platform features messaging with unread tracking, user lookup with advanced filters, profiles with media uploads and events (24-hour posts), and the ability for anonymous users to reveal their identity through conversation.
 ## Log
+* [11/23/2025; 4:20 PM UTC] Added multi-participant group chats with creation flows and shared unread tracking
 * [11/06/2025; 5:01 PM] Repo creation
 * [11/07/2025; 10:15 AM] Implemented WantYou landing experience with interactive discovery and messaging demo
 * [11/07/2025; 1:11 AM UTC] Rebuilt WantYou as a multi-page social platform with an orange and white theme

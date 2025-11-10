@@ -20,6 +20,8 @@ const BADGE_TYPES = Object.freeze({
 
 const VALID_BADGES = new Set(Object.values(BADGE_TYPES));
 
+const GROUP_CONVERSATION_PREFIX = "group-";
+
 const DEFAULT_CONNECTION_STATE = Object.freeze({
   status: "none",
   anonymous: false,
@@ -831,6 +833,14 @@ function conversationId(usernameA, usernameB) {
   return [first, second].sort().join(":");
 }
 
+function isGroupConversationId(id) {
+  return typeof id === "string" && id.startsWith(GROUP_CONVERSATION_PREFIX);
+}
+
+function generateGroupConversationId() {
+  return `${GROUP_CONVERSATION_PREFIX}${crypto.randomUUID()}`;
+}
+
 function conversationMessagesKey(id) {
   return `conversation:${id}:messages`;
 }
@@ -846,6 +856,10 @@ function upgradeConversationMeta(meta) {
     unread: {},
     readAt: {},
     totalMessages: 0,
+    participants: [],
+    name: null,
+    createdBy: null,
+    createdAt: null,
   };
   if (!meta || typeof meta !== "object") {
     return safe;
@@ -897,6 +911,18 @@ function upgradeConversationMeta(meta) {
       .filter(Boolean);
   }
 
+  if (typeof meta.name === "string" && meta.name.trim()) {
+    safe.name = meta.name.trim();
+  }
+
+  if (typeof meta.createdBy === "string" && meta.createdBy.trim()) {
+    safe.createdBy = normalizeUsername(meta.createdBy);
+  }
+
+  if (typeof meta.createdAt === "string" && meta.createdAt.trim()) {
+    safe.createdAt = meta.createdAt;
+  }
+
   return safe;
 }
 
@@ -906,6 +932,48 @@ async function getConversationMeta(usernameA, usernameB) {
   const raw = await redisCommand(["GET", conversationMetaKey(id)]);
   if (!raw) return null;
   return upgradeConversationMeta(parseJsonSafe(raw, null));
+}
+
+async function getConversationMetaById(id) {
+  if (!id) return null;
+  const raw = await redisCommand(["GET", conversationMetaKey(id)]);
+  if (!raw) return null;
+  return upgradeConversationMeta(parseJsonSafe(raw, null));
+}
+
+function userGroupConversationsKey(username) {
+  return `user:${username}:groups`;
+}
+
+async function listUserGroupConversations(username) {
+  const key = userGroupConversationsKey(username);
+  const raw = await redisCommand(["GET", key]);
+  if (!raw) return [];
+  const parsed = parseJsonSafe(raw, []);
+  if (!Array.isArray(parsed)) return [];
+  const unique = new Set();
+  parsed.forEach((entry) => {
+    if (typeof entry === "string" && entry.trim()) {
+      unique.add(entry.trim());
+    }
+  });
+  return Array.from(unique);
+}
+
+async function saveUserGroupConversations(username, ids) {
+  const key = userGroupConversationsKey(username);
+  const unique = Array.from(new Set(ids.filter((id) => typeof id === "string" && id.trim())));
+  await redisCommand(["SET", key, JSON.stringify(unique)]);
+  return unique;
+}
+
+async function addGroupConversationForUser(username, id) {
+  if (!id) return [];
+  const current = await listUserGroupConversations(username);
+  if (!current.includes(id)) {
+    current.push(id);
+  }
+  return saveUserGroupConversations(username, current);
 }
 
 function userEventsKey(username) {
@@ -918,6 +986,20 @@ function userPostsKey(username) {
 
 function normalizeUsername(username = "") {
   return username.trim().toLowerCase();
+}
+
+function normalizeParticipantList(participants = []) {
+  if (!Array.isArray(participants)) {
+    return [];
+  }
+  const set = new Set();
+  participants.forEach((username) => {
+    const normalized = normalizeUsername(username);
+    if (normalized) {
+      set.add(normalized);
+    }
+  });
+  return Array.from(set);
 }
 
 function hashPassword(password) {
@@ -1218,6 +1300,60 @@ async function migrateConversationRecords(oldUsername, newUsername, allUsernames
         ]);
       } else {
         await redisCommand(["DEL", conversationMetaKey(oldId)]);
+      }
+    })
+  );
+
+  await migrateGroupConversationRecords(oldUsername, newUsername);
+}
+
+async function migrateGroupConversationRecords(oldUsername, newUsername) {
+  const groupIds = await listUserGroupConversations(oldUsername);
+  if (!groupIds.length) {
+    return;
+  }
+  const existingNewGroups = await listUserGroupConversations(newUsername);
+  const mergedIds = Array.from(new Set([...existingNewGroups, ...groupIds]));
+  await saveUserGroupConversations(newUsername, mergedIds);
+  await redisCommand(["DEL", userGroupConversationsKey(oldUsername)]);
+
+  await Promise.all(
+    groupIds.map(async (id) => {
+      const meta = await getConversationMetaById(id);
+      if (!meta) {
+        return;
+      }
+      let changed = false;
+      if (Array.isArray(meta.participants)) {
+        const updatedParticipants = meta.participants.map((participant) =>
+          participant === oldUsername ? newUsername : participant
+        );
+        if (updatedParticipants.some((participant, index) => participant !== meta.participants[index])) {
+          meta.participants = updatedParticipants;
+          changed = true;
+        }
+      }
+      if (meta.createdBy === oldUsername) {
+        meta.createdBy = newUsername;
+        changed = true;
+      }
+      if (meta.lastMessage?.sender === oldUsername) {
+        meta.lastMessage = { ...meta.lastMessage, sender: newUsername };
+        changed = true;
+      }
+      if (meta.unread && meta.unread[oldUsername] !== undefined) {
+        meta.unread[newUsername] = meta.unread[oldUsername];
+        delete meta.unread[oldUsername];
+        changed = true;
+      }
+      if (meta.readAt && meta.readAt[oldUsername]) {
+        meta.readAt[newUsername] = meta.readAt[oldUsername];
+        delete meta.readAt[oldUsername];
+        changed = true;
+      }
+      if (changed) {
+        meta.messageCount = meta.totalMessages;
+        await redisCommand(["SET", conversationMetaKey(id), JSON.stringify(meta)]);
       }
     })
   );
@@ -1706,9 +1842,8 @@ function formatAliasForCurrentUser(currentUser, outbound) {
   return currentUser.fullName;
 }
 
-async function getConversationMessages(usernameA, usernameB, options = {}) {
+async function getConversationMessagesById(id, options = {}) {
   const { cursor, limit } = options;
-  const id = conversationId(usernameA, usernameB);
   if (!id) {
     return { messages: [], hasMore: false, previousCursor: null, total: 0 };
   }
@@ -1744,33 +1879,50 @@ async function getConversationMessages(usernameA, usernameB, options = {}) {
   };
 }
 
-async function appendConversationMessage(from, to, text) {
-  const id = conversationId(from, to);
+async function getConversationMessages(usernameA, usernameB, options = {}) {
+  const id = conversationId(usernameA, usernameB);
   if (!id) {
-    throw new Error("Conversation participants are required");
+    return { messages: [], hasMore: false, previousCursor: null, total: 0 };
   }
-  const sender = normalizeUsername(from);
-  const recipient = normalizeUsername(to);
+  return getConversationMessagesById(id, options);
+}
+
+async function appendMessageToConversation(id, sender, text, participants = []) {
+  if (!id) {
+    throw new Error("Conversation ID is required");
+  }
+  const normalizedSender = normalizeUsername(sender);
+  const participantList = normalizeParticipantList(participants);
   const existingMeta = upgradeConversationMeta(
     parseJsonSafe(await redisCommand(["GET", conversationMetaKey(id)]), null)
   );
   const message = {
     id: crypto.randomUUID(),
-    sender,
+    sender: normalizedSender,
     text,
     createdAt: new Date().toISOString(),
   };
   const unread = { ...existingMeta.unread };
-  if (sender) {
-    unread[sender] = 0;
-  }
-  if (recipient) {
-    unread[recipient] = Math.max(0, (unread[recipient] ?? 0) + 1);
-  }
   const readAt = { ...existingMeta.readAt };
-  if (sender) {
-    readAt[sender] = message.createdAt;
+
+  const participantsSet = new Set(
+    existingMeta.participants?.length
+      ? existingMeta.participants
+      : participantList
+  );
+  if (normalizedSender) {
+    participantsSet.add(normalizedSender);
   }
+
+  participantsSet.forEach((participant) => {
+    if (participant === normalizedSender) {
+      unread[participant] = 0;
+      readAt[participant] = message.createdAt;
+    } else {
+      unread[participant] = Math.max(0, (unread[participant] ?? 0) + 1);
+    }
+  });
+
   const meta = {
     lastMessage: message,
     updatedAt: message.createdAt,
@@ -1778,10 +1930,9 @@ async function appendConversationMessage(from, to, text) {
     readAt,
     totalMessages: existingMeta.totalMessages + 1,
   };
-  if (existingMeta.participants?.length) {
-    meta.participants = existingMeta.participants;
-  } else {
-    meta.participants = [sender, recipient].filter(Boolean);
+  const normalizedParticipants = Array.from(participantsSet);
+  if (normalizedParticipants.length) {
+    meta.participants = normalizedParticipants;
   }
   meta.messageCount = meta.totalMessages;
   await redisPipeline([
@@ -1789,6 +1940,115 @@ async function appendConversationMessage(from, to, text) {
     ["SET", conversationMetaKey(id), JSON.stringify(meta)],
   ]);
   return message;
+}
+
+async function appendConversationMessage(from, to, text) {
+  const id = conversationId(from, to);
+  if (!id) {
+    throw new Error("Conversation participants are required");
+  }
+  return appendMessageToConversation(id, from, text, [from, to]);
+}
+
+async function createGroupConversation({ creator, name, participants }) {
+  const normalizedCreator = normalizeUsername(creator);
+  if (!normalizedCreator) {
+    throw new Error("Conversation creator is required");
+  }
+  const normalizedParticipants = normalizeParticipantList(participants);
+  if (!normalizedParticipants.includes(normalizedCreator)) {
+    normalizedParticipants.push(normalizedCreator);
+  }
+  if (normalizedParticipants.length < 3) {
+    throw new Error("Group conversations need at least three participants");
+  }
+
+  const participantRecords = await Promise.all(
+    normalizedParticipants.map(async (username) => {
+      const user = await getUser(username);
+      if (!user) {
+        throw new Error(`User ${username} not found`);
+      }
+      return user;
+    })
+  );
+
+  const id = generateGroupConversationId();
+  const createdAt = new Date().toISOString();
+  const safeName = typeof name === "string" && name.trim() ? name.trim() : null;
+  const unread = {};
+  const readAt = {};
+  normalizedParticipants.forEach((username) => {
+    unread[username] = 0;
+    readAt[username] = null;
+  });
+  readAt[normalizedCreator] = createdAt;
+
+  const meta = {
+    participants: normalizedParticipants,
+    name: safeName,
+    createdBy: normalizedCreator,
+    createdAt,
+    lastMessage: null,
+    updatedAt: createdAt,
+    unread,
+    readAt,
+    totalMessages: 0,
+    messageCount: 0,
+  };
+
+  await redisPipeline([["SET", conversationMetaKey(id), JSON.stringify(meta)]]);
+  await Promise.all(
+    normalizedParticipants.map((username) => addGroupConversationForUser(username, id))
+  );
+
+  return {
+    id,
+    meta,
+    participants: participantRecords,
+  };
+}
+
+function describeGroupParticipants(records = []) {
+  return records
+    .filter((record) => record && record.username)
+    .map((record) => ({
+      username: record.username,
+      fullName: record.fullName ?? record.username,
+    }));
+}
+
+function buildGroupDisplayName(meta, participants, currentUsername) {
+  if (meta?.name) {
+    return meta.name;
+  }
+  const others = participants
+    .filter((participant) => participant.username !== currentUsername)
+    .map((participant) => participant.fullName || participant.username);
+  if (!others.length) {
+    return "Group chat";
+  }
+  const limited = others.slice(0, 3);
+  let label = limited.join(", ");
+  if (others.length > limited.length) {
+    label += ` +${others.length - limited.length}`;
+  }
+  return label;
+}
+
+function enhanceMessagesWithParticipants(messages, participants) {
+  const participantMap = new Map();
+  participants.forEach((participant) => {
+    participantMap.set(participant.username, participant);
+  });
+  return messages.map((message) => {
+    if (!message) return message;
+    const senderRecord = participantMap.get(message.sender);
+    return {
+      ...message,
+      senderDisplayName: senderRecord?.fullName || senderRecord?.username || message.sender,
+    };
+  });
 }
 
 async function getConversationMetaRecords(currentUsername, people) {
@@ -1808,15 +2068,14 @@ async function getConversationMetaRecords(currentUsername, people) {
   return meta;
 }
 
-async function markConversationRead(usernameA, usernameB) {
-  const id = conversationId(usernameA, usernameB);
+async function markConversationReadById(id, username) {
   if (!id) return null;
   const raw = await redisCommand(["GET", conversationMetaKey(id)]);
   if (!raw) {
     return null;
   }
   const meta = upgradeConversationMeta(parseJsonSafe(raw, null));
-  const currentUser = normalizeUsername(usernameA);
+  const currentUser = normalizeUsername(username);
   if (currentUser) {
     meta.unread[currentUser] = 0;
     meta.readAt[currentUser] = new Date().toISOString();
@@ -1824,6 +2083,12 @@ async function markConversationRead(usernameA, usernameB) {
   meta.messageCount = meta.totalMessages;
   await redisCommand(["SET", conversationMetaKey(id), JSON.stringify(meta)]);
   return meta;
+}
+
+async function markConversationRead(usernameA, usernameB) {
+  const id = conversationId(usernameA, usernameB);
+  if (!id) return null;
+  return markConversationReadById(id, usernameA);
 }
 
 async function rewriteList(key, entries) {
@@ -2850,9 +3115,12 @@ function createApp() {
       return;
     }
     try {
-      const people = await getLookupPeople(req.user.username);
+      const [people, groupIds] = await Promise.all([
+        getLookupPeople(req.user.username),
+        listUserGroupConversations(req.user.username),
+      ]);
       const metaMap = await getConversationMetaRecords(req.user.username, people);
-      const threads = people
+      const directThreads = people
         .map((person) => {
           const inbound = person.inbound;
           const outbound = person.outbound;
@@ -2862,6 +3130,8 @@ function createApp() {
             meta?.updatedAt ?? outbound.updatedAt ?? inbound.updatedAt ?? null;
           return {
             username: person.username,
+            threadId: person.username,
+            type: "direct",
             fullName: person.fullName,
             displayName: formatDisplayName(person, inbound),
             tagline: person.tagline ?? "",
@@ -2881,6 +3151,60 @@ function createApp() {
           };
         })
         .filter((thread) => Boolean(thread.lastMessage));
+
+      const groupThreads = [];
+      if (groupIds.length) {
+        const groupEntries = await Promise.all(
+          groupIds.map(async (id) => {
+            const meta = await getConversationMetaById(id);
+            if (!meta) {
+              return null;
+            }
+            const participants = await Promise.all(
+              (meta.participants || []).map(async (username) => getUser(username))
+            );
+            return { id, meta, participants: participants.filter(Boolean) };
+          })
+        );
+
+        groupEntries.forEach((entry) => {
+          if (!entry) return;
+          const participants = describeGroupParticipants(entry.participants);
+          const displayName = buildGroupDisplayName(entry.meta, participants, req.user.username);
+          const participantSummary = participants
+            .filter((participant) => participant.username !== req.user.username)
+            .map((participant) => participant.fullName)
+            .join(", ");
+          groupThreads.push({
+            username: entry.id,
+            threadId: entry.id,
+            type: "group",
+            name: entry.meta.name ?? null,
+            fullName: displayName,
+            displayName,
+            tagline: participantSummary,
+            badges: [],
+            inbound: { ...DEFAULT_CONNECTION_STATE },
+            outbound: { ...DEFAULT_CONNECTION_STATE },
+            participants,
+            lastMessage: entry.meta.lastMessage
+              ? {
+                  sender: entry.meta.lastMessage.sender,
+                  text: entry.meta.lastMessage.text,
+                  createdAt: entry.meta.lastMessage.createdAt,
+                  senderDisplayName: participants.find(
+                    (participant) => participant.username === entry.meta.lastMessage.sender
+                  )?.fullName,
+                }
+              : null,
+            updatedAt: entry.meta.updatedAt ?? entry.meta.createdAt ?? null,
+            unreadCount: entry.meta.unread?.[req.user.username] ?? 0,
+            totalMessages: entry.meta.totalMessages ?? 0,
+          });
+        });
+      }
+
+      const threads = [...directThreads, ...groupThreads];
       threads.sort((a, b) => {
         const delta = timestampScore(b.updatedAt) - timestampScore(a.updatedAt);
         if (delta !== 0) return delta;
@@ -2893,9 +3217,58 @@ function createApp() {
     }
   });
 
+  app.post("/api/messages/groups", authenticate, async (req, res) => {
+    const { name, participants } = req.body ?? {};
+    const normalizedParticipants = normalizeParticipantList(Array.isArray(participants) ? participants : []);
+    const withCreator = normalizeParticipantList([...normalizedParticipants, req.user.username]);
+    if (withCreator.length < 3) {
+      return res.status(400).json({ message: "Add at least two people to start a group chat" });
+    }
+    try {
+      const { id, meta, participants: participantRecords } = await createGroupConversation({
+        creator: req.user.username,
+        name: typeof name === "string" ? name : null,
+        participants: withCreator,
+      });
+      const visibleParticipants = describeGroupParticipants(participantRecords);
+      const displayName = buildGroupDisplayName(meta, visibleParticipants, req.user.username);
+      const participantSummary = visibleParticipants
+        .filter((participant) => participant.username !== req.user.username)
+        .map((participant) => participant.fullName)
+        .join(", ");
+      const thread = {
+        username: id,
+        threadId: id,
+        type: "group",
+        name: meta.name ?? null,
+        fullName: displayName,
+        displayName,
+        tagline: participantSummary,
+        badges: [],
+        inbound: { ...DEFAULT_CONNECTION_STATE },
+        outbound: { ...DEFAULT_CONNECTION_STATE },
+        participants: visibleParticipants,
+        messages: [],
+        hasMore: false,
+        previousCursor: null,
+        totalMessages: 0,
+        unreadCount: 0,
+      };
+      res.status(201).json({ thread });
+    } catch (error) {
+      console.error("Failed to create group conversation", error);
+      const message =
+        error?.message && /not found/i.test(error.message)
+          ? "One or more participants were not found"
+          : error?.message || "Unable to create group conversation";
+      res.status(400).json({ message });
+    }
+  });
+
   app.get("/api/messages/thread/:username", authenticate, async (req, res) => {
+    const threadParam = req.params.username;
     if (req.aiGuest) {
-      const target = normalizeUsername(req.params.username);
+      const target = normalizeUsername(threadParam);
       const payload = aiPreview.getThreadDetail(target);
       if (!payload) {
         res.status(404).json({ message: "Conversation not found" });
@@ -2904,7 +3277,66 @@ function createApp() {
       res.json(payload);
       return;
     }
-    const normalizedTarget = normalizeUsername(req.params.username);
+
+    if (isGroupConversationId(threadParam)) {
+      try {
+        const meta = await getConversationMetaById(threadParam);
+        if (!meta) {
+          return res.status(404).json({ message: "Conversation not found" });
+        }
+        const participants = normalizeParticipantList(meta.participants);
+        if (!participants.includes(req.user.username)) {
+          return res.status(403).json({ message: "You do not have access to this conversation" });
+        }
+        const participantRecords = await Promise.all(
+          participants.map(async (username) => getUser(username))
+        );
+        const visibleParticipants = describeGroupParticipants(participantRecords.filter(Boolean));
+        const limit = Number.parseInt(req.query.limit, 10);
+        const { messages, hasMore, previousCursor, total } = await getConversationMessagesById(
+          threadParam,
+          {
+            cursor: req.query.cursor,
+            limit: Number.isFinite(limit) && limit > 0 ? limit : 50,
+          }
+        );
+        const enhancedMessages = enhanceMessagesWithParticipants(messages, visibleParticipants);
+        const displayName = buildGroupDisplayName(meta, visibleParticipants, req.user.username);
+        const thread = {
+          username: threadParam,
+          threadId: threadParam,
+          type: "group",
+          name: meta.name ?? null,
+          fullName: displayName,
+          displayName,
+          tagline: visibleParticipants
+            .filter((participant) => participant.username !== req.user.username)
+            .map((participant) => participant.fullName)
+            .join(", "),
+          inbound: { ...DEFAULT_CONNECTION_STATE },
+          outbound: { ...DEFAULT_CONNECTION_STATE },
+          participants: visibleParticipants,
+          messages: enhancedMessages.map((message) => ({
+            id: message.id,
+            sender: message.sender,
+            senderDisplayName: message.senderDisplayName,
+            text: message.text,
+            createdAt: message.createdAt,
+          })),
+          hasMore,
+          previousCursor,
+          totalMessages: Number.isFinite(total) ? total : enhancedMessages.length,
+          unreadCount: meta?.unread?.[req.user.username] ?? 0,
+        };
+        res.json({ thread });
+      } catch (error) {
+        console.error("Failed to load conversation", error);
+        res.status(500).json({ message: "Unable to load conversation" });
+      }
+      return;
+    }
+
+    const normalizedTarget = normalizeUsername(threadParam);
     if (!normalizedTarget) {
       return res.status(400).json({ message: "A valid username is required" });
     }
@@ -2928,6 +3360,8 @@ function createApp() {
       const outbound = connectionStateFor(normalizedTarget, outgoing);
       const thread = {
         username: targetUser.username,
+        threadId: targetUser.username,
+        type: "direct",
         fullName: targetUser.fullName,
         displayName: formatDisplayName(targetUser, inbound),
         tagline: targetUser.tagline ?? "",
@@ -2954,14 +3388,53 @@ function createApp() {
   });
 
   app.post("/api/messages/thread/:username", authenticate, async (req, res) => {
-    const normalizedTarget = normalizeUsername(req.params.username);
+    const threadParam = req.params.username;
     const { text } = req.body ?? {};
-    if (!normalizedTarget) {
-      return res.status(400).json({ message: "A valid username is required" });
-    }
     const trimmed = text?.trim();
     if (!trimmed) {
       return res.status(400).json({ message: "A message is required" });
+    }
+
+    if (isGroupConversationId(threadParam)) {
+      try {
+        const meta = await getConversationMetaById(threadParam);
+        if (!meta) {
+          return res.status(404).json({ message: "Conversation not found" });
+        }
+        const participants = normalizeParticipantList(meta.participants);
+        if (!participants.includes(req.user.username)) {
+          return res.status(403).json({ message: "You do not have access to this conversation" });
+        }
+        const message = await appendMessageToConversation(
+          threadParam,
+          req.user.username,
+          trimmed,
+          participants
+        );
+        const participantRecords = await Promise.all(
+          participants.map(async (username) => getUser(username))
+        );
+        const visibleParticipants = describeGroupParticipants(participantRecords.filter(Boolean));
+        const enhanced = enhanceMessagesWithParticipants([message], visibleParticipants)[0];
+        res.status(201).json({
+          message: {
+            id: enhanced.id,
+            sender: enhanced.sender,
+            senderDisplayName: enhanced.senderDisplayName,
+            text: enhanced.text,
+            createdAt: enhanced.createdAt,
+          },
+        });
+      } catch (error) {
+        console.error("Failed to save message", error);
+        res.status(500).json({ message: "Unable to send message" });
+      }
+      return;
+    }
+
+    const normalizedTarget = normalizeUsername(threadParam);
+    if (!normalizedTarget) {
+      return res.status(400).json({ message: "A valid username is required" });
     }
     try {
       const targetUser = await getUser(normalizedTarget);
@@ -2988,12 +3461,18 @@ function createApp() {
   });
 
   app.post("/api/messages/thread/:username/read", authenticate, async (req, res) => {
-    const normalizedTarget = normalizeUsername(req.params.username);
-    if (!normalizedTarget) {
-      return res.status(400).json({ message: "A valid username is required" });
-    }
+    const threadParam = req.params.username;
     try {
-      const meta = await markConversationRead(req.user.username, normalizedTarget);
+      let meta;
+      if (isGroupConversationId(threadParam)) {
+        meta = await markConversationReadById(threadParam, req.user.username);
+      } else {
+        const normalizedTarget = normalizeUsername(threadParam);
+        if (!normalizedTarget) {
+          return res.status(400).json({ message: "A valid username is required" });
+        }
+        meta = await markConversationRead(req.user.username, normalizedTarget);
+      }
       res.json({ unreadCount: meta?.unread?.[req.user.username] ?? 0 });
     } catch (error) {
       console.error("Failed to mark conversation read", error);

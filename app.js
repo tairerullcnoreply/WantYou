@@ -472,8 +472,37 @@ function normalizeThread(thread) {
     ? thread.messages.length
     : 0;
   const previousCursor = typeof thread.previousCursor === "string" ? thread.previousCursor : null;
+  const threadId = typeof thread.threadId === "string" && thread.threadId ? thread.threadId : typeof thread.username === "string" ? thread.username : null;
+  const type = thread.type === "group" ? "group" : "direct";
+  const participants = Array.isArray(thread.participants)
+    ? thread.participants
+        .map((participant) => {
+          if (!participant) return null;
+          const username = typeof participant.username === "string" ? participant.username : null;
+          if (!username) return null;
+          const fullName = typeof participant.fullName === "string" && participant.fullName.trim()
+            ? participant.fullName.trim()
+            : username;
+          return { username, fullName };
+        })
+        .filter(Boolean)
+    : [];
+  const messages = Array.isArray(thread.messages)
+    ? thread.messages.map((message) => ({
+        id: message.id,
+        sender: message.sender,
+        senderDisplayName: message.senderDisplayName || message.sender,
+        text: message.text,
+        createdAt: message.createdAt,
+      }))
+    : thread.messages;
   return {
     ...thread,
+    threadId,
+    username: thread.username ?? threadId ?? "",
+    type,
+    participants,
+    messages,
     inbound: normalizeConnectionState(thread.inbound),
     outbound: normalizeConnectionState(thread.outbound),
     unreadCount,
@@ -1911,9 +1940,10 @@ function renderThreadView(context, thread, options = {}) {
     loadMoreButton,
   } = context;
 
+  const isGroup = thread.type === "group";
   const inbound = normalizeConnectionState(thread.inbound);
   const outbound = normalizeConnectionState(thread.outbound);
-  const inboundAnonymous = connectionIsAnonymous(inbound);
+  const inboundAnonymous = !isGroup && connectionIsAnonymous(inbound);
 
   placeholder.hidden = true;
   statusHeader.hidden = false;
@@ -1930,10 +1960,12 @@ function renderThreadView(context, thread, options = {}) {
     }
   }
 
-  statusLabel.textContent = STATUS_LABELS[inbound.status] ?? STATUS_LABELS.none;
+  statusLabel.textContent = isGroup
+    ? "Group chat"
+    : STATUS_LABELS[inbound.status] ?? STATUS_LABELS.none;
   title.textContent = thread.displayName;
   if (threadBadges) {
-    if (inboundAnonymous) {
+    if (isGroup || inboundAnonymous) {
       threadBadges.hidden = true;
       threadBadges.innerHTML = "";
     } else {
@@ -1942,7 +1974,18 @@ function renderThreadView(context, thread, options = {}) {
   }
 
   if (aliasNote) {
-    if (outbound.status === "want" || outbound.status === "both") {
+    if (isGroup) {
+      const others = (thread.participants || [])
+        .filter((participant) => participant.username !== sessionUser?.username)
+        .map((participant) => participant.fullName)
+        .join(", ");
+      if (others) {
+        aliasNote.textContent = `With ${others}`;
+        aliasNote.hidden = false;
+      } else {
+        aliasNote.hidden = true;
+      }
+    } else if (outbound.status === "want" || outbound.status === "both") {
       if (outbound.anonymous) {
         const aliasName = escapeHtml(outbound.alias || "Anonymous");
         aliasNote.innerHTML = `They currently see you as <strong>${aliasName}</strong>.`;
@@ -1956,27 +1999,46 @@ function renderThreadView(context, thread, options = {}) {
     }
   }
 
-  const canReveal = outbound.status === "want" || outbound.status === "both";
+  const canReveal = !isGroup && (outbound.status === "want" || outbound.status === "both");
   if (revealToggle) {
-    revealToggle.disabled = !canReveal;
-    revealToggle.checked = canReveal && !outbound.anonymous;
-    revealToggle.parentElement?.classList.toggle("toggle--disabled", !canReveal);
+    if (isGroup) {
+      revealToggle.checked = true;
+      revealToggle.disabled = true;
+      revealToggle.parentElement?.classList.add("toggle--disabled");
+    } else {
+      revealToggle.disabled = !canReveal;
+      revealToggle.checked = canReveal && !outbound.anonymous;
+      revealToggle.parentElement?.classList.toggle("toggle--disabled", !canReveal);
+    }
   }
   if (switchAnon) {
-    switchAnon.disabled = !canReveal;
-    if (!canReveal) {
-      switchAnon.textContent = "Anonymity not available";
-    } else if (outbound.anonymous) {
-      switchAnon.textContent = "Reveal yourself";
+    if (isGroup) {
+      switchAnon.disabled = true;
+      switchAnon.textContent = "Group chats are visible";
     } else {
-      switchAnon.textContent = "Go anonymous";
+      switchAnon.disabled = !canReveal;
+      if (!canReveal) {
+        switchAnon.textContent = "Anonymity not available";
+      } else if (outbound.anonymous) {
+        switchAnon.textContent = "Reveal yourself";
+      } else {
+        switchAnon.textContent = "Go anonymous";
+      }
     }
   }
   if (requestReveal) {
-    requestReveal.disabled = !inboundAnonymous;
+    if (isGroup) {
+      requestReveal.disabled = true;
+      requestReveal.hidden = true;
+    } else {
+      requestReveal.disabled = !inboundAnonymous;
+      requestReveal.hidden = false;
+    }
   }
 
-  const incomingAuthor = inboundAnonymous
+  const incomingAuthor = isGroup
+    ? null
+    : inboundAnonymous
     ? inbound.alias?.trim() || "Anonymous"
     : thread.displayName;
 
@@ -1984,7 +2046,11 @@ function renderThreadView(context, thread, options = {}) {
     .map((message) => {
       const outgoing = message.sender === sessionUser?.username;
       const direction = outgoing ? "outgoing" : "incoming";
-      const author = outgoing ? "You" : incomingAuthor;
+      const author = outgoing
+        ? "You"
+        : isGroup
+        ? message.senderDisplayName || message.sender || "Someone"
+        : incomingAuthor;
       const timestamp = formatTimestamp(message.createdAt);
       const meta = `${escapeHtml(author)}${
         timestamp ? ` · ${escapeHtml(timestamp)}` : ""
@@ -2001,7 +2067,10 @@ function renderThreadView(context, thread, options = {}) {
     .join("");
 
   if (!messageLog.innerHTML.trim()) {
-    messageLog.innerHTML = "<li class=\"message message--empty\"><p>No messages yet. Say hi!</p></li>";
+    const emptyText = isGroup
+      ? "No messages yet. Start the conversation!"
+      : "No messages yet. Say hi!";
+    messageLog.innerHTML = `<li class=\"message message--empty\"><p>${escapeHtml(emptyText)}</p></li>`;
   }
 
   if (!preserveScroll && messageLog.scrollHeight) {
@@ -2039,9 +2108,44 @@ async function initMessages() {
     return;
   }
 
-  newChatButton?.addEventListener("click", (event) => {
+  newChatButton?.addEventListener("click", async (event) => {
     event.preventDefault();
-    window.location.href = withAiRef("/lookup/");
+    const rawParticipants = window.prompt(
+      "Enter usernames to add to this group chat (comma-separated):"
+    );
+    if (rawParticipants === null) {
+      return;
+    }
+    const participants = (rawParticipants || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (participants.length < 2) {
+      window.alert("Add at least two usernames to start a group chat.");
+      return;
+    }
+    const nameInput = window.prompt("Name this group chat (optional):");
+    try {
+      const response = await apiRequest("/messages/groups", {
+        method: "POST",
+        body: JSON.stringify({
+          name: nameInput || null,
+          participants,
+        }),
+      });
+      const thread = normalizeThread(response?.thread ?? null);
+      if (thread) {
+        const threadKey = thread.threadId ?? thread.username;
+        if (threadKey) {
+          threads.push(thread);
+          threadMap.set(threadKey, { ...thread, messages: thread.messages ?? [] });
+          renderList();
+          await selectThread(threadKey);
+        }
+      }
+    } catch (error) {
+      window.alert(error?.message || "We couldn't create that group chat.");
+    }
   });
 
   placeholder.hidden = false;
@@ -2083,20 +2187,20 @@ async function initMessages() {
     return (data?.threads ?? []).map((thread) => normalizeThread(thread));
   };
 
-  const fetchThreadDetail = async (username, { cursor } = {}) => {
+  const fetchThreadDetail = async (threadId, { cursor } = {}) => {
     const params = new URLSearchParams();
     params.set("limit", MESSAGE_PAGE_SIZE);
     if (cursor) {
       params.set("cursor", cursor);
     }
     const query = params.toString() ? `?${params.toString()}` : "";
-    const data = await apiRequest(`/messages/thread/${encodeURIComponent(username)}${query}`);
+    const data = await apiRequest(`/messages/thread/${encodeURIComponent(threadId)}${query}`);
     return normalizeThread(data?.thread ?? null);
   };
 
-  const updateListSelection = (username) => {
+  const updateListSelection = (threadId) => {
     list.querySelectorAll(".messages-list__item").forEach((item) => {
-      const isActive = item.dataset.thread === username;
+      const isActive = item.dataset.thread === threadId;
       item.setAttribute("aria-current", String(isActive));
       item.classList.toggle("messages-list__item--active", isActive);
     });
@@ -2141,22 +2245,33 @@ async function initMessages() {
       const item = document.createElement("li");
       const button = document.createElement("button");
       button.className = "messages-list__item";
-      button.dataset.thread = thread.username;
+      const threadKey = thread.threadId ?? thread.username;
+      button.dataset.thread = threadKey;
 
       const inbound = normalizeConnectionState(thread.inbound);
       const outbound = normalizeConnectionState(thread.outbound);
       thread.inbound = inbound;
       thread.outbound = outbound;
 
-      const statusClass = tagClassForStatus(inbound.status ?? "none");
-      const statusText = STATUS_LABELS[inbound.status ?? "none"] ?? STATUS_LABELS.none;
-      const statusName = STATUS_NAMES[inbound.status ?? "none"] ?? inbound.status ?? "none";
+      const isGroup = thread.type === "group";
+      const statusClass = isGroup ? "tag" : tagClassForStatus(inbound.status ?? "none");
+      const statusText = isGroup
+        ? "Group chat"
+        : STATUS_LABELS[inbound.status ?? "none"] ?? STATUS_LABELS.none;
+      const statusName = isGroup
+        ? "Group chat"
+        : STATUS_NAMES[inbound.status ?? "none"] ?? inbound.status ?? "none";
       const timeText = formatRelativeTime(thread.updatedAt) || "";
       let previewText;
       if (thread.lastMessage?.text) {
         const safeText = escapeHtml(thread.lastMessage.text);
-        previewText = `“${safeText}”`;
-      } else if (inbound.status && inbound.status !== "none") {
+        const author = isGroup
+          ? escapeHtml(thread.lastMessage.senderDisplayName || thread.lastMessage.sender || "")
+          : escapeHtml(thread.displayName);
+        previewText = isGroup
+          ? `${author}: “${safeText}”`
+          : `“${safeText}”`;
+      } else if (!isGroup && inbound.status && inbound.status !== "none") {
         previewText = `${escapeHtml(thread.displayName)} marked you as ${escapeHtml(
           statusName
         )}.`;
@@ -2191,7 +2306,12 @@ async function initMessages() {
       `;
       button.classList.toggle("messages-list__item--unread", unreadCount > 0);
       const badgeContainer = button.querySelector("[data-user-badges]");
-      if (connectionIsAnonymous(inbound)) {
+      if (isGroup) {
+        if (badgeContainer) {
+          badgeContainer.hidden = true;
+          badgeContainer.innerHTML = "";
+        }
+      } else if (connectionIsAnonymous(inbound)) {
         if (badgeContainer) {
           badgeContainer.hidden = true;
           badgeContainer.innerHTML = "";
@@ -2201,7 +2321,7 @@ async function initMessages() {
       }
       button.addEventListener("click", () => {
         if (!loadingThread) {
-          selectThread(thread.username);
+          selectThread(threadKey);
         }
       });
       item.appendChild(button);
@@ -2209,24 +2329,28 @@ async function initMessages() {
     });
 
     list.appendChild(fragment);
-    updateListSelection(activeThread?.username ?? "");
+    updateListSelection(activeThread?.threadId ?? "");
   };
 
   const markThreadRead = async (thread, force = false) => {
     if (!thread || (!force && thread.unreadCount <= 0)) {
       return;
     }
+    const threadKey = thread.threadId ?? thread.username;
+    if (!threadKey) {
+      return;
+    }
     try {
       const hadUnread = thread.unreadCount > 0;
-      await apiRequest(`/messages/thread/${encodeURIComponent(thread.username)}/read`, {
+      await apiRequest(`/messages/thread/${encodeURIComponent(threadKey)}/read`, {
         method: "POST",
       });
       thread.unreadCount = 0;
-      const summary = threads.find((entry) => entry.username === thread.username);
+      const summary = threads.find((entry) => (entry.threadId ?? entry.username) === threadKey);
       if (summary) {
         summary.unreadCount = 0;
       }
-      threadMap.set(thread.username, thread);
+      threadMap.set(threadKey, thread);
       if (hadUnread) {
         renderList();
       }
@@ -2252,7 +2376,8 @@ async function initMessages() {
     }
     const previousHeight = messageLog.scrollHeight;
     try {
-      const older = await fetchThreadDetail(thread.username, {
+      const threadKey = thread.threadId ?? thread.username;
+      const older = await fetchThreadDetail(threadKey, {
         cursor: thread.previousCursor,
       });
       const newMessages = Array.isArray(older?.messages) ? older.messages : [];
@@ -2266,10 +2391,11 @@ async function initMessages() {
       thread.totalMessages = Number.isFinite(older?.totalMessages)
         ? older.totalMessages
         : thread.totalMessages;
-      const summary = threads.find((entry) => entry.username === thread.username);
+      const summary = threads.find((entry) => (entry.threadId ?? entry.username) === threadKey);
       if (summary && Number.isFinite(thread.totalMessages)) {
         summary.totalMessages = thread.totalMessages;
       }
+      threadMap.set(threadKey, thread);
     } catch (error) {
       console.error("Unable to load earlier messages", error);
       window.alert(error?.message || "We couldn't load earlier messages.");
@@ -2300,6 +2426,13 @@ async function initMessages() {
   }
 
   const updateOutbound = async (thread, anonymous) => {
+    if (!thread || thread.type === "group") {
+      return;
+    }
+    const threadKey = thread.threadId ?? thread.username;
+    if (!threadKey) {
+      return;
+    }
     const originalOutbound = normalizeConnectionState(thread.outbound);
     const originalInbound = normalizeConnectionState(thread.inbound);
     if (originalOutbound.status !== "want" && originalOutbound.status !== "both") {
@@ -2351,8 +2484,8 @@ async function initMessages() {
           updatedInbound.updatedAt ??
           thread.updatedAt ??
           null;
-        threadMap.set(thread.username, thread);
-        const summary = threads.find((entry) => entry.username === thread.username);
+        threadMap.set(threadKey, thread);
+        const summary = threads.find((entry) => (entry.threadId ?? entry.username) === threadKey);
         if (summary) {
           summary.outbound = updatedOutbound;
           summary.inbound = updatedInbound;
@@ -2370,7 +2503,7 @@ async function initMessages() {
       window.alert(message);
       thread.outbound = originalOutbound;
       thread.inbound = originalInbound;
-      const summary = threads.find((entry) => entry.username === thread.username);
+      const summary = threads.find((entry) => (entry.threadId ?? entry.username) === threadKey);
       if (summary) {
         summary.outbound = originalOutbound;
         summary.inbound = originalInbound;
@@ -2382,26 +2515,53 @@ async function initMessages() {
   };
 
   const attachThreadControls = (thread) => {
+    const threadKey = thread?.threadId ?? thread?.username;
+    if (!threadKey) {
+      return;
+    }
     const outbound = normalizeConnectionState(thread.outbound);
     thread.outbound = outbound;
-    const canReveal = outbound.status === "want" || outbound.status === "both";
+    const isGroup = thread.type === "group";
+    const canReveal = !isGroup && (outbound.status === "want" || outbound.status === "both");
     if (revealToggle) {
-      revealToggle.onchange = () => {
-        if (!canReveal) return;
-        updateOutbound(thread, !revealToggle.checked);
-      };
+      if (isGroup) {
+        revealToggle.checked = true;
+        revealToggle.disabled = true;
+        revealToggle.onchange = null;
+        revealToggle.parentElement?.classList.add("toggle--disabled");
+      } else {
+        revealToggle.disabled = !canReveal;
+        revealToggle.onchange = () => {
+          if (!canReveal) return;
+          updateOutbound(thread, !revealToggle.checked);
+        };
+      }
     }
     if (switchAnon) {
-      switchAnon.onclick = () => {
-        if (!canReveal) return;
-        const latest = normalizeConnectionState(thread.outbound);
-        updateOutbound(thread, !latest.anonymous);
-      };
+      if (isGroup) {
+        switchAnon.disabled = true;
+        switchAnon.textContent = "Group chats are visible";
+        switchAnon.onclick = null;
+      } else {
+        switchAnon.onclick = () => {
+          if (!canReveal) return;
+          const latest = normalizeConnectionState(thread.outbound);
+          updateOutbound(thread, !latest.anonymous);
+        };
+      }
     }
     if (requestReveal) {
-      requestReveal.onclick = () => {
-        window.alert("Request to reveal sent. They'll decide when to make it public.");
-      };
+      if (isGroup) {
+        requestReveal.disabled = true;
+        requestReveal.hidden = true;
+        requestReveal.onclick = null;
+      } else {
+        requestReveal.disabled = false;
+        requestReveal.hidden = false;
+        requestReveal.onclick = () => {
+          window.alert("Request to reveal sent. They'll decide when to make it public.");
+        };
+      }
     }
     composer.onsubmit = async (event) => {
       event.preventDefault();
@@ -2409,7 +2569,7 @@ async function initMessages() {
       if (!text) return;
       try {
         const response = await apiRequest(
-          `/messages/thread/${encodeURIComponent(thread.username)}`,
+          `/messages/thread/${encodeURIComponent(threadKey)}`,
           {
             method: "POST",
             body: JSON.stringify({ text }),
@@ -2417,6 +2577,10 @@ async function initMessages() {
         );
         const message = response?.message;
         if (message) {
+          if (isGroup && !message.senderDisplayName) {
+            const selfName = sessionUser?.fullName || sessionUser?.username || "You";
+            message.senderDisplayName = selfName;
+          }
           thread.messages = thread.messages ?? [];
           const currentCount = Number.isFinite(thread.totalMessages)
             ? thread.totalMessages
@@ -2426,14 +2590,14 @@ async function initMessages() {
           thread.updatedAt = message.createdAt;
           thread.totalMessages = currentCount + 1;
           thread.unreadCount = 0;
-          threadMap.set(thread.username, thread);
+          threadMap.set(threadKey, thread);
           renderThreadView(context, thread);
           attachThreadControls(thread);
           if (input) {
             input.value = "";
             input.focus();
           }
-          const summary = threads.find((entry) => entry.username === thread.username);
+          const summary = threads.find((entry) => (entry.threadId ?? entry.username) === threadKey);
           if (summary) {
             summary.lastMessage = message;
             summary.updatedAt = message.createdAt;
@@ -2451,13 +2615,13 @@ async function initMessages() {
     };
   };
 
-  const selectThread = async (username) => {
+  const selectThread = async (threadId) => {
     if (loadingThread) return;
     loadingThread = true;
     try {
-      let thread = threadMap.get(username);
+      let thread = threadMap.get(threadId);
       if (!thread || !thread.messages) {
-        thread = await fetchThreadDetail(username);
+        thread = await fetchThreadDetail(threadId);
         if (!thread) {
           window.alert("We couldn't load that conversation.");
           return;
@@ -2469,13 +2633,16 @@ async function initMessages() {
           thread.outbound?.updatedAt ??
           thread.updatedAt ??
           null;
-        threadMap.set(username, thread);
-        const summary = threads.find((entry) => entry.username === thread.username);
+        threadMap.set(threadId, thread);
+        const summary = threads.find(
+          (entry) => (entry.threadId ?? entry.username) === threadId
+        );
         if (summary) {
           summary.inbound = thread.inbound;
           summary.outbound = thread.outbound;
           summary.displayName = thread.displayName;
           summary.badges = thread.badges;
+          summary.participants = thread.participants;
           summary.lastMessage = thread.messages[thread.messages.length - 1] ?? summary.lastMessage ?? null;
           summary.updatedAt =
             thread.messages[thread.messages.length - 1]?.createdAt ??
@@ -2490,11 +2657,14 @@ async function initMessages() {
         } else {
           threads.push({
             username: thread.username,
+            threadId,
+            type: thread.type,
             fullName: thread.fullName,
             displayName: thread.displayName,
             badges: thread.badges,
             inbound: thread.inbound,
             outbound: thread.outbound,
+            participants: thread.participants,
             lastMessage: thread.messages[thread.messages.length - 1] ?? null,
             updatedAt:
               thread.messages[thread.messages.length - 1]?.createdAt ??
@@ -2511,12 +2681,12 @@ async function initMessages() {
         renderList();
       }
       activeThread = thread;
-      updateListSelection(username);
+      updateListSelection(threadId);
       renderThreadView(context, thread);
       attachThreadControls(thread);
       if (thread.unreadCount > 0) {
         thread.unreadCount = 0;
-        const summary = threads.find((entry) => entry.username === thread.username);
+        const summary = threads.find((entry) => (entry.threadId ?? entry.username) === threadId);
         if (summary) {
           summary.unreadCount = 0;
         }
@@ -2537,7 +2707,10 @@ async function initMessages() {
   try {
     threads = await fetchThreads();
     threads.forEach((thread) => {
-      threadMap.set(thread.username, { ...thread, messages: null });
+      const threadKey = thread.threadId ?? thread.username;
+      if (threadKey) {
+        threadMap.set(threadKey, { ...thread, messages: null });
+      }
     });
     renderList();
 
@@ -2558,7 +2731,10 @@ async function initMessages() {
     } else if (stored?.threadId) {
       await selectThread(stored.threadId);
     } else if (threads.length) {
-      await selectThread(threads[0].username);
+      const firstKey = threads[0].threadId ?? threads[0].username;
+      if (firstKey) {
+        await selectThread(firstKey);
+      }
     }
   } catch (error) {
     console.error("Unable to load conversations", error);
