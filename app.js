@@ -198,6 +198,53 @@ const USER_BADGE_DEFINITIONS = Object.freeze({
 
 const USER_BADGE_ORDER = Object.freeze(["WantYou", "Verified"]);
 
+const THREAD_BACKGROUND_THEMES = Object.freeze([
+  "classic",
+  "sunrise",
+  "midnight",
+  "aurora",
+  "ocean",
+  "violet",
+  "forest",
+]);
+
+const MESSAGE_BUBBLE_THEMES = Object.freeze([
+  "default",
+  "sunset",
+  "midnight",
+  "mint",
+  "lavender",
+  "citrus",
+  "berry",
+]);
+
+const DEFAULT_THREAD_THEME = Object.freeze({
+  background: "classic",
+  message: "default",
+});
+
+const MAX_MESSAGE_ATTACHMENTS = 6;
+
+const EMOJI_OPTIONS = Object.freeze([
+  "😀",
+  "😂",
+  "😍",
+  "🥰",
+  "😎",
+  "🤔",
+  "😭",
+  "🎉",
+  "🔥",
+  "❤️",
+  "👍",
+  "👀",
+  "🙌",
+  "✨",
+  "🥳",
+  "😇",
+  "🤩",
+]);
+
 const POST_VISIBILITY_LABELS = Object.freeze({
   public: "Public",
   connections: "Connections",
@@ -420,23 +467,189 @@ function normalizeConnectionState(state) {
   };
 }
 
+function normalizeThreadTheme(theme) {
+  const background = THREAD_BACKGROUND_THEMES.includes(theme?.background)
+    ? theme.background
+    : DEFAULT_THREAD_THEME.background;
+  const message = MESSAGE_BUBBLE_THEMES.includes(theme?.message)
+    ? theme.message
+    : DEFAULT_THREAD_THEME.message;
+  return { background, message };
+}
+
+function normalizeReactionsMap(reactions) {
+  if (!reactions || typeof reactions !== "object") {
+    return {};
+  }
+  const normalized = {};
+  Object.entries(reactions).forEach(([emoji, users]) => {
+    if (typeof emoji !== "string" || !emoji.trim()) {
+      return;
+    }
+    const cleaned = Array.isArray(users)
+      ? Array.from(new Set(users.filter((user) => typeof user === "string" && user)))
+      : [];
+    if (cleaned.length) {
+      normalized[emoji] = cleaned;
+    }
+  });
+  return normalized;
+}
+
+function normalizeAttachmentsList(attachments) {
+  if (!Array.isArray(attachments)) {
+    return [];
+  }
+  return attachments
+    .filter((attachment) => attachment && typeof attachment === "object")
+    .slice(0, MAX_MESSAGE_ATTACHMENTS)
+    .map((attachment) => {
+      const url = typeof attachment.url === "string" ? attachment.url : "";
+      const name = typeof attachment.name === "string" ? attachment.name : "";
+      const type = ["image", "video", "gif", "file"].includes(attachment.type)
+        ? attachment.type
+        : "file";
+      const size = Number.isFinite(attachment.size) ? Math.max(0, Math.floor(attachment.size)) : null;
+      return {
+        url,
+        name,
+        type,
+        size,
+        contentType: attachment.contentType || "",
+        width: Number.isFinite(attachment.width) ? Math.max(0, Math.floor(attachment.width)) : null,
+        height: Number.isFinite(attachment.height) ? Math.max(0, Math.floor(attachment.height)) : null,
+      };
+    });
+}
+
+function normalizeReplyReference(reply) {
+  if (!reply || typeof reply !== "object") {
+    return null;
+  }
+  const id = typeof reply.id === "string" ? reply.id : null;
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    sender: typeof reply.sender === "string" ? reply.sender : null,
+    text: typeof reply.text === "string" ? reply.text : "",
+    attachments: normalizeAttachmentsList(reply.attachments),
+  };
+}
+
+function normalizeMessageRecord(message) {
+  if (!message || typeof message !== "object") {
+    return null;
+  }
+  const id = typeof message.id === "string" ? message.id : null;
+  const sender = typeof message.sender === "string" ? message.sender : null;
+  const createdAt = typeof message.createdAt === "string" ? message.createdAt : null;
+  if (!id || !sender || !createdAt) {
+    return null;
+  }
+  return {
+    id,
+    sender,
+    text: typeof message.text === "string" ? message.text : "",
+    createdAt,
+    attachments: normalizeAttachmentsList(message.attachments),
+    replyTo: normalizeReplyReference(message.replyTo),
+    reactions: normalizeReactionsMap(message.reactions),
+  };
+}
+
+function formatReplySnippet(reply) {
+  if (!reply || typeof reply !== "object") {
+    return "";
+  }
+  const text = typeof reply.text === "string" ? reply.text.trim() : "";
+  if (text) {
+    return text;
+  }
+  const attachments = Array.isArray(reply.attachments) ? reply.attachments : [];
+  if (attachments.length === 0) {
+    return "";
+  }
+  return attachments.length === 1 ? "Attachment" : `${attachments.length} attachments`;
+}
+
+function getThreadAuthorLabel(thread, sender, currentUserUsername = "") {
+  if (!thread) {
+    return sender || "";
+  }
+  const normalizedSender = typeof sender === "string" ? sender.toLowerCase() : "";
+  const normalizedCurrent = typeof currentUserUsername === "string" ? currentUserUsername.toLowerCase() : "";
+  if (normalizedSender && normalizedSender === normalizedCurrent) {
+    return "You";
+  }
+  if (thread.type === "group") {
+    const nicknames =
+      thread.nicknames && typeof thread.nicknames === "object" ? thread.nicknames : {};
+    const nickname = nicknames[normalizedSender] || nicknames[sender];
+    if (nickname) {
+      return nickname;
+    }
+    return sender ? `@${sender}` : "Someone";
+  }
+  if (normalizedSender && normalizedSender === thread.username?.toLowerCase()) {
+    return thread.nickname || thread.displayName || thread.fullName || sender || "";
+  }
+  if (sender) {
+    return sender;
+  }
+  return thread.displayName || "";
+}
+
 function normalizeThread(thread) {
   if (!thread) return null;
-  const unreadCount = Number.isFinite(thread.unreadCount) && thread.unreadCount > 0 ? Math.floor(thread.unreadCount) : 0;
+  const type = thread.type === "group" ? "group" : "direct";
+  const id = typeof thread.id === "string"
+    ? thread.id
+    : typeof thread.username === "string"
+    ? thread.username
+    : null;
+  if (!id) {
+    return null;
+  }
+  const unreadCount = Number.isFinite(thread.unreadCount) && thread.unreadCount > 0
+    ? Math.floor(thread.unreadCount)
+    : 0;
+  const normalizedMessages = Array.isArray(thread.messages)
+    ? thread.messages.map((message) => normalizeMessageRecord(message)).filter(Boolean)
+    : [];
   const totalMessages = Number.isFinite(thread.totalMessages) && thread.totalMessages >= 0
     ? Math.floor(thread.totalMessages)
-    : Array.isArray(thread.messages)
-    ? thread.messages.length
-    : 0;
+    : normalizedMessages.length;
   const previousCursor = typeof thread.previousCursor === "string" ? thread.previousCursor : null;
+  const theme = normalizeThreadTheme(thread.theme ?? {});
+  const readAt = thread.readAt && typeof thread.readAt === "object" ? thread.readAt : {};
+  const participants = Array.isArray(thread.participants)
+    ? thread.participants.filter((participant) => typeof participant === "string" && participant)
+    : [];
+  const nickname = typeof thread.nickname === "string" ? thread.nickname : "";
   return {
     ...thread,
+    id,
+    type,
+    displayName:
+      typeof thread.displayName === "string" && thread.displayName
+        ? thread.displayName
+        : type === "group"
+        ? thread.name || "Group chat"
+        : thread.fullName || id,
+    username: type === "direct" ? thread.username || id : thread.username || "",
     inbound: normalizeConnectionState(thread.inbound),
     outbound: normalizeConnectionState(thread.outbound),
     unreadCount,
     totalMessages,
     hasMore: Boolean(thread.hasMore),
     previousCursor,
+    messages: normalizedMessages,
+    theme,
+    readAt,
+    participants,
+    nickname,
   };
 }
 
@@ -1863,11 +2076,15 @@ function renderThreadView(context, thread, options = {}) {
     composer,
     placeholder,
     loadMoreButton,
+    threadSection,
+    readReceipt,
   } = context;
 
   const inbound = normalizeConnectionState(thread.inbound);
   const outbound = normalizeConnectionState(thread.outbound);
   const inboundAnonymous = connectionIsAnonymous(inbound);
+  const currentUser = sessionUser?.username ? sessionUser.username.toLowerCase() : "";
+  const isGroup = thread.type === "group";
 
   placeholder.hidden = true;
   statusHeader.hidden = false;
@@ -1884,10 +2101,23 @@ function renderThreadView(context, thread, options = {}) {
     }
   }
 
-  statusLabel.textContent = STATUS_LABELS[inbound.status] ?? STATUS_LABELS.none;
+  const backgroundClass = `messages-thread--background-${thread.theme.background}`;
+  Array.from(threadSection.classList)
+    .filter((cls) => cls.startsWith("messages-thread--background-"))
+    .forEach((cls) => threadSection.classList.remove(cls));
+  threadSection.classList.add(backgroundClass);
+  const messageThemeClass = `message--theme-${thread.theme.message}`;
+
+  if (isGroup) {
+    statusLabel.textContent = `${thread.participants.length} participants`;
+  } else {
+    statusLabel.textContent = STATUS_LABELS[inbound.status] ?? STATUS_LABELS.none;
+  }
+
   title.textContent = thread.displayName;
+
   if (threadBadges) {
-    if (inboundAnonymous) {
+    if (isGroup || inboundAnonymous) {
       threadBadges.hidden = true;
       threadBadges.innerHTML = "";
     } else {
@@ -1896,7 +2126,7 @@ function renderThreadView(context, thread, options = {}) {
   }
 
   if (aliasNote) {
-    if (outbound.status === "want" || outbound.status === "both") {
+    if (!isGroup && (outbound.status === "want" || outbound.status === "both")) {
       if (outbound.anonymous) {
         const aliasName = escapeHtml(outbound.alias || "Anonymous");
         aliasNote.innerHTML = `They currently see you as <strong>${aliasName}</strong>.`;
@@ -1910,52 +2140,159 @@ function renderThreadView(context, thread, options = {}) {
     }
   }
 
-  const canReveal = outbound.status === "want" || outbound.status === "both";
-  if (revealToggle) {
-    revealToggle.disabled = !canReveal;
-    revealToggle.checked = canReveal && !outbound.anonymous;
-    revealToggle.parentElement?.classList.toggle("toggle--disabled", !canReveal);
-  }
-  if (switchAnon) {
-    switchAnon.disabled = !canReveal;
-    if (!canReveal) {
-      switchAnon.textContent = "Anonymity not available";
-    } else if (outbound.anonymous) {
-      switchAnon.textContent = "Reveal yourself";
-    } else {
-      switchAnon.textContent = "Go anonymous";
+  const revealLabel = revealToggle?.closest("[data-reveal-toggle]") || revealToggle?.closest("label");
+  if (isGroup) {
+    if (revealLabel) {
+      revealLabel.hidden = true;
+    }
+    if (switchAnon) {
+      switchAnon.hidden = true;
+    }
+    if (requestReveal) {
+      requestReveal.hidden = true;
+    }
+  } else {
+    const canReveal = outbound.status === "want" || outbound.status === "both";
+    if (revealToggle) {
+      revealToggle.disabled = !canReveal;
+      revealToggle.checked = canReveal && !outbound.anonymous;
+      revealToggle.parentElement?.classList.toggle("toggle--disabled", !canReveal);
+      if (revealLabel) {
+        revealLabel.hidden = false;
+      }
+    }
+    if (switchAnon) {
+      switchAnon.hidden = false;
+      switchAnon.disabled = !canReveal;
+      if (!canReveal) {
+        switchAnon.textContent = "Anonymity not available";
+      } else if (outbound.anonymous) {
+        switchAnon.textContent = "Reveal yourself";
+      } else {
+        switchAnon.textContent = "Go anonymous";
+      }
+    }
+    if (requestReveal) {
+      requestReveal.hidden = false;
+      requestReveal.disabled = !inboundAnonymous;
     }
   }
-  if (requestReveal) {
-    requestReveal.disabled = !inboundAnonymous;
+
+  const nicknameButton = threadSection.querySelector('[data-action="set-nickname"]');
+  if (nicknameButton) {
+    if (isGroup) {
+      nicknameButton.hidden = false;
+      nicknameButton.textContent = "Rename chat";
+    } else {
+      nicknameButton.textContent = "Edit nickname";
+      nicknameButton.hidden = inboundAnonymous;
+    }
   }
 
-  const incomingAuthor = inboundAnonymous
-    ? inbound.alias?.trim() || "Anonymous"
-    : thread.displayName;
+  const themeButton = threadSection.querySelector('[data-action="thread-theme"]');
+  if (themeButton) {
+    themeButton.hidden = false;
+  }
 
-  messageLog.innerHTML = (thread.messages ?? [])
+  const messagesHtml = (thread.messages ?? [])
     .map((message) => {
-      const outgoing = message.sender === sessionUser?.username;
+      const sender = message.sender ?? "";
+      const outgoing = sender.toLowerCase() === currentUser;
       const direction = outgoing ? "outgoing" : "incoming";
-      const author = outgoing ? "You" : incomingAuthor;
+      const classes = ["message", `message--${direction}`, messageThemeClass];
+      const author = getThreadAuthorLabel(thread, sender, currentUser);
       const timestamp = formatTimestamp(message.createdAt);
-      const meta = `${escapeHtml(author)}${
-        timestamp ? ` · ${escapeHtml(timestamp)}` : ""
-      }`;
+      const meta = `${escapeHtml(author)}${timestamp ? ` · ${escapeHtml(timestamp)}` : ""}`;
+      const replyPreview = message.replyTo
+        ? `<div class="message__reply-preview"><strong>${escapeHtml(
+            getThreadAuthorLabel(thread, message.replyTo.sender, currentUser)
+          )}</strong><br />${escapeHtml(formatReplySnippet(message.replyTo))}</div>`
+        : "";
+      const textMarkup = message.text ? `<p>${escapeHtml(message.text)}</p>` : "";
+      const attachmentsMarkup = message.attachments.length
+        ? `<div class="message__attachments">${message.attachments
+            .map((attachment) => {
+              const safeUrl = escapeHtml(attachment.url || "");
+              const safeName = escapeHtml(attachment.name || "Attachment");
+              if (attachment.type === "video") {
+                return `<video controls src="${safeUrl}" title="${safeName}"></video>`;
+              }
+              if (attachment.type === "gif" || attachment.type === "image") {
+                return `<img src="${safeUrl}" alt="${safeName}" loading="lazy" />`;
+              }
+              return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${safeName}</a>`;
+            })
+            .join("")}</div>`
+        : "";
+      const reactionEntries = Object.entries(message.reactions || {});
+      const reactionsMarkup = reactionEntries.length
+        ? `<div class="message__reactions">${reactionEntries
+            .map(([emoji, users]) => {
+              const reacted = users.some((username) => username === currentUser);
+              const count = users.length;
+              const classes = ["message__reaction"];
+              if (reacted) {
+                classes.push("message__reaction--active");
+              }
+              return `<button type="button" class="${classes.join(" ")}" data-action="react-message" data-emoji="${escapeHtml(
+                emoji
+              )}" data-message="${escapeHtml(message.id)}"><span>${escapeHtml(emoji)}</span><strong>${count}</strong></button>`;
+            })
+            .join("")}</div>`
+        : "";
+      const actionsMarkup = `<div class="message__actions"><button type="button" data-action="reply-message" data-message="${escapeHtml(
+        message.id
+      )}">Reply</button><button type="button" data-action="open-reaction-picker" data-message="${escapeHtml(
+        message.id
+      )}">React</button></div>`;
+
       return `
-        <li class="message message--${direction}" data-message-id="${escapeHtml(
-          message.id ?? ""
-        )}">
+        <li class="${classes.join(" ")}" data-message-id="${escapeHtml(message.id)}">
           <span class="message__meta">${meta}</span>
-          <p>${escapeHtml(message.text ?? "")}</p>
+          ${replyPreview}
+          ${textMarkup || (!attachmentsMarkup ? "<p></p>" : "")}
+          ${attachmentsMarkup}
+          ${reactionsMarkup}
+          ${actionsMarkup}
         </li>
       `;
     })
     .join("");
 
-  if (!messageLog.innerHTML.trim()) {
-    messageLog.innerHTML = "<li class=\"message message--empty\"><p>No messages yet. Say hi!</p></li>";
+  messageLog.innerHTML = messagesHtml ||
+    '<li class="message message--empty"><p>No messages yet. Say hi!</p></li>';
+
+  if (readReceipt) {
+    let receiptText = "";
+    const outgoingMessages = (thread.messages ?? []).filter(
+      (message) => message.sender?.toLowerCase() === currentUser
+    );
+    const lastOutgoing = outgoingMessages[outgoingMessages.length - 1];
+    if (lastOutgoing) {
+      const lastTimestamp = timestampScore(lastOutgoing.createdAt);
+      if (isGroup) {
+        const others = thread.participants.filter((username) => username !== currentUser);
+        const readers = others.filter((username) => {
+          const seen = thread.readAt?.[username];
+          return seen && timestampScore(seen) >= lastTimestamp;
+        });
+        if (readers.length) {
+          receiptText = readers.length === 1 ? "Seen by 1 person" : `Seen by ${readers.length} people`;
+        }
+      } else {
+        const otherUser = thread.username;
+        const seen = otherUser ? thread.readAt?.[otherUser] : null;
+        if (seen && timestampScore(seen) >= lastTimestamp) {
+          receiptText = `Read ${formatTimestamp(seen)}`;
+        }
+      }
+    }
+    if (receiptText) {
+      readReceipt.textContent = receiptText;
+      readReceipt.hidden = false;
+    } else {
+      readReceipt.hidden = true;
+    }
   }
 
   if (!preserveScroll && messageLog.scrollHeight) {
@@ -1989,13 +2326,89 @@ async function initMessages() {
   const newChatButton = document.querySelector('[data-action="new-chat"]');
   const loadMoreButton = threadSection.querySelector('[data-action="load-more"]');
   const searchInput = document.querySelector('.app-search input[type="search"]');
+  const readReceipt = threadSection.querySelector("[data-read-receipt]");
+  const themeButton = threadSection.querySelector('[data-action="thread-theme"]');
+  const nicknameButton = threadSection.querySelector('[data-action="set-nickname"]');
   if (!statusHeader || !statusLabel || !title || !messageLog || !composer || !placeholder) {
     return;
   }
 
+  const attachmentInput = composer.querySelector('[data-attachment-input]');
+  const attachmentList = composer.querySelector('[data-attachment-list]');
+  const replyPreview = composer.querySelector('[data-reply-preview]');
+  const replyText = composer.querySelector('[data-reply-text]');
+  const emojiPickerInline = composer.querySelector('[data-emoji-picker]');
+
+  const startGroupChat = async () => {
+    const participantInput = window.prompt(
+      "Enter usernames for your group chat (comma separated, no @ symbols):"
+    );
+    if (participantInput === null) {
+      return;
+    }
+    const currentUserKey = getCurrentUsername();
+    const participants = participantInput
+      .split(",")
+      .map((value) => value.trim().replace(/^@/, "").toLowerCase())
+      .filter(Boolean)
+      .filter((username) => username && username !== currentUserKey);
+    const uniqueParticipants = Array.from(new Set(participants));
+    if (uniqueParticipants.length < 2) {
+      window.alert("Add at least two people to start a group chat.");
+      return;
+    }
+    const groupName = window.prompt("Name your group chat (optional):", "");
+    if (groupName === null) {
+      return;
+    }
+    try {
+      const response = await apiRequest("/messages/groups", {
+        method: "POST",
+        body: JSON.stringify({
+          name: groupName.trim(),
+          participants: uniqueParticipants,
+        }),
+      });
+      const thread = normalizeThread(response?.thread);
+      if (!thread) {
+        window.alert("We couldn't start that group chat.");
+        return;
+      }
+      thread.messages = thread.messages ?? [];
+      threadMap.set(thread.id, thread);
+      const existing = threads.find((entry) => entry.id === thread.id);
+      if (existing) {
+        Object.assign(existing, thread);
+      } else {
+        threads.push({
+          id: thread.id,
+          type: thread.type,
+          username: thread.username,
+          fullName: thread.fullName,
+          displayName: thread.displayName,
+          badges: thread.badges,
+          inbound: thread.inbound,
+          outbound: thread.outbound,
+          lastMessage: thread.lastMessage ?? null,
+          updatedAt: thread.updatedAt ?? null,
+          unreadCount: thread.unreadCount ?? 0,
+          totalMessages: thread.totalMessages ?? thread.messages.length,
+          participants: thread.participants,
+          theme: thread.theme,
+          nickname: thread.nickname,
+          readAt: thread.readAt,
+        });
+      }
+      renderList();
+      await selectThread(thread.id);
+    } catch (error) {
+      window.alert(error?.message || "We couldn't start that group chat.");
+    }
+  };
+
   newChatButton?.addEventListener("click", (event) => {
     event.preventDefault();
-    window.location.href = withAiRef("/lookup/");
+    startGroupChat();
   });
 
   placeholder.hidden = false;
@@ -2030,27 +2443,356 @@ async function initMessages() {
     composer,
     placeholder,
     loadMoreButton,
+    threadSection,
+    readReceipt,
   };
+
+  const composerState = {
+    threadId: null,
+    attachments: [],
+    replyTo: null,
+    emoji: {
+      open: false,
+      callback: null,
+      anchor: null,
+    },
+  };
+
+  const defaultAttachmentAccept = attachmentInput?.getAttribute("accept") || "";
+  let nextAttachmentPickerMode = "all";
+
+  if (composer) {
+    const currentPosition = window.getComputedStyle(composer).position;
+    if (!currentPosition || currentPosition === "static") {
+      composer.style.position = "relative";
+    }
+  }
+
+  const getCurrentUsername = () =>
+    sessionUser?.username ? sessionUser.username.toLowerCase() : "";
+
+  const generateTempId = () =>
+    window.crypto?.randomUUID?.() ?? `att-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  const closeEmojiMenu = () => {
+    if (!emojiPickerInline) return;
+    composerState.emoji.open = false;
+    composerState.emoji.callback = null;
+    composerState.emoji.anchor = null;
+    emojiPickerInline.innerHTML = "";
+    emojiPickerInline.hidden = true;
+    emojiPickerInline.classList.remove("emoji-picker--floating");
+    emojiPickerInline.style.removeProperty("top");
+    emojiPickerInline.style.removeProperty("left");
+    document.removeEventListener("click", handleEmojiOutside, true);
+    document.removeEventListener("keydown", handleEmojiKeydown, true);
+  };
+
+  const handleEmojiOutside = (event) => {
+    if (!composerState.emoji.open || !emojiPickerInline) return;
+    const target = event.target;
+    if (emojiPickerInline.contains(target)) {
+      return;
+    }
+    if (composerState.emoji.anchor && composerState.emoji.anchor.contains(target)) {
+      return;
+    }
+    closeEmojiMenu();
+  };
+
+  const handleEmojiKeydown = (event) => {
+    if (event.key === "Escape") {
+      closeEmojiMenu();
+    }
+  };
+
+  const openEmojiMenu = ({ anchor, onSelect } = {}) => {
+    if (!emojiPickerInline) return;
+    closeEmojiMenu();
+    composerState.emoji.open = true;
+    composerState.emoji.callback = typeof onSelect === "function" ? onSelect : null;
+    composerState.emoji.anchor = anchor || null;
+    emojiPickerInline.innerHTML = "";
+    EMOJI_OPTIONS.forEach((emoji) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = emoji;
+      button.addEventListener("click", () => {
+        if (composerState.emoji.callback) {
+          composerState.emoji.callback(emoji);
+        }
+        closeEmojiMenu();
+      });
+      emojiPickerInline.appendChild(button);
+    });
+    emojiPickerInline.hidden = false;
+    document.addEventListener("click", handleEmojiOutside, true);
+    document.addEventListener("keydown", handleEmojiKeydown, true);
+  };
+
+  const refreshAttachmentPreview = () => {
+    if (!attachmentList) return;
+    attachmentList.innerHTML = "";
+    if (!composerState.attachments.length) {
+      attachmentList.hidden = true;
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    composerState.attachments.forEach((attachment) => {
+      const item = document.createElement("span");
+      item.className = "composer__attachment";
+      item.dataset.attachmentId = attachment.id;
+      const label = document.createElement("span");
+      if (attachment.uploading) {
+        label.textContent = `Uploading ${attachment.name || "attachment"}…`;
+      } else if (attachment.error) {
+        label.textContent = `${attachment.name || "Attachment"} failed`;
+      } else {
+        const sizeText = attachment.size ? ` (${formatFileSize(attachment.size)})` : "";
+        label.textContent = `${attachment.name || "Attachment"}${sizeText}`;
+      }
+      item.appendChild(label);
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.dataset.removeAttachment = attachment.id;
+      removeButton.textContent = "Remove";
+      item.appendChild(removeButton);
+      fragment.appendChild(item);
+    });
+    attachmentList.hidden = false;
+    attachmentList.appendChild(fragment);
+  };
+
+  const removeAttachmentById = (attachmentId) => {
+    if (!attachmentId) return;
+    const next = composerState.attachments.filter((entry) => entry.id !== attachmentId);
+    if (next.length !== composerState.attachments.length) {
+      composerState.attachments = next;
+      refreshAttachmentPreview();
+    }
+  };
+
+  const refreshReplyPreview = () => {
+    if (!replyPreview) return;
+    const reply = composerState.replyTo;
+    if (!reply) {
+      replyPreview.hidden = true;
+      if (replyText) {
+        replyText.textContent = "";
+      }
+      return;
+    }
+    const author = reply.author || reply.sender || "Someone";
+    const summary = reply.summary || "";
+    replyPreview.hidden = false;
+    if (replyText) {
+      replyText.textContent = summary ? `${author}: ${summary}` : `Replying to ${author}`;
+    }
+  };
+
+  const clearReplyTarget = () => {
+    composerState.replyTo = null;
+    refreshReplyPreview();
+  };
+
+  const setReplyTarget = (thread, message) => {
+    if (!thread || !message) {
+      clearReplyTarget();
+      return;
+    }
+    const author = getThreadAuthorLabel(thread, message.sender, getCurrentUsername());
+    composerState.replyTo = {
+      id: message.id,
+      sender: message.sender,
+      author,
+      summary: formatReplySnippet(message),
+    };
+    refreshReplyPreview();
+    closeEmojiMenu();
+    if (input) {
+      input.focus();
+    }
+  };
+
+  const ensureComposerThread = (thread) => {
+    if (!thread) return;
+    if (composerState.threadId !== thread.id) {
+      composerState.threadId = thread.id;
+      composerState.attachments = [];
+      composerState.replyTo = null;
+      refreshAttachmentPreview();
+      refreshReplyPreview();
+      closeEmojiMenu();
+      if (input) {
+        input.value = "";
+      }
+    }
+  };
+
+  const normalizeAttachmentResponse = (attachment) => {
+    const [normalized] = normalizeAttachmentsList([attachment]);
+    return normalized || null;
+  };
+
+  const uploadMessageAttachment = async (file) => {
+    const formData = new FormData();
+    formData.append("attachment", file);
+    const response = await apiRequest("/messages/upload", {
+      method: "POST",
+      body: formData,
+    });
+    const normalized = normalizeAttachmentResponse(response?.attachment);
+    if (!normalized) {
+      throw new Error("Upload failed. Try a different file.");
+    }
+    return normalized;
+  };
+
+  const handleAttachmentSelection = async (files, mode = "all") => {
+    if (!files.length) {
+      return;
+    }
+    const availableSlots = MAX_MESSAGE_ATTACHMENTS - composerState.attachments.length;
+    if (availableSlots <= 0) {
+      window.alert(`You can attach up to ${MAX_MESSAGE_ATTACHMENTS} files per message.`);
+      return;
+    }
+    const selected = files.slice(0, availableSlots);
+    if (selected.length < files.length) {
+      window.alert(`Only the first ${availableSlots} files were added.`);
+    }
+    for (const file of selected) {
+      if (mode === "gif") {
+        const isGif = file.type === "image/gif" || file.name?.toLowerCase().endsWith(".gif");
+        if (!isGif) {
+          window.alert(`${file.name || "File"} isn't a GIF.`);
+          continue;
+        }
+      }
+      const id = generateTempId();
+      const placeholder = {
+        id,
+        name: file.name || "Attachment",
+        size: Number.isFinite(file.size) ? file.size : null,
+        type: mode === "gif" ? "gif" : "file",
+        url: "",
+        contentType: file.type || "",
+        uploading: true,
+        error: "",
+      };
+      composerState.attachments.push(placeholder);
+      refreshAttachmentPreview();
+      try {
+        const uploaded = await uploadMessageAttachment(file);
+        placeholder.name = uploaded.name || placeholder.name;
+        placeholder.size = Number.isFinite(uploaded.size) ? uploaded.size : placeholder.size;
+        placeholder.type = uploaded.type || placeholder.type;
+        placeholder.url = uploaded.url || "";
+        placeholder.contentType = uploaded.contentType || placeholder.contentType;
+        placeholder.uploading = false;
+        placeholder.error = "";
+      } catch (error) {
+        console.error("Attachment upload failed", error);
+        placeholder.uploading = false;
+        placeholder.error = error?.message || "Upload failed";
+      }
+      refreshAttachmentPreview();
+    }
+  };
+
+  const openAttachmentPicker = (mode = "all") => {
+    if (!attachmentInput) return;
+    nextAttachmentPickerMode = mode;
+    if (mode === "gif") {
+      attachmentInput.setAttribute("accept", "image/gif");
+    } else if (defaultAttachmentAccept) {
+      attachmentInput.setAttribute("accept", defaultAttachmentAccept);
+    }
+    attachmentInput.click();
+  };
+
+  const insertEmojiIntoComposer = (emoji) => {
+    if (!input) return;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    const value = input.value;
+    const nextValue = `${value.slice(0, start)}${emoji}${value.slice(end)}`;
+    input.value = nextValue;
+    const caret = start + emoji.length;
+    if (typeof input.setSelectionRange === "function") {
+      input.setSelectionRange(caret, caret);
+    }
+    input.focus();
+  };
+
+  if (attachmentList) {
+    attachmentList.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-remove-attachment]");
+      if (!button) return;
+      event.preventDefault();
+      const attachmentId = button.dataset.removeAttachment;
+      removeAttachmentById(attachmentId);
+    });
+  }
+
+  if (attachmentInput) {
+    attachmentInput.addEventListener("change", async (event) => {
+      const files = Array.from(event.target.files || []);
+      if (files.length) {
+        await handleAttachmentSelection(files, nextAttachmentPickerMode);
+      }
+      attachmentInput.value = "";
+      if (defaultAttachmentAccept) {
+        attachmentInput.setAttribute("accept", defaultAttachmentAccept);
+      }
+      nextAttachmentPickerMode = "all";
+    });
+  }
+
+  if (composer) {
+    composer.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-action]");
+      if (!button) return;
+      const { action } = button.dataset;
+      if (!action) return;
+      if (action === "add-emoji") {
+        event.preventDefault();
+        openEmojiMenu({
+          anchor: button,
+          onSelect: (emoji) => insertEmojiIntoComposer(emoji),
+        });
+      } else if (action === "add-gif") {
+        event.preventDefault();
+        openAttachmentPicker("gif");
+      } else if (action === "add-attachment") {
+        event.preventDefault();
+        openAttachmentPicker("all");
+      } else if (action === "clear-reply") {
+        event.preventDefault();
+        clearReplyTarget();
+      }
+    });
+  }
 
   const fetchThreads = async () => {
     const data = await apiRequest("/messages/threads");
     return (data?.threads ?? []).map((thread) => normalizeThread(thread));
   };
 
-  const fetchThreadDetail = async (username, { cursor } = {}) => {
+  const fetchThreadDetail = async (threadId, { cursor } = {}) => {
     const params = new URLSearchParams();
     params.set("limit", MESSAGE_PAGE_SIZE);
     if (cursor) {
       params.set("cursor", cursor);
     }
     const query = params.toString() ? `?${params.toString()}` : "";
-    const data = await apiRequest(`/messages/thread/${encodeURIComponent(username)}${query}`);
+    const data = await apiRequest(`/messages/thread/${encodeURIComponent(threadId)}${query}`);
     return normalizeThread(data?.thread ?? null);
   };
 
-  const updateListSelection = (username) => {
+  const updateListSelection = (threadId) => {
     list.querySelectorAll(".messages-list__item").forEach((item) => {
-      const isActive = item.dataset.thread === username;
+      const isActive = item.dataset.threadId === threadId;
       item.setAttribute("aria-current", String(isActive));
       item.classList.toggle("messages-list__item--active", isActive);
     });
@@ -2095,29 +2837,9 @@ async function initMessages() {
       const item = document.createElement("li");
       const button = document.createElement("button");
       button.className = "messages-list__item";
-      button.dataset.thread = thread.username;
+      button.dataset.threadId = thread.id;
 
-      const inbound = normalizeConnectionState(thread.inbound);
-      const outbound = normalizeConnectionState(thread.outbound);
-      thread.inbound = inbound;
-      thread.outbound = outbound;
-
-      const statusClass = tagClassForStatus(inbound.status ?? "none");
-      const statusText = STATUS_LABELS[inbound.status ?? "none"] ?? STATUS_LABELS.none;
-      const statusName = STATUS_NAMES[inbound.status ?? "none"] ?? inbound.status ?? "none";
       const timeText = formatRelativeTime(thread.updatedAt) || "";
-      let previewText;
-      if (thread.lastMessage?.text) {
-        const safeText = escapeHtml(thread.lastMessage.text);
-        previewText = `“${safeText}”`;
-      } else if (inbound.status && inbound.status !== "none") {
-        previewText = `${escapeHtml(thread.displayName)} marked you as ${escapeHtml(
-          statusName
-        )}.`;
-      } else {
-        previewText = "No messages yet.";
-      }
-
       const unreadCount = Math.max(0, thread.unreadCount ?? 0);
       const unreadLabel = unreadCount > 99 ? "99+" : String(unreadCount);
       const unreadMarkup = `
@@ -2129,33 +2851,68 @@ async function initMessages() {
         ? `<span class="messages-list__time">${escapeHtml(timeText)}</span>`
         : "";
 
-      button.innerHTML = `
-        <span class="messages-list__row">
-          <span class="${statusClass}">${escapeHtml(statusText)}</span>
-          ${timeMarkup}
-        </span>
-        <span class="messages-list__name-row">
-          <span class="messages-list__name">${escapeHtml(thread.displayName)}</span>
-          <span class="user-badges user-badges--compact user-badges--inline" data-user-badges hidden></span>
-        </span>
-        <span class="messages-list__row messages-list__row--bottom">
-          <span class="messages-list__preview">${previewText}</span>
-          ${unreadMarkup}
-        </span>
-      `;
-      button.classList.toggle("messages-list__item--unread", unreadCount > 0);
-      const badgeContainer = button.querySelector("[data-user-badges]");
-      if (connectionIsAnonymous(inbound)) {
-        if (badgeContainer) {
-          badgeContainer.hidden = true;
-          badgeContainer.innerHTML = "";
-        }
+      if (thread.type === "group") {
+        const previewText = thread.lastMessage?.text
+          ? `“${escapeHtml(thread.lastMessage.text)}”`
+          : `${thread.participants.length} participants`;
+        button.innerHTML = `
+          <span class="messages-list__row">
+            <span class="messages-list__tag messages-list__tag--group">Group</span>
+            ${timeMarkup}
+          </span>
+          <span class="messages-list__name-row">
+            <span class="messages-list__name">${escapeHtml(thread.displayName)}</span>
+          </span>
+          <span class="messages-list__row messages-list__row--bottom">
+            <span class="messages-list__preview">${previewText}</span>
+            ${unreadMarkup}
+          </span>
+        `;
       } else {
-        renderUserBadges(badgeContainer, thread.badges);
+        const inbound = normalizeConnectionState(thread.inbound);
+        const statusClass = tagClassForStatus(inbound.status ?? "none");
+        const statusText = STATUS_LABELS[inbound.status ?? "none"] ?? STATUS_LABELS.none;
+        const statusName = STATUS_NAMES[inbound.status ?? "none"] ?? inbound.status ?? "none";
+        let previewText;
+        if (thread.lastMessage?.text) {
+          const safeText = escapeHtml(thread.lastMessage.text);
+          previewText = `“${safeText}”`;
+        } else if (inbound.status && inbound.status !== "none") {
+          previewText = `${escapeHtml(thread.displayName)} marked you as ${escapeHtml(
+            statusName
+          )}.`;
+        } else {
+          previewText = "No messages yet.";
+        }
+        button.innerHTML = `
+          <span class="messages-list__row">
+            <span class="${statusClass}">${escapeHtml(statusText)}</span>
+            ${timeMarkup}
+          </span>
+          <span class="messages-list__name-row">
+            <span class="messages-list__name">${escapeHtml(thread.displayName)}</span>
+            <span class="user-badges user-badges--compact user-badges--inline" data-user-badges hidden></span>
+          </span>
+          <span class="messages-list__row messages-list__row--bottom">
+            <span class="messages-list__preview">${previewText}</span>
+            ${unreadMarkup}
+          </span>
+        `;
+        const badgeContainer = button.querySelector("[data-user-badges]");
+        if (connectionIsAnonymous(inbound)) {
+          if (badgeContainer) {
+            badgeContainer.hidden = true;
+            badgeContainer.innerHTML = "";
+          }
+        } else {
+          renderUserBadges(badgeContainer, thread.badges);
+        }
       }
+
+      button.classList.toggle("messages-list__item--unread", unreadCount > 0);
       button.addEventListener("click", () => {
         if (!loadingThread) {
-          selectThread(thread.username);
+          selectThread(thread.id);
         }
       });
       item.appendChild(button);
@@ -2163,7 +2920,7 @@ async function initMessages() {
     });
 
     list.appendChild(fragment);
-    updateListSelection(activeThread?.username ?? "");
+    updateListSelection(activeThread?.id ?? "");
   };
 
   const markThreadRead = async (thread, force = false) => {
@@ -2172,15 +2929,22 @@ async function initMessages() {
     }
     try {
       const hadUnread = thread.unreadCount > 0;
-      await apiRequest(`/messages/thread/${encodeURIComponent(thread.username)}/read`, {
+      await apiRequest(`/messages/thread/${encodeURIComponent(thread.id)}/read`, {
         method: "POST",
       });
       thread.unreadCount = 0;
-      const summary = threads.find((entry) => entry.username === thread.username);
+      const currentUserKey = getCurrentUsername();
+      if (currentUserKey) {
+        thread.readAt = { ...(thread.readAt || {}), [currentUserKey]: new Date().toISOString() };
+      }
+      const summary = threads.find((entry) => entry.id === thread.id);
       if (summary) {
         summary.unreadCount = 0;
+        if (currentUserKey) {
+          summary.readAt = { ...(summary.readAt || {}), [currentUserKey]: thread.readAt[currentUserKey] };
+        }
       }
-      threadMap.set(thread.username, thread);
+      threadMap.set(thread.id, thread);
       if (hadUnread) {
         renderList();
       }
@@ -2206,7 +2970,7 @@ async function initMessages() {
     }
     const previousHeight = messageLog.scrollHeight;
     try {
-      const older = await fetchThreadDetail(thread.username, {
+      const older = await fetchThreadDetail(thread.id, {
         cursor: thread.previousCursor,
       });
       const newMessages = Array.isArray(older?.messages) ? older.messages : [];
@@ -2220,10 +2984,11 @@ async function initMessages() {
       thread.totalMessages = Number.isFinite(older?.totalMessages)
         ? older.totalMessages
         : thread.totalMessages;
-      const summary = threads.find((entry) => entry.username === thread.username);
+      const summary = threads.find((entry) => entry.id === thread.id);
       if (summary && Number.isFinite(thread.totalMessages)) {
         summary.totalMessages = thread.totalMessages;
       }
+      threadMap.set(thread.id, thread);
     } catch (error) {
       console.error("Unable to load earlier messages", error);
       window.alert(error?.message || "We couldn't load earlier messages.");
@@ -2305,8 +3070,8 @@ async function initMessages() {
           updatedInbound.updatedAt ??
           thread.updatedAt ??
           null;
-        threadMap.set(thread.username, thread);
-        const summary = threads.find((entry) => entry.username === thread.username);
+        threadMap.set(thread.id, thread);
+        const summary = threads.find((entry) => entry.id === thread.id);
         if (summary) {
           summary.outbound = updatedOutbound;
           summary.inbound = updatedInbound;
@@ -2324,7 +3089,7 @@ async function initMessages() {
       window.alert(message);
       thread.outbound = originalOutbound;
       thread.inbound = originalInbound;
-      const summary = threads.find((entry) => entry.username === thread.username);
+      const summary = threads.find((entry) => entry.id === thread.id);
       if (summary) {
         summary.outbound = originalOutbound;
         summary.inbound = originalInbound;
@@ -2335,16 +3100,22 @@ async function initMessages() {
     }
   };
 
-  const attachThreadControls = (thread) => {
+  function attachThreadControls(thread) {
+    if (!thread) return;
+    ensureComposerThread(thread);
     const outbound = normalizeConnectionState(thread.outbound);
+    const inbound = normalizeConnectionState(thread.inbound);
     thread.outbound = outbound;
+    thread.inbound = inbound;
     const canReveal = outbound.status === "want" || outbound.status === "both";
+
     if (revealToggle) {
       revealToggle.onchange = () => {
         if (!canReveal) return;
         updateOutbound(thread, !revealToggle.checked);
       };
     }
+
     if (switchAnon) {
       switchAnon.onclick = () => {
         if (!canReveal) return;
@@ -2352,66 +3123,296 @@ async function initMessages() {
         updateOutbound(thread, !latest.anonymous);
       };
     }
+
     if (requestReveal) {
       requestReveal.onclick = () => {
         window.alert("Request to reveal sent. They'll decide when to make it public.");
       };
     }
-    composer.onsubmit = async (event) => {
-      event.preventDefault();
-      const text = input?.value.trim();
-      if (!text) return;
-      try {
-        const response = await apiRequest(
-          `/messages/thread/${encodeURIComponent(thread.username)}`,
-          {
-            method: "POST",
-            body: JSON.stringify({ text }),
-          }
+
+    if (themeButton) {
+      themeButton.onclick = async () => {
+        const backgroundInput = window.prompt(
+          `Choose a background theme (${THREAD_BACKGROUND_THEMES.join(", ")})`,
+          thread.theme?.background || DEFAULT_THREAD_THEME.background
         );
-        const message = response?.message;
-        if (message) {
-          thread.messages = thread.messages ?? [];
-          const currentCount = Number.isFinite(thread.totalMessages)
-            ? thread.totalMessages
-            : thread.messages.length;
-          thread.messages.push(message);
-          thread.lastMessage = message;
-          thread.updatedAt = message.createdAt;
-          thread.totalMessages = currentCount + 1;
-          thread.unreadCount = 0;
-          threadMap.set(thread.username, thread);
+        if (backgroundInput === null) {
+          return;
+        }
+        const background = backgroundInput.trim().toLowerCase();
+        if (!THREAD_BACKGROUND_THEMES.includes(background)) {
+          window.alert("Pick one of the available background themes.");
+          return;
+        }
+        const messageInput = window.prompt(
+          `Choose a message bubble theme (${MESSAGE_BUBBLE_THEMES.join(", ")})`,
+          thread.theme?.message || DEFAULT_THREAD_THEME.message
+        );
+        if (messageInput === null) {
+          return;
+        }
+        const messageTheme = messageInput.trim().toLowerCase();
+        if (!MESSAGE_BUBBLE_THEMES.includes(messageTheme)) {
+          window.alert("Pick one of the available message themes.");
+          return;
+        }
+        const nextTheme = { background, message: messageTheme };
+        try {
+          const response = await apiRequest(
+            `/messages/thread/${encodeURIComponent(thread.id)}/theme`,
+            {
+              method: "POST",
+              body: JSON.stringify({ theme: nextTheme }),
+            }
+          );
+          const updatedTheme = normalizeThreadTheme(response?.theme ?? nextTheme);
+          thread.theme = updatedTheme;
+          const summary = threads.find((entry) => entry.id === thread.id);
+          if (summary) {
+            summary.theme = updatedTheme;
+          }
+          threadMap.set(thread.id, thread);
           renderThreadView(context, thread);
           attachThreadControls(thread);
-          if (input) {
-            input.value = "";
-            input.focus();
-          }
-          const summary = threads.find((entry) => entry.username === thread.username);
-          if (summary) {
-            summary.lastMessage = message;
-            summary.updatedAt = message.createdAt;
-            summary.outbound = thread.outbound;
-            summary.inbound = thread.inbound;
-            summary.unreadCount = 0;
-            summary.totalMessages = thread.totalMessages;
-          }
           renderList();
+        } catch (error) {
+          window.alert(error?.message || "We couldn't update the theme.");
         }
+      };
+    }
+
+    if (nicknameButton) {
+      nicknameButton.onclick = async () => {
+        const promptText =
+          thread.type === "group"
+            ? "Give this chat a nickname just for you (leave blank to reset):"
+            : `Give ${thread.displayName} a nickname (leave blank to reset):`;
+        const currentNickname = thread.nickname || "";
+        const response = window.prompt(promptText, currentNickname);
+        if (response === null) {
+          return;
+        }
+        const nicknameInput = response.trim();
+        try {
+          const result = await apiRequest(
+            `/messages/thread/${encodeURIComponent(thread.id)}/nickname`,
+            {
+              method: "POST",
+              body: JSON.stringify({ nickname: nicknameInput }),
+            }
+          );
+          const nickname = typeof result?.nickname === "string" ? result.nickname : "";
+          thread.nickname = nickname;
+          if (thread.type === "group") {
+            thread.displayName = nickname || thread.name || thread.displayName;
+          } else {
+            thread.displayName = nickname || thread.fullName || thread.displayName;
+          }
+          const summary = threads.find((entry) => entry.id === thread.id);
+          if (summary) {
+            summary.nickname = nickname;
+            summary.displayName = thread.displayName;
+          }
+          threadMap.set(thread.id, thread);
+          renderThreadView(context, thread);
+          attachThreadControls(thread);
+          renderList();
+        } catch (error) {
+          window.alert(error?.message || "We couldn't update that nickname.");
+        }
+      };
+    }
+
+    composer.onsubmit = async (event) => {
+      event.preventDefault();
+      if (!input) return;
+      const text = input.value.trim();
+      const validAttachments = composerState.attachments.filter(
+        (attachment) => !attachment.uploading && !attachment.error && attachment.url
+      );
+      const hasUploadsInProgress = composerState.attachments.some((attachment) => attachment.uploading);
+      const hasErroredAttachments = composerState.attachments.some(
+        (attachment) => !attachment.uploading && (!attachment.url || attachment.error)
+      );
+      if (!text && !validAttachments.length) {
+        window.alert("Add a message or attachment before sending.");
+        return;
+      }
+      if (hasUploadsInProgress) {
+        window.alert("Wait for uploads to finish before sending.");
+        return;
+      }
+      if (hasErroredAttachments) {
+        window.alert("Remove attachments that failed to upload before sending.");
+        return;
+      }
+
+      const payload = {
+        text,
+        attachments: validAttachments.map((attachment) => ({
+          url: attachment.url,
+          type: attachment.type,
+          name: attachment.name,
+          size: attachment.size,
+          contentType: attachment.contentType,
+        })),
+      };
+      if (composerState.replyTo) {
+        payload.replyTo = { id: composerState.replyTo.id };
+      }
+
+      try {
+        const response = await apiRequest(`/messages/thread/${encodeURIComponent(thread.id)}`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        const message = normalizeMessageRecord(response?.message);
+        if (!message) {
+          return;
+        }
+        thread.messages = Array.isArray(thread.messages) ? thread.messages : [];
+        thread.messages.push(message);
+        thread.lastMessage = message;
+        thread.updatedAt = message.createdAt;
+        thread.totalMessages = Number.isFinite(thread.totalMessages)
+          ? thread.totalMessages + 1
+          : thread.messages.length;
+        thread.unreadCount = 0;
+        const currentUserKey = getCurrentUsername();
+        if (currentUserKey) {
+          thread.readAt = { ...(thread.readAt || {}), [currentUserKey]: message.createdAt };
+        }
+        threadMap.set(thread.id, thread);
+        activeThread = thread;
+        composerState.attachments = [];
+        composerState.replyTo = null;
+        refreshAttachmentPreview();
+        refreshReplyPreview();
+        closeEmojiMenu();
+        input.value = "";
+        input.focus();
+        const summary = threads.find((entry) => entry.id === thread.id);
+        if (summary) {
+          summary.lastMessage = message;
+          summary.updatedAt = message.createdAt;
+          summary.outbound = thread.outbound;
+          summary.inbound = thread.inbound;
+          summary.unreadCount = 0;
+          summary.totalMessages = thread.totalMessages;
+          summary.displayName = thread.displayName;
+          summary.theme = thread.theme;
+          summary.participants = thread.participants;
+          summary.nickname = thread.nickname;
+        } else {
+          threads.push({
+            id: thread.id,
+            type: thread.type,
+            username: thread.username,
+            fullName: thread.fullName,
+            displayName: thread.displayName,
+            badges: thread.badges,
+            inbound: thread.inbound,
+            outbound: thread.outbound,
+            lastMessage: message,
+            updatedAt: message.createdAt,
+            unreadCount: 0,
+            totalMessages: thread.totalMessages,
+            participants: thread.participants,
+            theme: thread.theme,
+            nickname: thread.nickname,
+            readAt: thread.readAt,
+          });
+        }
+        renderThreadView(context, thread);
+        attachThreadControls(thread);
+        renderList();
       } catch (error) {
-        const message = error?.message || "We couldn't send that message.";
-        window.alert(message);
+        window.alert(error?.message || "We couldn't send that message.");
       }
     };
-  };
+  }
 
-  const selectThread = async (username) => {
+  async function toggleMessageReaction(thread, messageId, emoji, action = "toggle") {
+    if (!thread || !messageId || !emoji) {
+      return;
+    }
+    try {
+      const response = await apiRequest(
+        `/messages/thread/${encodeURIComponent(thread.id)}/messages/${encodeURIComponent(messageId)}/reactions`,
+        {
+          method: "POST",
+          body: JSON.stringify({ emoji, action }),
+        }
+      );
+      const updated = normalizeMessageRecord(response?.message);
+      if (!updated) {
+        return;
+      }
+      if (!Array.isArray(thread.messages)) {
+        thread.messages = [];
+      }
+      const index = thread.messages.findIndex((entry) => entry.id === updated.id);
+      if (index !== -1) {
+        thread.messages[index] = updated;
+      }
+      if (thread.messages.length && thread.messages[thread.messages.length - 1].id === updated.id) {
+        thread.lastMessage = updated;
+      }
+      threadMap.set(thread.id, thread);
+      const summary = threads.find((entry) => entry.id === thread.id);
+      if (summary && summary.lastMessage?.id === updated.id) {
+        summary.lastMessage = updated;
+      }
+      const previousHeight = messageLog.scrollHeight;
+      renderThreadView(context, thread, {
+        preserveScroll: true,
+        previousScrollHeight: previousHeight,
+      });
+      attachThreadControls(thread);
+    } catch (error) {
+      console.error("Unable to update reaction", error);
+      window.alert(error?.message || "We couldn't update that reaction.");
+    }
+  }
+
+  if (messageLog) {
+    messageLog.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-action]");
+      if (!button) return;
+      const action = button.dataset.action;
+      if (!action) return;
+      if (!activeThread) return;
+      const messageId = button.dataset.message;
+      if (!messageId) return;
+      const message = activeThread.messages?.find((entry) => entry.id === messageId);
+      if (!message) return;
+      if (action === "reply-message") {
+        event.preventDefault();
+        setReplyTarget(activeThread, message);
+      } else if (action === "react-message") {
+        event.preventDefault();
+        const emoji = button.dataset.emoji;
+        if (!emoji) return;
+        toggleMessageReaction(activeThread, messageId, emoji, "toggle");
+      } else if (action === "open-reaction-picker") {
+        event.preventDefault();
+        openEmojiMenu({
+          anchor: button,
+          onSelect: (emoji) => {
+            toggleMessageReaction(activeThread, messageId, emoji, "toggle");
+          },
+        });
+      }
+    });
+  }
+
+  const selectThread = async (threadId) => {
     if (loadingThread) return;
     loadingThread = true;
     try {
-      let thread = threadMap.get(username);
+      let thread = threadMap.get(threadId);
       if (!thread || !thread.messages) {
-        thread = await fetchThreadDetail(username);
+        thread = await fetchThreadDetail(threadId);
         if (!thread) {
           window.alert("We couldn't load that conversation.");
           return;
@@ -2423,13 +3424,18 @@ async function initMessages() {
           thread.outbound?.updatedAt ??
           thread.updatedAt ??
           null;
-        threadMap.set(username, thread);
-        const summary = threads.find((entry) => entry.username === thread.username);
+        threadMap.set(thread.id, thread);
+        const summary = threads.find((entry) => entry.id === thread.id);
         if (summary) {
           summary.inbound = thread.inbound;
           summary.outbound = thread.outbound;
           summary.displayName = thread.displayName;
           summary.badges = thread.badges;
+          summary.type = thread.type;
+          summary.theme = thread.theme;
+          summary.participants = thread.participants;
+          summary.nickname = thread.nickname;
+          summary.readAt = thread.readAt;
           summary.lastMessage = thread.messages[thread.messages.length - 1] ?? summary.lastMessage ?? null;
           summary.updatedAt =
             thread.messages[thread.messages.length - 1]?.createdAt ??
@@ -2443,6 +3449,8 @@ async function initMessages() {
               : thread.messages.length;
         } else {
           threads.push({
+            id: thread.id,
+            type: thread.type,
             username: thread.username,
             fullName: thread.fullName,
             displayName: thread.displayName,
@@ -2460,17 +3468,21 @@ async function initMessages() {
               Number.isFinite(thread.totalMessages) && thread.totalMessages >= 0
                 ? thread.totalMessages
                 : thread.messages.length,
+            participants: thread.participants,
+            theme: thread.theme,
+            nickname: thread.nickname,
+            readAt: thread.readAt,
           });
         }
         renderList();
       }
       activeThread = thread;
-      updateListSelection(username);
+      updateListSelection(thread.id);
       renderThreadView(context, thread);
       attachThreadControls(thread);
       if (thread.unreadCount > 0) {
         thread.unreadCount = 0;
-        const summary = threads.find((entry) => entry.username === thread.username);
+        const summary = threads.find((entry) => entry.id === thread.id);
         if (summary) {
           summary.unreadCount = 0;
         }
@@ -2491,7 +3503,7 @@ async function initMessages() {
   try {
     threads = await fetchThreads();
     threads.forEach((thread) => {
-      threadMap.set(thread.username, { ...thread, messages: null });
+      threadMap.set(thread.id, { ...thread, messages: null });
     });
     renderList();
 
@@ -2512,7 +3524,7 @@ async function initMessages() {
     } else if (stored?.threadId) {
       await selectThread(stored.threadId);
     } else if (threads.length) {
-      await selectThread(threads[0].username);
+      await selectThread(threads[0].id);
     }
   } catch (error) {
     console.error("Unable to load conversations", error);

@@ -66,12 +66,18 @@
             <p class="messages-thread__note" data-alias hidden></p>
           </div>
           <div class="messages-thread__actions">
-            <label class="toggle">
+            <label class="toggle" data-reveal-toggle>
               <input type="checkbox" id="reveal-toggle" />
               <span>Reveal who you are</span>
             </label>
             <button class="button button--ghost" data-action="switch-anon">
               Stay anonymous
+            </button>
+            <button class="button button--ghost" data-action="set-nickname" type="button">
+              Edit nickname
+            </button>
+            <button class="button button--ghost" data-action="thread-theme" type="button">
+              Themes
             </button>
           </div>
         </header>
@@ -86,8 +92,27 @@
         </button>
 
         <ul class="messages" id="message-log"></ul>
+        <p class="messages-thread__receipt" data-read-receipt hidden></p>
 
         <form class="composer composer--messages" id="message-composer" hidden>
+          <div class="composer__toolbar">
+            <button type="button" class="button button--ghost" data-action="add-emoji">
+              Emoji
+            </button>
+            <button type="button" class="button button--ghost" data-action="add-gif">
+              GIF
+            </button>
+            <button type="button" class="button button--ghost" data-action="add-attachment">
+              Attach
+            </button>
+          </div>
+          <div class="composer__reply" data-reply-preview hidden>
+            <span data-reply-text></span>
+            <button type="button" class="button button--ghost" data-action="clear-reply">
+              Cancel reply
+            </button>
+          </div>
+          <div class="composer__attachments" data-attachment-list hidden></div>
           <label class="form__field">
             <span class="visually-hidden">Your message</span>
             <textarea id="message-input" rows="3" placeholder="Send a reply" required></textarea>
@@ -98,6 +123,14 @@
             </button>
             <button type="submit" class="button">Send</button>
           </div>
+          <input
+            type="file"
+            data-attachment-input
+            accept="image/*,video/mp4,video/webm,image/gif"
+            multiple
+            hidden
+          />
+          <div class="emoji-picker" data-emoji-picker hidden></div>
         </form>
       </section>
     </main>
