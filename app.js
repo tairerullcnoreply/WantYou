@@ -4106,6 +4106,7 @@ async function initData() {
   const statusElement = document.querySelector("[data-data-status]");
   const bodyElement = document.querySelector("[data-data-body]");
   const accountListElement = document.querySelector("[data-account-list]");
+  const accountSearchInput = document.querySelector("[data-account-search]");
   const workspaceElement = document.querySelector("[data-workspace]");
   const workspaceEmptyElement = document.querySelector("[data-workspace-empty]");
   const workspaceViewportElement = document.querySelector("[data-workspace-viewport]");
@@ -4121,7 +4122,8 @@ async function initData() {
     !workspaceEmptyElement ||
     !workspaceViewportElement ||
     !canvasElement ||
-    !edgesElement
+    !edgesElement ||
+    !accountSearchInput
   ) {
     return;
   }
@@ -4248,6 +4250,9 @@ async function initData() {
   let currentPan = { x: 0, y: 0 };
   let cleanupWorkspace = null;
   let resizeListenerAttached = false;
+  const edgeAnimationSeeds = new Map();
+  let accountSearchTerm = "";
+  let accountSearchNormalized = "";
 
   const getUserLayout = (username) => {
     const normalized = String(username || "");
@@ -4298,6 +4303,81 @@ async function initData() {
     node.dataset.y = String(safe.y);
     node.style.transform = `translate3d(${safe.x}px, ${safe.y}px, 0)`;
     return safe;
+  };
+
+  const randomBetween = (min, max) => Math.random() * (max - min) + min;
+
+  const applyNodeAnimation = (node) => {
+    if (!node) {
+      return;
+    }
+    node.style.setProperty("--node-animate-delay", `${randomBetween(0, 4).toFixed(2)}s`);
+    node.style.setProperty("--node-animate-duration", `${randomBetween(9, 15).toFixed(2)}s`);
+  };
+
+  const getEdgeKey = (sourceId, targetId) => `${sourceId}__${targetId}`;
+
+  const getEdgeSeed = (sourceId, targetId) => {
+    const key = getEdgeKey(sourceId, targetId);
+    if (!edgeAnimationSeeds.has(key)) {
+      edgeAnimationSeeds.set(key, {
+        delay: randomBetween(0, 3.5),
+        duration: randomBetween(7, 12),
+        offset: Math.floor(randomBetween(0, 120)),
+        hue: randomBetween(18, 36),
+      });
+    }
+    return edgeAnimationSeeds.get(key);
+  };
+
+  const setAccountSearchTerm = (value) => {
+    accountSearchTerm = value ?? "";
+    accountSearchNormalized = accountSearchTerm.trim().toLowerCase();
+    if (accountSearchInput) {
+      accountSearchInput.value = accountSearchTerm;
+      accountSearchInput.dataset.hasValue = accountSearchNormalized ? "true" : "false";
+    }
+  };
+
+  const highlightMatch = (element, text) => {
+    if (!element) {
+      return;
+    }
+    const content = typeof text === "string" ? text : String(text ?? "");
+    if (!accountSearchNormalized) {
+      element.textContent = content;
+      return;
+    }
+    const lower = content.toLowerCase();
+    const index = lower.indexOf(accountSearchNormalized);
+    if (index === -1) {
+      element.textContent = content;
+      return;
+    }
+    const prefix = content.slice(0, index);
+    const match = content.slice(index, index + accountSearchNormalized.length);
+    const suffix = content.slice(index + accountSearchNormalized.length);
+    element.textContent = "";
+    if (prefix) {
+      element.append(prefix);
+    }
+    const mark = document.createElement("mark");
+    mark.textContent = match;
+    element.appendChild(mark);
+    if (suffix) {
+      element.append(suffix);
+    }
+  };
+
+  const getFilteredUsers = () => {
+    if (!accountSearchNormalized) {
+      return usersState;
+    }
+    return usersState.filter((user) => {
+      const username = user?.profile?.username?.toLowerCase?.() ?? "";
+      const fullName = user?.profile?.fullName?.toLowerCase?.() ?? "";
+      return username.includes(accountSearchNormalized) || fullName.includes(accountSearchNormalized);
+    });
   };
 
   const getNodeCenter = (node) => {
@@ -4363,6 +4443,14 @@ async function initData() {
       const end = getNodeCenter(targetNode);
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", buildSquigglePath(start.x, start.y, end.x, end.y));
+      const seed = getEdgeSeed(sourceId, targetId);
+      path.dataset.edgeKey = getEdgeKey(sourceId, targetId);
+      if (seed) {
+        path.style.setProperty("--edge-animation-delay", `${seed.delay.toFixed(2)}s`);
+        path.style.setProperty("--edge-animation-duration", `${seed.duration.toFixed(2)}s`);
+        path.style.setProperty("--edge-dash-offset", `${seed.offset}`);
+        path.style.setProperty("--edge-color", `hsla(${Math.round(seed.hue)}, 92%, 60%, 0.75)`);
+      }
       fragment.appendChild(path);
     });
     edgesElement.appendChild(fragment);
@@ -4480,6 +4568,8 @@ async function initData() {
     node.className = "data-node data-node--account";
     node.dataset.nodeId = "account";
     node.setAttribute("data-node", "account");
+    node.dataset.state = "idle";
+    applyNodeAnimation(node);
 
     const handle = document.createElement("header");
     handle.className = "data-node__handle";
@@ -4496,13 +4586,17 @@ async function initData() {
 
     const summary = document.createElement("div");
     summary.className = "data-node__summary";
+    const displayName = user.profile.fullName?.trim() || `@${user.profile.username}`;
+    let usernameLineElement = null;
     const name = document.createElement("strong");
-    name.textContent = user.profile.fullName?.trim() || `@${user.profile.username}`;
+    name.textContent = displayName;
     summary.appendChild(name);
+    highlightMatch(name, displayName);
     if (user.profile.fullName?.trim()) {
-      const usernameLine = document.createElement("span");
-      usernameLine.textContent = `@${user.profile.username}`;
-      summary.appendChild(usernameLine);
+      usernameLineElement = document.createElement("span");
+      usernameLineElement.textContent = `@${user.profile.username}`;
+      summary.appendChild(usernameLineElement);
+      highlightMatch(usernameLineElement, `@${user.profile.username}`);
     }
     const tagline = user.profile.tagline?.trim();
     if (tagline) {
@@ -4553,6 +4647,112 @@ async function initData() {
     note.textContent = "Drag surrounding nodes to reshape how each dataset connects.";
     content.appendChild(note);
 
+    const renameForm = document.createElement("form");
+    renameForm.className = "data-node__inline-form";
+    renameForm.setAttribute("autocomplete", "off");
+
+    const renameLabel = document.createElement("label");
+    const renameInputId = `rename-${user.profile.username}`;
+    renameLabel.setAttribute("for", renameInputId);
+    renameLabel.textContent = "Username handle";
+    renameForm.appendChild(renameLabel);
+
+    const renameInput = document.createElement("input");
+    renameInput.className = "data-node__input";
+    renameInput.type = "text";
+    renameInput.autocomplete = "off";
+    renameInput.spellcheck = false;
+    renameInput.id = renameInputId;
+    renameInput.value = user.profile.username;
+    renameForm.appendChild(renameInput);
+
+    const renameActions = document.createElement("div");
+    renameActions.className = "data-node__inline-actions";
+
+    const renameSubmit = document.createElement("button");
+    renameSubmit.type = "submit";
+    renameSubmit.className = "button button--small";
+    renameSubmit.textContent = "Update username";
+    renameActions.appendChild(renameSubmit);
+
+    const renameReset = document.createElement("button");
+    renameReset.type = "button";
+    renameReset.className = "button button--ghost button--small";
+    renameReset.textContent = "Reset";
+    renameActions.appendChild(renameReset);
+
+    renameForm.appendChild(renameActions);
+
+    const renameNote = document.createElement("p");
+    renameNote.className = "data-node__inline-note";
+    renameNote.textContent = "Changes won't touch their previous usernames log.";
+    renameForm.appendChild(renameNote);
+
+    content.appendChild(renameForm);
+
+    const setRenamingState = (renaming) => {
+      node.dataset.state = renaming ? "renaming" : "idle";
+      renameInput.disabled = renaming;
+      renameSubmit.disabled = renaming;
+      renameReset.disabled = renaming;
+    };
+
+    renameReset.addEventListener("click", (event) => {
+      event.preventDefault();
+      renameInput.value = user.profile.username;
+      renameInput.focus();
+    });
+
+    renameForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const currentUsername = user.profile.username;
+      const nextRaw = renameInput.value.trim();
+      if (!nextRaw) {
+        setStatus("Provide a username to continue.", "error");
+        renameInput.focus();
+        return;
+      }
+      const normalizedCurrent = (currentUsername || "").toLowerCase();
+      const normalizedNext = nextRaw.toLowerCase();
+      if (normalizedNext === normalizedCurrent) {
+        setStatus(`@${currentUsername} is already using that handle.`, "info");
+        return;
+      }
+      setRenamingState(true);
+      try {
+        const response = await apiRequest(`/admin/users/${encodeURIComponent(currentUsername)}`, {
+          method: "PUT",
+          body: JSON.stringify({ username: nextRaw }),
+        });
+        const appliedUsername =
+          typeof response?.user?.profile?.username === "string"
+            ? response.user.profile.username
+            : normalizedNext;
+        subtitle.textContent = `@${appliedUsername}`;
+        if (!user.profile.fullName?.trim()) {
+          name.textContent = `@${appliedUsername}`;
+          highlightMatch(name, `@${appliedUsername}`);
+        }
+        if (usernameLineElement) {
+          usernameLineElement.textContent = `@${appliedUsername}`;
+          highlightMatch(usernameLineElement, `@${appliedUsername}`);
+        }
+        setStatus(`Renamed @${currentUsername} to @${appliedUsername}.`, "success");
+        activeUsername = appliedUsername;
+        setAccountSearchTerm("");
+        await loadData({ silent: true });
+      } catch (error) {
+        setStatus(error?.message || `Unable to rename @${user.profile.username}.`, "error");
+        if (renameInput.isConnected) {
+          renameInput.focus();
+        }
+      } finally {
+        if (node.isConnected) {
+          setRenamingState(false);
+        }
+      }
+    });
+
     node.appendChild(content);
     return node;
   };
@@ -4571,6 +4771,7 @@ async function initData() {
     node.dataset.nodeId = id;
     node.setAttribute("data-node", id);
     node.dataset.state = "ready";
+    applyNodeAnimation(node);
 
     const handle = document.createElement("header");
     handle.className = "data-node__handle";
@@ -4694,25 +4895,30 @@ async function initData() {
     return node;
   };
 
-  const renderAccountList = (users) => {
+  const renderAccountList = () => {
+    const users = getFilteredUsers();
     accountListElement.innerHTML = "";
+    accountListElement.dataset.empty = users.length ? "false" : "true";
+    accountListElement.dataset.searching = accountSearchNormalized ? "true" : "false";
     if (!users.length) {
-      const empty = document.createElement("li");
-      empty.textContent = "No accounts available.";
-      accountListElement.appendChild(empty);
       return;
     }
     const fragment = document.createDocumentFragment();
-    users.forEach((user) => {
+    users.forEach((user, index) => {
       const listItem = document.createElement("li");
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.username = user.profile.username;
+      button.style.setProperty("--account-animate-delay", `${(index * 0.05).toFixed(2)}s`);
       const meta = document.createElement("div");
       meta.className = "data-account-meta";
       const name = document.createElement("strong");
-      name.textContent = user.profile.fullName?.trim() || `@${user.profile.username}`;
+      highlightMatch(name, user.profile.fullName?.trim() || `@${user.profile.username}`);
       meta.appendChild(name);
+      const handle = document.createElement("span");
+      handle.className = "data-account-meta__handle";
+      highlightMatch(handle, `@${user.profile.username}`);
+      meta.appendChild(handle);
       const detail = document.createElement("span");
       const incomingCount = Object.keys(user.connections?.incoming ?? {}).length;
       const outgoingCount = Object.keys(user.connections?.outgoing ?? {}).length;
@@ -4725,6 +4931,7 @@ async function initData() {
       fragment.appendChild(listItem);
     });
     accountListElement.appendChild(fragment);
+    updateAccountSelection(activeUsername);
   };
 
   const updateAccountSelection = (username) => {
@@ -4761,6 +4968,7 @@ async function initData() {
       cleanupWorkspace = null;
     }
 
+    edgeAnimationSeeds.clear();
     canvasElement.querySelectorAll(".data-node").forEach((node) => node.remove());
     currentNodes = new Map();
     currentEdges = [];
@@ -4881,7 +5089,7 @@ async function initData() {
     try {
       const payload = await apiRequest("/admin/data");
       usersState = Array.isArray(payload?.users) ? payload.users : [];
-      renderAccountList(usersState);
+      renderAccountList();
       bodyElement.hidden = false;
       if (!usersState.length) {
         workspaceEmptyElement.hidden = false;
@@ -4898,6 +5106,8 @@ async function initData() {
       }
     } catch (error) {
       setStatus(error?.message || "Unable to load account data.", "error");
+      usersState = [];
+      renderAccountList();
       bodyElement.hidden = true;
       workspaceViewportElement.hidden = true;
       workspaceEmptyElement.hidden = false;
@@ -4906,6 +5116,21 @@ async function initData() {
       enableRefresh();
     }
   };
+
+  setAccountSearchTerm(accountSearchInput.value ?? "");
+
+  accountSearchInput.addEventListener("input", (event) => {
+    setAccountSearchTerm(event.target.value ?? "");
+    renderAccountList();
+  });
+
+  accountSearchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && accountSearchNormalized) {
+      event.preventDefault();
+      setAccountSearchTerm("");
+      renderAccountList();
+    }
+  });
 
   accountListElement.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-username]");

@@ -50,6 +50,19 @@
         </p>
         <div class="data-panel__body" data-data-body hidden>
           <aside class="data-sidebar">
+            <div class="data-sidebar__search">
+              <label class="sr-only" for="data-account-search">Search accounts</label>
+              <input
+                id="data-account-search"
+                class="data-sidebar__search-input"
+                type="search"
+                name="account-search"
+                placeholder="Search accounts…"
+                autocomplete="off"
+                spellcheck="false"
+                data-account-search
+              />
+            </div>
             <h2>Accounts</h2>
             <ul class="data-account-list" data-account-list></ul>
           </aside>

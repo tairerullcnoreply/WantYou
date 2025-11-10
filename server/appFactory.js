@@ -1327,14 +1327,19 @@ async function migrateUserAssociations(oldUsername, newUsername) {
   await migrateSelectedThreads(oldUsername, newUsername, usernames);
 }
 
-async function renameUserAccount(user, newUsername, updates = {}) {
+async function renameUserAccount(user, newUsername, updates = {}, options = {}) {
+  const { preserveHistory = false } = options ?? {};
   const oldUsername = user.username;
   const normalizedNew = normalizeUsername(newUsername);
   if (!normalizedNew) {
     throw new Error("A valid new username is required");
   }
   const changedAt = new Date().toISOString();
-  const usernameHistory = buildUsernameHistory(user.usernameHistory, oldUsername, changedAt);
+  const usernameHistory = preserveHistory
+    ? Array.isArray(user.usernameHistory)
+      ? user.usernameHistory.slice()
+      : []
+    : buildUsernameHistory(user.usernameHistory, oldUsername, changedAt);
   const record = {
     ...user,
     ...updates,
@@ -2540,14 +2545,41 @@ function createApp() {
         return res.status(404).json({ message: "User not found" });
       }
 
-      const { profile, connections, events, posts } = req.body ?? {};
+      const { profile, connections, events, posts, username: requestedUsernameRaw } = req.body ?? {};
       let changed = false;
+      let profilePayload = null;
 
       if (isPlainObject(profile) && Object.keys(profile).length) {
+        profilePayload = profile;
+      }
+
+      const requestedUsername =
+        typeof requestedUsernameRaw === "string" ? normalizeUsername(requestedUsernameRaw) : null;
+
+      if (requestedUsername && requestedUsername !== currentRecord.username) {
+        const conflict = await getUser(requestedUsername);
+        if (conflict && conflict.userId !== currentRecord.userId) {
+          return res.status(409).json({ message: "Username is already taken" });
+        }
+        try {
+          currentRecord = await renameUserAccount(
+            currentRecord,
+            requestedUsername,
+            profilePayload ?? {},
+            { preserveHistory: true }
+          );
+          changed = true;
+          profilePayload = null;
+        } catch (error) {
+          return res.status(400).json({ message: error.message || "Unable to rename user" });
+        }
+      }
+
+      if (profilePayload && Object.keys(profilePayload).length) {
         try {
           currentRecord = await writeUserRecord({
             ...currentRecord,
-            ...profile,
+            ...profilePayload,
             username: currentRecord.username,
             userId: currentRecord.userId,
             passwordHash: currentRecord.passwordHash,
