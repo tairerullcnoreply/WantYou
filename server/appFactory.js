@@ -48,6 +48,10 @@ const VALID_POST_MOODS = new Set([
 ]);
 const DEFAULT_POST_MOOD = "none";
 
+const MAX_POST_COMMENT_LENGTH = 350;
+const MAX_STORED_POST_COMMENTS = 100;
+const POST_COMMENT_RESPONSE_LIMIT = 20;
+
 const RELATIONSHIP_STATUS = Object.freeze({
   SINGLE: "single",
   DATING_OPEN: "dating-open",
@@ -1950,6 +1954,103 @@ function sortEventsForDisplay(events) {
     });
 }
 
+function sanitizePostShare(entry) {
+  if (!entry) {
+    return null;
+  }
+  const username = normalizeUsername(entry.username);
+  if (!username) {
+    return null;
+  }
+  const createdRaw = typeof entry.createdAt === "string" ? entry.createdAt : new Date().toISOString();
+  const createdTime = Date.parse(createdRaw);
+  const createdAt = Number.isNaN(createdTime) ? new Date().toISOString() : new Date(createdTime).toISOString();
+  return {
+    username,
+    createdAt,
+  };
+}
+
+function sanitizePostComment(comment) {
+  if (!comment) {
+    return null;
+  }
+  const username = normalizeUsername(comment.username);
+  if (!username) {
+    return null;
+  }
+  const text = sanitizeText(comment.text ?? "", MAX_POST_COMMENT_LENGTH);
+  if (!text) {
+    return null;
+  }
+  const createdRaw = typeof comment.createdAt === "string" ? comment.createdAt : new Date().toISOString();
+  const createdTime = Date.parse(createdRaw);
+  const createdAt = Number.isNaN(createdTime) ? new Date().toISOString() : new Date(createdTime).toISOString();
+  const fullName = sanitizeText(comment.fullName ?? "", 120);
+  const badges = Array.isArray(comment.badges)
+    ? comment.badges
+        .map((badge) => sanitizeText(badge ?? "", 40))
+        .filter((badge) => Boolean(badge))
+    : [];
+  return {
+    id: comment.id && typeof comment.id === "string" ? comment.id : crypto.randomUUID(),
+    username,
+    fullName,
+    text,
+    createdAt,
+    badges,
+  };
+}
+
+function sanitizePostInteractions(interactions = {}) {
+  const likeSet = new Set();
+  const repostSet = new Set();
+  if (Array.isArray(interactions.likes)) {
+    interactions.likes.forEach((username) => {
+      const normalized = normalizeUsername(username);
+      if (normalized) {
+        likeSet.add(normalized);
+      }
+    });
+  }
+  if (Array.isArray(interactions.reposts)) {
+    interactions.reposts.forEach((username) => {
+      const normalized = normalizeUsername(username);
+      if (normalized) {
+        repostSet.add(normalized);
+      }
+    });
+  }
+
+  const shares = Array.isArray(interactions.shares)
+    ? interactions.shares
+        .map((entry) => sanitizePostShare(entry))
+        .filter(Boolean)
+    : [];
+  const shareMap = new Map();
+  shares.forEach((share) => {
+    shareMap.set(share.username, share);
+  });
+  const shareList = Array.from(shareMap.values()).sort(
+    (a, b) => timestampScore(a.createdAt) - timestampScore(b.createdAt)
+  );
+
+  const comments = Array.isArray(interactions.comments)
+    ? interactions.comments
+        .map((comment) => sanitizePostComment(comment))
+        .filter(Boolean)
+        .sort((a, b) => timestampScore(a.createdAt) - timestampScore(b.createdAt))
+    : [];
+  const limitedComments = comments.slice(-MAX_STORED_POST_COMMENTS);
+
+  return {
+    likes: Array.from(likeSet.values()).sort(),
+    reposts: Array.from(repostSet.values()).sort(),
+    shares: shareList,
+    comments: limitedComments,
+  };
+}
+
 function sanitizePostRecord(post) {
   if (!post) {
     throw new Error("Post record missing");
@@ -1968,6 +2069,58 @@ function sanitizePostRecord(post) {
     updatedAt,
     visibility: normalizePostVisibility(post.visibility),
     mood: normalizePostMood(post.mood),
+    interactions: sanitizePostInteractions(post.interactions),
+  };
+}
+
+function describePostForViewer(post, viewerUsername) {
+  const interactions = sanitizePostInteractions(post.interactions);
+  const normalizedViewer = normalizeUsername(viewerUsername);
+  const likeSet = new Set(interactions.likes);
+  const repostSet = new Set(interactions.reposts);
+  const shares = interactions.shares.slice();
+  const shareCount = shares.length;
+  const viewerShared = normalizedViewer
+    ? shares.some((share) => share.username === normalizedViewer)
+    : false;
+  const comments = interactions.comments.slice();
+  const totalComments = comments.length;
+  const recentComments = comments.slice(-POST_COMMENT_RESPONSE_LIMIT);
+  return {
+    id: post.id,
+    text: post.text ?? "",
+    attachments: normalizeAttachments(post.attachments),
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+    visibility: post.visibility ?? DEFAULT_POST_VISIBILITY,
+    mood: post.mood ?? DEFAULT_POST_MOOD,
+    interactions: {
+      likes: {
+        count: interactions.likes.length,
+        viewer: normalizedViewer ? likeSet.has(normalizedViewer) : false,
+      },
+      reposts: {
+        count: interactions.reposts.length,
+        viewer: normalizedViewer ? repostSet.has(normalizedViewer) : false,
+      },
+      shares: {
+        count: shareCount,
+        viewer: viewerShared,
+      },
+      comments: {
+        total: totalComments,
+        entries: recentComments.map((comment) => ({
+          id: comment.id,
+          text: comment.text,
+          createdAt: comment.createdAt,
+          author: {
+            username: comment.username,
+            name: comment.fullName || comment.username,
+            badges: comment.badges ?? [],
+          },
+        })),
+      },
+    },
   };
 }
 
@@ -2064,6 +2217,32 @@ async function updateUserPost(username, postId, updates) {
   return merged;
 }
 
+async function updatePostInteractions(username, postId, mutator) {
+  const posts = await listUserPosts(username);
+  const index = posts.findIndex((post) => post.id === postId);
+  if (index === -1) {
+    return null;
+  }
+  const existing = posts[index];
+  const baseInteractions = sanitizePostInteractions(existing.interactions);
+  const working = {
+    likes: [...baseInteractions.likes],
+    reposts: [...baseInteractions.reposts],
+    shares: baseInteractions.shares.map((entry) => ({ ...entry })),
+    comments: baseInteractions.comments.map((entry) => ({ ...entry })),
+  };
+  const mutated = mutator ? mutator(working) : working;
+  const nextInteractions = sanitizePostInteractions(mutated);
+  const nextRecord = sanitizePostRecord({
+    ...existing,
+    interactions: nextInteractions,
+  });
+  const nextPosts = posts.slice();
+  nextPosts[index] = nextRecord;
+  await rewriteList(userPostsKey(username), sortPostsForDisplay(nextPosts));
+  return nextRecord;
+}
+
 async function buildAdminUserPayload(username) {
   const user = await getUser(username);
   if (!user) {
@@ -2096,6 +2275,34 @@ async function listAdminUsers() {
   }
   users.sort((a, b) => a.profile.username.localeCompare(b.profile.username));
   return users;
+}
+
+async function viewerCanSeePost(viewerUsername, ownerUsername, post) {
+  const normalizedViewer = normalizeUsername(viewerUsername);
+  const normalizedOwner = normalizeUsername(ownerUsername);
+  if (!normalizedViewer || !normalizedOwner || !post) {
+    return false;
+  }
+  if (normalizedViewer === normalizedOwner) {
+    return true;
+  }
+  const visibility = normalizePostVisibility(post.visibility);
+  if (visibility === "public") {
+    return true;
+  }
+  if (visibility === "private") {
+    return false;
+  }
+  const [incomingToOwner, outgoingFromOwner] = await Promise.all([
+    getIncomingConnections(normalizedOwner),
+    getOutgoingConnections(normalizedOwner),
+  ]);
+  const viewerOutbound = connectionStateFor(normalizedViewer, incomingToOwner);
+  const viewerInbound = connectionStateFor(normalizedViewer, outgoingFromOwner);
+  return (
+    (viewerOutbound.status && viewerOutbound.status !== "none") ||
+    (viewerInbound.status && viewerInbound.status !== "none")
+  );
 }
 
 function publicUser(user) {
@@ -2858,15 +3065,7 @@ function createApp() {
           highlighted: Boolean(event.highlighted),
         }));
 
-      const postPayload = filteredPosts.map((post) => ({
-          id: post.id,
-          text: post.text ?? "",
-          attachments: normalizeAttachments(post.attachments),
-          createdAt: post.createdAt,
-          visibility: post.visibility ?? "public",
-          updatedAt: post.updatedAt,
-          mood: post.mood ?? DEFAULT_POST_MOOD,
-        }));
+      const postPayload = filteredPosts.map((post) => describePostForViewer(post, req.user.username));
 
       response.events = eventPayload;
       response.posts = postPayload;
@@ -3243,6 +3442,269 @@ function createApp() {
     }
   });
 
+  app.post("/api/profile/:username/posts/:id/like", authenticate, async (req, res) => {
+    const owner = normalizeUsername(req.params.username);
+    const postId = req.params.id;
+    const viewer = normalizeUsername(req.user.username);
+    if (!owner || !postId) {
+      return res.status(400).json({ message: "Post owner and id required" });
+    }
+    if (!viewer) {
+      return res.status(400).json({ message: "Viewer missing" });
+    }
+    if (owner === viewer) {
+      return res.status(403).json({ message: "You can't like your own post" });
+    }
+    try {
+      const ownerUser = await getUser(owner);
+      if (!ownerUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const posts = await listUserPosts(owner);
+      const target = posts.find((post) => post.id === postId);
+      if (!target) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      const canView = await viewerCanSeePost(viewer, owner, target);
+      if (!canView) {
+        return res.status(403).json({ message: "You do not have access to this post" });
+      }
+      const updated = await updatePostInteractions(owner, postId, (interactions) => {
+        const likeSet = new Set(interactions.likes);
+        likeSet.add(viewer);
+        return { ...interactions, likes: Array.from(likeSet.values()) };
+      });
+      if (!updated) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      res.json({ post: describePostForViewer(updated, viewer) });
+    } catch (error) {
+      console.error("Failed to like post", error);
+      res.status(500).json({ message: "Unable to like post" });
+    }
+  });
+
+  app.delete("/api/profile/:username/posts/:id/like", authenticate, async (req, res) => {
+    const owner = normalizeUsername(req.params.username);
+    const postId = req.params.id;
+    const viewer = normalizeUsername(req.user.username);
+    if (!owner || !postId) {
+      return res.status(400).json({ message: "Post owner and id required" });
+    }
+    if (!viewer) {
+      return res.status(400).json({ message: "Viewer missing" });
+    }
+    if (owner === viewer) {
+      return res.status(403).json({ message: "You can't unlike your own post" });
+    }
+    try {
+      const ownerUser = await getUser(owner);
+      if (!ownerUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const posts = await listUserPosts(owner);
+      const target = posts.find((post) => post.id === postId);
+      if (!target) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      const canView = await viewerCanSeePost(viewer, owner, target);
+      if (!canView) {
+        return res.status(403).json({ message: "You do not have access to this post" });
+      }
+      const updated = await updatePostInteractions(owner, postId, (interactions) => {
+        const likeSet = new Set(interactions.likes);
+        likeSet.delete(viewer);
+        return { ...interactions, likes: Array.from(likeSet.values()) };
+      });
+      if (!updated) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      res.json({ post: describePostForViewer(updated, viewer) });
+    } catch (error) {
+      console.error("Failed to remove like", error);
+      res.status(500).json({ message: "Unable to update like" });
+    }
+  });
+
+  app.post("/api/profile/:username/posts/:id/repost", authenticate, async (req, res) => {
+    const owner = normalizeUsername(req.params.username);
+    const postId = req.params.id;
+    const viewer = normalizeUsername(req.user.username);
+    if (!owner || !postId) {
+      return res.status(400).json({ message: "Post owner and id required" });
+    }
+    if (!viewer) {
+      return res.status(400).json({ message: "Viewer missing" });
+    }
+    if (owner === viewer) {
+      return res.status(403).json({ message: "You can't repost your own update" });
+    }
+    try {
+      const ownerUser = await getUser(owner);
+      if (!ownerUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const posts = await listUserPosts(owner);
+      const target = posts.find((post) => post.id === postId);
+      if (!target) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      const canView = await viewerCanSeePost(viewer, owner, target);
+      if (!canView) {
+        return res.status(403).json({ message: "You do not have access to this post" });
+      }
+      const updated = await updatePostInteractions(owner, postId, (interactions) => {
+        const repostSet = new Set(interactions.reposts);
+        repostSet.add(viewer);
+        return { ...interactions, reposts: Array.from(repostSet.values()) };
+      });
+      if (!updated) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      res.json({ post: describePostForViewer(updated, viewer) });
+    } catch (error) {
+      console.error("Failed to repost", error);
+      res.status(500).json({ message: "Unable to repost" });
+    }
+  });
+
+  app.delete("/api/profile/:username/posts/:id/repost", authenticate, async (req, res) => {
+    const owner = normalizeUsername(req.params.username);
+    const postId = req.params.id;
+    const viewer = normalizeUsername(req.user.username);
+    if (!owner || !postId) {
+      return res.status(400).json({ message: "Post owner and id required" });
+    }
+    if (!viewer) {
+      return res.status(400).json({ message: "Viewer missing" });
+    }
+    if (owner === viewer) {
+      return res.status(403).json({ message: "You can't undo reposts on your own post" });
+    }
+    try {
+      const ownerUser = await getUser(owner);
+      if (!ownerUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const posts = await listUserPosts(owner);
+      const target = posts.find((post) => post.id === postId);
+      if (!target) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      const canView = await viewerCanSeePost(viewer, owner, target);
+      if (!canView) {
+        return res.status(403).json({ message: "You do not have access to this post" });
+      }
+      const updated = await updatePostInteractions(owner, postId, (interactions) => {
+        const repostSet = new Set(interactions.reposts);
+        repostSet.delete(viewer);
+        return { ...interactions, reposts: Array.from(repostSet.values()) };
+      });
+      if (!updated) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      res.json({ post: describePostForViewer(updated, viewer) });
+    } catch (error) {
+      console.error("Failed to remove repost", error);
+      res.status(500).json({ message: "Unable to update repost" });
+    }
+  });
+
+  app.post("/api/profile/:username/posts/:id/share", authenticate, async (req, res) => {
+    const owner = normalizeUsername(req.params.username);
+    const postId = req.params.id;
+    const viewer = normalizeUsername(req.user.username);
+    if (!owner || !postId) {
+      return res.status(400).json({ message: "Post owner and id required" });
+    }
+    if (!viewer) {
+      return res.status(400).json({ message: "Viewer missing" });
+    }
+    if (owner === viewer) {
+      return res.status(403).json({ message: "You can't share your own post" });
+    }
+    try {
+      const ownerUser = await getUser(owner);
+      if (!ownerUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const posts = await listUserPosts(owner);
+      const target = posts.find((post) => post.id === postId);
+      if (!target) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      const canView = await viewerCanSeePost(viewer, owner, target);
+      if (!canView) {
+        return res.status(403).json({ message: "You do not have access to this post" });
+      }
+      const updated = await updatePostInteractions(owner, postId, (interactions) => {
+        const remainingShares = interactions.shares.filter((share) => share.username !== viewer);
+        remainingShares.push({ username: viewer, createdAt: new Date().toISOString() });
+        return { ...interactions, shares: remainingShares };
+      });
+      if (!updated) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      res.json({ post: describePostForViewer(updated, viewer) });
+    } catch (error) {
+      console.error("Failed to share post", error);
+      res.status(500).json({ message: "Unable to share post" });
+    }
+  });
+
+  app.post("/api/profile/:username/posts/:id/comments", authenticate, async (req, res) => {
+    const owner = normalizeUsername(req.params.username);
+    const postId = req.params.id;
+    const viewer = normalizeUsername(req.user.username);
+    if (!owner || !postId) {
+      return res.status(400).json({ message: "Post owner and id required" });
+    }
+    if (!viewer) {
+      return res.status(400).json({ message: "Viewer missing" });
+    }
+    if (owner === viewer) {
+      return res.status(403).json({ message: "You can't comment on your own post" });
+    }
+    const text = sanitizeText(req.body?.text ?? "", MAX_POST_COMMENT_LENGTH);
+    if (!text) {
+      return res.status(400).json({ message: "Comment cannot be empty" });
+    }
+    try {
+      const ownerUser = await getUser(owner);
+      if (!ownerUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const posts = await listUserPosts(owner);
+      const target = posts.find((post) => post.id === postId);
+      if (!target) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      const canView = await viewerCanSeePost(viewer, owner, target);
+      if (!canView) {
+        return res.status(403).json({ message: "You do not have access to this post" });
+      }
+      const updated = await updatePostInteractions(owner, postId, (interactions) => {
+        const comments = interactions.comments.slice();
+        comments.push({
+          id: crypto.randomUUID(),
+          username: viewer,
+          fullName: req.user.fullName ?? viewer,
+          text,
+          createdAt: new Date().toISOString(),
+          badges: Array.isArray(req.user.badges) ? req.user.badges : [],
+        });
+        return { ...interactions, comments };
+      });
+      if (!updated) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+      res.status(201).json({ post: describePostForViewer(updated, viewer) });
+    } catch (error) {
+      console.error("Failed to add comment", error);
+      res.status(500).json({ message: "Unable to comment right now" });
+    }
+  });
+
   app.post("/api/posts", authenticate, (req, res) => {
     req.uploadTarget = "post";
     uploadMiddleware.array("media", 6)(req, res, async (error) => {
@@ -3276,15 +3738,7 @@ function createApp() {
         };
         const stored = await saveUserPost(req.user.username, post);
         res.status(201).json({
-          post: {
-            id: stored.id,
-            text: stored.text,
-            attachments: normalizeAttachments(stored.attachments),
-            createdAt: stored.createdAt,
-            updatedAt: stored.updatedAt,
-            visibility: stored.visibility,
-            mood: stored.mood,
-          },
+          post: describePostForViewer(stored, req.user.username),
         });
       } catch (err) {
         console.error("Failed to create post", err);
@@ -3335,15 +3789,7 @@ function createApp() {
         return res.status(404).json({ message: "Post not found" });
       }
       res.json({
-        post: {
-          id: updated.id,
-          text: updated.text,
-          attachments: normalizeAttachments(updated.attachments),
-          createdAt: updated.createdAt,
-          updatedAt: updated.updatedAt,
-          visibility: updated.visibility,
-          mood: updated.mood,
-        },
+        post: describePostForViewer(updated, req.user.username),
       });
     } catch (err) {
       console.error("Failed to update post", err);
