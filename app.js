@@ -3,6 +3,500 @@ const AI_REF_VALUE = "AI";
 const AI_GUEST_STORAGE_KEY = "wantyou_ai_guest";
 const AI_GUEST_HEADER = "X-WantYou-AI-Guest";
 
+const MOTION_MEDIA_QUERY = "(prefers-reduced-motion: reduce)";
+const DEFAULT_MOTION_STAGGER = 70;
+const animationState = {
+  initialized: false,
+  reduced: false,
+  observer: null,
+  domObserver: null,
+  groups: new Map(),
+};
+
+const ANIMATION_DEFINITIONS = [
+  // Landing
+  {
+    selector: ".hero__copy > *",
+    variant: "rise",
+    pages: ["landing"],
+    group: "landing-hero",
+    stagger: 80,
+    delay: 120,
+  },
+  {
+    selector: ".hero-card",
+    variant: "tilt",
+    pages: ["landing"],
+    delay: 260,
+    shadow: "0 42px 90px rgba(255, 122, 0, 0.24)",
+  },
+  {
+    selector: ".steps .step",
+    variant: "pop",
+    pages: ["landing"],
+    group: "landing-steps",
+    stagger: 90,
+    delay: 220,
+  },
+  {
+    selector: ".status-card",
+    variant: "tilt",
+    pages: ["landing"],
+    group: "landing-status",
+    stagger: 95,
+    delay: 260,
+  },
+  {
+    selector: ".privacy__copy > *",
+    variant: "rise",
+    pages: ["landing"],
+    group: "landing-privacy-copy",
+    stagger: 70,
+    delay: 260,
+  },
+  {
+    selector: ".privacy__card",
+    variant: "scale",
+    pages: ["landing"],
+    group: "landing-privacy-card",
+    stagger: 110,
+    delay: 300,
+  },
+  {
+    selector: ".ai-preview-callout .checklist li",
+    variant: "pop",
+    pages: ["landing"],
+    group: "landing-ai",
+    stagger: 70,
+    delay: 320,
+  },
+  {
+    selector: ".panel--cta .cta",
+    variant: "glow",
+    pages: ["landing"],
+    delay: 360,
+  },
+  // Signup
+  {
+    selector: ".signup-card",
+    variant: "scale",
+    pages: ["signup"],
+    delay: 160,
+  },
+  {
+    selector: ".signup__tabs button",
+    variant: "pop",
+    pages: ["signup"],
+    group: "signup-tabs",
+    stagger: 60,
+    delay: 200,
+  },
+  {
+    selector: ".signup__form",
+    variant: "rise",
+    pages: ["signup"],
+    group: "signup-forms",
+    stagger: 80,
+    delay: 220,
+  },
+  // Lookup
+  {
+    selector: ".lookup__header",
+    variant: "rise",
+    pages: ["lookup"],
+    delay: 140,
+  },
+  {
+    selector: ".lookup__filters",
+    variant: "slide",
+    pages: ["lookup"],
+    delay: 200,
+  },
+  {
+    selector: ".lookup__filter-row .toggle",
+    variant: "pop",
+    pages: ["lookup"],
+    group: "lookup-toggles",
+    stagger: 60,
+    delay: 260,
+  },
+  {
+    selector: ".lookup__filter-chips .chip",
+    variant: "pop",
+    pages: ["lookup"],
+    group: "lookup-chips",
+    stagger: 45,
+    delay: 220,
+  },
+  {
+    selector: ".lookup__results .connection",
+    variant: "scale",
+    pages: ["lookup"],
+    group: "lookup-cards",
+    stagger: 80,
+    delay: 280,
+  },
+  {
+    selector: ".lookup-sidebar .card",
+    variant: "rise",
+    pages: ["lookup"],
+    group: "lookup-sidebar",
+    stagger: 90,
+    delay: 300,
+  },
+  // Messages
+  {
+    selector: ".messages-list",
+    variant: "slide",
+    pages: ["messages"],
+    delay: 140,
+  },
+  {
+    selector: ".messages-thread",
+    variant: "rise",
+    pages: ["messages"],
+    delay: 180,
+  },
+  {
+    selector: ".messages-list__item",
+    variant: "pop",
+    pages: ["messages"],
+    group: "messages-list",
+    stagger: 60,
+    delay: 240,
+  },
+  {
+    selector: ".messages .message",
+    variant: "rise",
+    pages: ["messages"],
+    group: "messages-thread",
+    stagger: 40,
+    delay: 260,
+  },
+  // Profile
+  {
+    selector: ".profile-summary",
+    variant: "scale",
+    pages: ["profile"],
+    delay: 140,
+  },
+  {
+    selector: ".profile-section",
+    variant: "rise",
+    pages: ["profile"],
+    group: "profile-sections",
+    stagger: 90,
+    delay: 200,
+  },
+  {
+    selector: ".profile-about__card",
+    variant: "pop",
+    pages: ["profile"],
+    group: "profile-about",
+    stagger: 70,
+    delay: 240,
+  },
+  {
+    selector: ".profile-interests li",
+    variant: "pop",
+    pages: ["profile"],
+    group: "profile-interests",
+    stagger: 50,
+    delay: 260,
+  },
+  {
+    selector: ".profile-event, .profile-post",
+    variant: "tilt",
+    pages: ["profile"],
+    group: "profile-activity",
+    stagger: 80,
+    delay: 280,
+  },
+  // Data workspace
+  {
+    selector: ".data-panel",
+    variant: "scale",
+    pages: ["data"],
+    delay: 140,
+  },
+  {
+    selector: ".data-panel__header",
+    variant: "rise",
+    pages: ["data"],
+    delay: 200,
+  },
+  {
+    selector: ".data-sidebar",
+    variant: "slide",
+    pages: ["data"],
+    delay: 240,
+  },
+  {
+    selector: ".data-account-list li, .data-account-list button",
+    variant: "pop",
+    pages: ["data"],
+    group: "data-accounts",
+    stagger: 45,
+    delay: 260,
+  },
+  {
+    selector: ".data-workspace",
+    variant: "tilt",
+    pages: ["data"],
+    delay: 280,
+  },
+  // Press
+  {
+    selector: ".press-hero__copy > *",
+    variant: "rise",
+    pages: ["press"],
+    group: "press-hero",
+    stagger: 80,
+    delay: 150,
+  },
+  {
+    selector: ".press-hero__card",
+    variant: "tilt",
+    pages: ["press"],
+    delay: 200,
+  },
+  {
+    selector: ".press-pillar",
+    variant: "scale",
+    pages: ["press"],
+    group: "press-pillars",
+    stagger: 90,
+    delay: 240,
+  },
+  {
+    selector: ".press-download",
+    variant: "rise",
+    pages: ["press"],
+    group: "press-downloads",
+    stagger: 80,
+    delay: 260,
+  },
+  {
+    selector: ".press-guideline",
+    variant: "pop",
+    pages: ["press"],
+    group: "press-guidelines",
+    stagger: 70,
+    delay: 280,
+  },
+  {
+    selector: ".press-contact",
+    variant: "scale",
+    pages: ["press"],
+    group: "press-contacts",
+    stagger: 90,
+    delay: 300,
+  },
+  {
+    selector: ".press-faq details",
+    variant: "rise",
+    pages: ["press"],
+    group: "press-faq",
+    stagger: 60,
+    delay: 320,
+  },
+  // Guidelines
+  {
+    selector: ".hero--guidelines .hero__copy > *, .guidelines-quicklist, .guideline-card",
+    variant: "rise",
+    pages: ["guidelines"],
+    group: "guidelines-hero",
+    stagger: 80,
+    delay: 150,
+  },
+  {
+    selector: ".guidelines-section__content > *",
+    variant: "pop",
+    pages: ["guidelines"],
+    group: "guidelines-sections",
+    stagger: 70,
+    delay: 220,
+  },
+  {
+    selector: ".guidelines-resources__list li",
+    variant: "scale",
+    pages: ["guidelines"],
+    group: "guidelines-resources",
+    stagger: 80,
+    delay: 260,
+  },
+  // Global fallbacks
+  {
+    selector: ".site-header, .app-header",
+    variant: "drop",
+    group: "global-header",
+    delay: 40,
+  },
+  {
+    selector:
+      ".site-header .brand, .app-header .brand, .site-nav a, .app-nav a, .site-header__actions > *, .app-header__actions > *",
+    variant: "float",
+    group: "global-header-links",
+    stagger: 36,
+    delay: 120,
+  },
+  {
+    selector: "main > section, main > aside, main > form",
+    variant: "rise",
+    group: "global-sections",
+    stagger: 110,
+    delay: 160,
+  },
+  {
+    selector: ".card",
+    variant: "scale",
+    group: "global-cards",
+    stagger: 90,
+    delay: 220,
+  },
+  {
+    selector: "footer",
+    variant: "rise",
+    group: "global-footer",
+    stagger: 100,
+    delay: 260,
+  },
+];
+
+function prefersReducedMotion() {
+  try {
+    if (typeof window.matchMedia !== "function") {
+      return false;
+    }
+    return window.matchMedia(MOTION_MEDIA_QUERY).matches;
+  } catch (error) {
+    return false;
+  }
+}
+
+function getAnimationMatches(root, selector) {
+  if (!root || !selector) {
+    return [];
+  }
+  if (root.nodeType === Node.DOCUMENT_NODE || root.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+    return Array.from(root.querySelectorAll(selector));
+  }
+  if (root.nodeType === Node.ELEMENT_NODE) {
+    const element = root;
+    const results = [];
+    if (element.matches(selector)) {
+      results.push(element);
+    }
+    element.querySelectorAll(selector).forEach((match) => results.push(match));
+    return results;
+  }
+  return [];
+}
+
+function registerAnimationTarget(element, definition = {}) {
+  if (!element || element.dataset.animateReady === "true") {
+    return element;
+  }
+
+  const variant = definition.variant || element.dataset.animate || "rise";
+  element.dataset.animate = variant;
+  element.dataset.animateReady = "true";
+
+  if (typeof definition.delay === "number") {
+    element.style.setProperty("--motion-delay", `${definition.delay}ms`);
+  }
+  const stagger = typeof definition.stagger === "number" ? definition.stagger : DEFAULT_MOTION_STAGGER;
+  element.style.setProperty("--motion-stagger", `${stagger}ms`);
+
+  if (typeof definition.shadow === "string" && definition.shadow.trim()) {
+    element.style.setProperty("--motion-shadow", definition.shadow);
+  }
+
+  let index = typeof definition.index === "number" ? definition.index : null;
+  const group = definition.group || null;
+  if (group && index === null) {
+    const nextIndex = animationState.groups.get(group) ?? 0;
+    animationState.groups.set(group, nextIndex + 1);
+    index = nextIndex;
+  }
+  if (typeof index === "number") {
+    element.style.setProperty("--motion-index", index);
+  }
+
+  if (animationState.reduced) {
+    element.classList.add("is-visible");
+    return element;
+  }
+
+  if (!animationState.observer) {
+    animationState.observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            animationState.observer?.unobserve(entry.target);
+          }
+        });
+      },
+      {
+        threshold: 0.18,
+        rootMargin: "0px 0px -10% 0px",
+      }
+    );
+  }
+
+  animationState.observer.observe(element);
+  return element;
+}
+
+function applyAnimationDefinitions(root = document) {
+  if (animationState.reduced) {
+    return;
+  }
+  const page = document.body?.dataset?.page || "";
+  ANIMATION_DEFINITIONS.forEach((definition) => {
+    if (Array.isArray(definition.pages) && definition.pages.length && !definition.pages.includes(page)) {
+      return;
+    }
+    const matches = getAnimationMatches(root, definition.selector);
+    matches.forEach((match) => registerAnimationTarget(match, definition));
+  });
+}
+
+function setupMotionSystem() {
+  if (animationState.initialized) {
+    if (!animationState.reduced) {
+      applyAnimationDefinitions(document);
+    }
+    return;
+  }
+  animationState.initialized = true;
+  animationState.reduced = prefersReducedMotion();
+  if (animationState.reduced) {
+    document.body?.classList.add("motion-reduced");
+    return;
+  }
+
+  animationState.groups = new Map();
+  if (document.body) {
+    animationState.domObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            applyAnimationDefinitions(node);
+          }
+        });
+      });
+    });
+    animationState.domObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
+  applyAnimationDefinitions(document);
+}
+
 let aiGuestMode = false;
 
 const STATUS_LABELS = {
@@ -5825,6 +6319,7 @@ function initApp() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  setupMotionSystem();
   initializeAiGuestMode();
   populateCurrentYears();
   setupGlobalControls();
