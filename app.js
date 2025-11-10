@@ -191,6 +191,16 @@ function formatCount(value, singular, plural = `${singular}s`) {
   return `${value} ${noun}`;
 }
 
+function formatCompactNumber(value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0";
+  }
+  if (value < 1000) {
+    return String(Math.floor(value));
+  }
+  return COMPACT_NUMBER_FORMATTER.format(value);
+}
+
 const USER_BADGE_DEFINITIONS = Object.freeze({
   WantYou: { label: "WantYou", variant: "wantyou", icon: "★" },
   Verified: { label: "Verified", variant: "verified", icon: "✔" },
@@ -223,6 +233,12 @@ const POST_MOOD_BADGE = Object.freeze({
   question: "badge--info",
   memory: "badge--muted",
   announcement: "badge--warning",
+});
+
+const POST_COMMENT_MAX_LENGTH = 350;
+const COMPACT_NUMBER_FORMATTER = new Intl.NumberFormat(undefined, {
+  notation: "compact",
+  maximumFractionDigits: 1,
 });
 
 const EVENT_ACCENTS = Object.freeze(["sunrise", "ocean", "violet", "forest"]);
@@ -615,6 +631,7 @@ function createMediaFragment(attachments = []) {
       const img = document.createElement("img");
       img.src = attachment.url;
       img.alt = attachment.originalName || "";
+      img.loading = "lazy";
       fragment.appendChild(img);
     }
   });
@@ -2620,6 +2637,20 @@ async function initProfile() {
   const postEditDialog = document.querySelector("[data-post-edit-dialog]");
   const eventLimitNote = document.querySelector("[data-event-limit]");
   const postLimitNote = document.querySelector("[data-post-limit]");
+  const postViewer = document.querySelector("[data-post-viewer]");
+  const postViewerText = postViewer?.querySelector("[data-post-viewer-text]");
+  const postViewerTimestamp = postViewer?.querySelector("[data-post-viewer-timestamp]");
+  const postViewerBadges = postViewer?.querySelector("[data-post-viewer-badges]");
+  const postViewerMedia = postViewer?.querySelector("[data-post-viewer-media]");
+  const postViewerVisibility = postViewer?.querySelector("[data-post-viewer-visibility]");
+  const postViewerMood = postViewer?.querySelector("[data-post-viewer-mood]");
+  const postViewerMoodLabel = postViewer?.querySelector("[data-post-viewer-mood-label]");
+  const postViewerActions = postViewer?.querySelector("[data-post-viewer-actions]");
+  const postViewerComments = postViewer?.querySelector("[data-post-viewer-comments]");
+  const postViewerCommentCount = postViewer?.querySelector("[data-post-viewer-comment-count]");
+  const postViewerCommentsEmpty = postViewer?.querySelector("[data-post-viewer-comments-empty]");
+  const postViewerCommentForm = postViewer?.querySelector("[data-post-viewer-comment-form]");
+  const postViewerCommentInput = postViewer?.querySelector("[data-post-viewer-comment-input]");
   function createPresenceController(element) {
     if (!element) return null;
     const parent = element.parentNode;
@@ -2702,6 +2733,396 @@ async function initProfile() {
   let profileData = null;
   let activeEventIndex = 0;
   let eventAutoAdvanceTimer = null;
+  let activePostId = null;
+  const postMap = new Map();
+
+  const viewerCanInteractWithPosts = () => !profileData?.canEdit;
+
+  const getPostById = (postId) => {
+    if (!postId) {
+      return null;
+    }
+    if (postMap.has(postId)) {
+      return postMap.get(postId);
+    }
+    const posts = Array.isArray(profileData?.posts) ? profileData.posts : [];
+    return posts.find((entry) => entry.id === postId) ?? null;
+  };
+
+  const getPostInteractionState = (post) => {
+    const interactions = post?.interactions ?? {};
+    const likes = interactions.likes ?? {};
+    const reposts = interactions.reposts ?? {};
+    const shares = interactions.shares ?? {};
+    const comments = interactions.comments ?? {};
+    const entries = Array.isArray(comments.entries) ? comments.entries : [];
+    const likeCount = Number.isFinite(likes.count) ? likes.count : 0;
+    const repostCount = Number.isFinite(reposts.count) ? reposts.count : 0;
+    const shareCount = Number.isFinite(shares.count) ? shares.count : 0;
+    const commentCount = Number.isFinite(comments.total) ? comments.total : entries.length;
+    return {
+      likeCount,
+      viewerLiked: Boolean(likes.viewer),
+      repostCount,
+      viewerReposted: Boolean(reposts.viewer),
+      shareCount,
+      viewerShared: Boolean(shares.viewer),
+      commentCount,
+      comments: entries,
+    };
+  };
+
+  const renderPostInteractions = (container, post, { variant = "list" } = {}) => {
+    if (!container) return;
+    container.innerHTML = "";
+    if (!post?.id) return;
+
+    const state = getPostInteractionState(post);
+    const canInteract = viewerCanInteractWithPosts();
+    const baseClass = variant === "viewer" ? "post-viewer__control" : "profile-post__control";
+
+    const createButton = ({ action, label, count, pressed, disabled, onClick, ariaLabel }) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `${baseClass} ${baseClass}--${action}`;
+      button.dataset.postAction = action;
+      button.dataset.postId = post.id;
+      if (typeof pressed === "boolean") {
+        button.setAttribute("aria-pressed", pressed ? "true" : "false");
+        if (pressed) {
+          button.classList.add("is-active");
+        }
+      }
+      button.disabled = Boolean(disabled);
+      const countValue = Number.isFinite(count) ? count : 0;
+      const accessibleLabel = ariaLabel || `${label} (${formatCompactNumber(countValue)})`;
+      button.setAttribute("aria-label", accessibleLabel);
+      const labelSpan = document.createElement("span");
+      labelSpan.textContent = label;
+      button.appendChild(labelSpan);
+      const countSpan = document.createElement("span");
+      countSpan.className = "profile-post__control-count";
+      countSpan.textContent = formatCompactNumber(countValue);
+      button.appendChild(countSpan);
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (typeof onClick === "function") {
+          onClick(event, button);
+        }
+      });
+      container.appendChild(button);
+      return button;
+    };
+
+    createButton({
+      action: "like",
+      label: "Like",
+      count: state.likeCount,
+      pressed: state.viewerLiked,
+      disabled: !canInteract,
+      onClick: async (_event, button) => {
+        if (!canInteract) {
+          openPostViewer(post.id);
+          return;
+        }
+        button.disabled = true;
+        try {
+          await performPostInteraction(post.id, "like", {
+            method: state.viewerLiked ? "DELETE" : "POST",
+          });
+        } catch (error) {
+          window.alert(error?.message || "We couldn't update your like right now.");
+        } finally {
+          button.disabled = false;
+        }
+      },
+    });
+
+    createButton({
+      action: "comment",
+      label: "Comment",
+      count: state.commentCount,
+      ariaLabel: `View comments (${formatCompactNumber(state.commentCount)})`,
+      onClick: () => {
+        openPostViewer(post.id, { focusComment: canInteract });
+      },
+    });
+
+    createButton({
+      action: "repost",
+      label: "Repost",
+      count: state.repostCount,
+      pressed: state.viewerReposted,
+      disabled: !canInteract,
+      onClick: async (_event, button) => {
+        if (!canInteract) {
+          openPostViewer(post.id);
+          return;
+        }
+        button.disabled = true;
+        try {
+          await performPostInteraction(post.id, "repost", {
+            method: state.viewerReposted ? "DELETE" : "POST",
+          });
+        } catch (error) {
+          window.alert(error?.message || "We couldn't update your repost right now.");
+        } finally {
+          button.disabled = false;
+        }
+      },
+    });
+
+    createButton({
+      action: "share",
+      label: "Share",
+      count: state.shareCount,
+      pressed: state.viewerShared,
+      disabled: !canInteract || state.viewerShared,
+      onClick: async (_event, button) => {
+        if (!canInteract) {
+          openPostViewer(post.id);
+          return;
+        }
+        if (state.viewerShared) {
+          openPostViewer(post.id);
+          return;
+        }
+        button.disabled = true;
+        try {
+          await performPostInteraction(post.id, "share");
+        } catch (error) {
+          window.alert(error?.message || "We couldn't share that post right now.");
+        } finally {
+          button.disabled = false;
+        }
+      },
+    });
+  };
+
+  const renderPostViewerFor = (post, { preserveDraft = true } = {}) => {
+    if (!postViewer) return;
+    if (!post?.id) {
+      closePostViewer();
+      return;
+    }
+    const state = getPostInteractionState(post);
+    const canInteract = viewerCanInteractWithPosts();
+    const draftValue = preserveDraft ? postViewerCommentInput?.value ?? "" : "";
+
+    if (postViewerText) {
+      postViewerText.textContent = post.text?.trim() || "Shared an update";
+    }
+
+    if (postViewerTimestamp) {
+      const updated = post.updatedAt && post.updatedAt !== post.createdAt;
+      const reference = updated ? post.updatedAt : post.createdAt;
+      const relative = formatRelativeTime(reference);
+      const fallback = formatTimestamp(reference);
+      postViewerTimestamp.textContent = updated
+        ? `Updated ${relative || fallback || "just now"}`
+        : relative || fallback || "Just now";
+    }
+
+    if (postViewerBadges) {
+      postViewerBadges.innerHTML = "";
+      postViewerBadges.hidden = true;
+    }
+
+    if (postViewerMedia) {
+      postViewerMedia.innerHTML = "";
+      if (post.attachments?.length) {
+        postViewerMedia.hidden = false;
+        postViewerMedia.appendChild(createMediaFragment(post.attachments));
+      } else {
+        postViewerMedia.hidden = true;
+      }
+    }
+
+    if (postViewerVisibility) {
+      const visibility = post.visibility || "public";
+      const visibilityClass = POST_VISIBILITY_BADGE[visibility] || "badge--muted";
+      postViewerVisibility.className = `badge ${visibilityClass}`;
+      postViewerVisibility.textContent =
+        POST_VISIBILITY_LABELS[visibility] || POST_VISIBILITY_LABELS.public;
+    }
+
+    if (postViewerMood && postViewerMoodLabel) {
+      const moodLabel = POST_MOOD_LABELS[post.mood] || "";
+      if (moodLabel) {
+        const moodClass = POST_MOOD_BADGE[post.mood] || "badge--accent";
+        postViewerMood.className = `badge ${moodClass}`;
+        postViewerMood.hidden = false;
+        postViewerMoodLabel.textContent = moodLabel;
+      } else {
+        postViewerMood.hidden = true;
+        postViewerMoodLabel.textContent = "";
+      }
+    }
+
+    renderPostInteractions(postViewerActions, post, { variant: "viewer" });
+
+    if (postViewerCommentCount) {
+      postViewerCommentCount.textContent = formatCount(state.commentCount, "comment");
+    }
+
+    if (postViewerCommentsEmpty) {
+      postViewerCommentsEmpty.hidden = state.commentCount > 0;
+    }
+
+    if (postViewerComments) {
+      postViewerComments.innerHTML = "";
+      state.comments.forEach((entry) => {
+        const item = document.createElement("li");
+        item.className = "post-viewer__comment";
+        const header = document.createElement("div");
+        header.className = "post-viewer__comment-header";
+        const author = document.createElement("span");
+        author.className = "post-viewer__comment-author";
+        author.textContent = entry.author?.name || entry.author?.username || "Community member";
+        header.appendChild(author);
+        const details = [];
+        if (entry.author?.username) {
+          details.push(`@${entry.author.username}`);
+        }
+        const relative = formatRelativeTime(entry.createdAt);
+        const fallback = formatTimestamp(entry.createdAt);
+        if (relative || fallback) {
+          details.push(relative || fallback);
+        }
+        if (details.length) {
+          const meta = document.createElement("span");
+          meta.textContent = details.join(" · ");
+          header.appendChild(meta);
+        }
+        item.appendChild(header);
+        const body = document.createElement("p");
+        body.className = "post-viewer__comment-body";
+        body.textContent = entry.text ?? "";
+        item.appendChild(body);
+        postViewerComments.appendChild(item);
+      });
+    }
+
+    if (postViewerCommentForm) {
+      postViewerCommentForm.hidden = !canInteract;
+      const submitButton = postViewerCommentForm.querySelector('button[type="submit"]');
+      if (submitButton) {
+        submitButton.disabled = !canInteract;
+      }
+    }
+
+    if (postViewerCommentInput) {
+      postViewerCommentInput.disabled = !canInteract;
+      if (canInteract) {
+        const trimmedDraft = draftValue.slice(0, POST_COMMENT_MAX_LENGTH);
+        postViewerCommentInput.value = trimmedDraft;
+      } else {
+        postViewerCommentInput.value = "";
+      }
+    }
+  };
+
+  const closePostViewer = () => {
+    if (!postViewer) return;
+    if (postViewerCommentForm) {
+      postViewerCommentForm.reset();
+    }
+    if (postViewerCommentInput) {
+      postViewerCommentInput.disabled = false;
+    }
+    postViewer.hidden = true;
+    activePostId = null;
+  };
+
+  const openPostViewer = (postId, { focusComment = false } = {}) => {
+    if (!postViewer) return;
+    const post = getPostById(postId);
+    if (!post) {
+      return;
+    }
+    activePostId = post.id;
+    renderPostViewerFor(post, { preserveDraft: !focusComment });
+    postViewer.hidden = false;
+    if (focusComment && viewerCanInteractWithPosts() && postViewerCommentInput) {
+      window.setTimeout(() => {
+        postViewerCommentInput.focus();
+      }, 0);
+    }
+  };
+
+  const refreshActivePostViewer = (options = {}) => {
+    if (!activePostId) return;
+    const activePost = getPostById(activePostId);
+    if (!activePost) {
+      closePostViewer();
+      return;
+    }
+    renderPostViewerFor(activePost, options);
+  };
+
+  const performPostInteraction = async (postId, action, { method = "POST", body = null } = {}) => {
+    if (!postId || !profileData?.user?.username) {
+      throw new Error("Post unavailable");
+    }
+    const owner = profileData.user.username;
+    const endpoint = `/profile/${encodeURIComponent(owner)}/posts/${encodeURIComponent(postId)}/${action}`;
+    const options = { method };
+    if (body !== null && body !== undefined) {
+      options.body = typeof body === "string" ? body : JSON.stringify(body);
+    }
+    const response = await apiRequest(endpoint, options);
+    if (response?.post) {
+      integratePost(response.post);
+      return response.post;
+    }
+    return null;
+  };
+
+  postViewerCommentForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!viewerCanInteractWithPosts()) {
+      window.alert("You can't comment on your own post.");
+      return;
+    }
+    if (!activePostId) {
+      window.alert("Open a post to comment.");
+      return;
+    }
+    if (!postViewerCommentInput) {
+      return;
+    }
+    const value = postViewerCommentInput.value.trim();
+    if (!value) {
+      window.alert("Add a comment before posting.");
+      postViewerCommentInput.focus();
+      return;
+    }
+    if (value.length > POST_COMMENT_MAX_LENGTH) {
+      window.alert(`Comments must be ${POST_COMMENT_MAX_LENGTH} characters or fewer.`);
+      postViewerCommentInput.focus();
+      return;
+    }
+    const submitButton = postViewerCommentForm.querySelector('button[type="submit"]');
+    if (submitButton) {
+      submitButton.disabled = true;
+    }
+    postViewerCommentInput.disabled = true;
+    try {
+      await performPostInteraction(activePostId, "comments", {
+        method: "POST",
+        body: { text: value },
+      });
+      postViewerCommentForm.reset();
+    } catch (error) {
+      window.alert(error?.message || "We couldn't add your comment right now.");
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+      }
+      postViewerCommentInput.disabled = false;
+      postViewerCommentInput.focus();
+    }
+  });
 
   const toggleOwnVisibility = (canEdit) => {
     const canVerify = Boolean(profileData?.canVerify);
@@ -3161,18 +3582,28 @@ async function initProfile() {
     if (!postList || !postEmpty) return;
     const posts = profileData?.posts ?? [];
     postList.innerHTML = "";
-    const hasPosts = Boolean(posts.length);
+    postMap.clear();
+    const hasPosts = posts.length > 0;
     postEmpty.hidden = hasPosts;
     if (!hasPosts) {
+      closePostViewer();
       return;
     }
+    const viewerName = profileData?.user?.fullName || profileData?.user?.username || "this user";
     posts.forEach((post) => {
+      if (!post?.id) return;
+      postMap.set(post.id, post);
       const item = document.createElement("li");
       item.className = "profile-post";
+      item.dataset.postId = post.id;
+      item.tabIndex = 0;
+      const summary = post.text?.trim() || "Shared an update";
+      item.setAttribute("aria-label", `Open post from ${viewerName}: ${summary.slice(0, 80)}`);
+
       const header = document.createElement("div");
       header.className = "profile-post__header";
       const title = document.createElement("p");
-      title.textContent = post.text || "Shared an update";
+      title.textContent = summary;
       header.appendChild(title);
       const time = document.createElement("p");
       time.className = "profile-post__timestamp";
@@ -3191,7 +3622,8 @@ async function initProfile() {
       const visibilityBadge = document.createElement("span");
       const visibilityClass = POST_VISIBILITY_BADGE[visibility] || "badge--muted";
       visibilityBadge.className = `badge ${visibilityClass} profile-post__visibility`;
-      visibilityBadge.textContent = POST_VISIBILITY_LABELS[visibility] || POST_VISIBILITY_LABELS.public;
+      visibilityBadge.textContent =
+        POST_VISIBILITY_LABELS[visibility] || POST_VISIBILITY_LABELS.public;
       badges.appendChild(visibilityBadge);
       const moodLabel = POST_MOOD_LABELS[post.mood] || "";
       if (moodLabel) {
@@ -3213,6 +3645,11 @@ async function initProfile() {
         item.appendChild(media);
       }
 
+      const controls = document.createElement("div");
+      controls.className = "profile-post__controls";
+      renderPostInteractions(controls, post, { variant: "list" });
+      item.appendChild(controls);
+
       if (profileData?.canEdit) {
         const actions = document.createElement("div");
         actions.className = "profile-post__actions";
@@ -3220,7 +3657,8 @@ async function initProfile() {
         editButton.className = "button button--ghost";
         editButton.type = "button";
         editButton.textContent = "Edit";
-        editButton.addEventListener("click", () => {
+        editButton.addEventListener("click", (event) => {
+          event.stopPropagation();
           openPostEditor(post);
         });
         actions.appendChild(editButton);
@@ -3228,7 +3666,8 @@ async function initProfile() {
         deleteButton.className = "button button--ghost";
         deleteButton.type = "button";
         deleteButton.textContent = "Delete";
-        deleteButton.addEventListener("click", async () => {
+        deleteButton.addEventListener("click", async (event) => {
+          event.stopPropagation();
           if (!window.confirm("Delete this post?")) return;
           try {
             await apiRequest(`/posts/${encodeURIComponent(post.id)}`, { method: "DELETE" });
@@ -3242,8 +3681,24 @@ async function initProfile() {
         item.appendChild(actions);
       }
 
+      item.addEventListener("click", (event) => {
+        if (event.target.closest(".profile-post__control") || event.target.closest(".profile-post__actions")) {
+          return;
+        }
+        openPostViewer(post.id);
+      });
+
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openPostViewer(post.id);
+        }
+      });
+
       postList.appendChild(item);
     });
+
+    refreshActivePostViewer({ preserveDraft: true });
   };
 
   function openPostEditor(post) {
@@ -4088,10 +4543,24 @@ async function initProfile() {
     showEventAt(activeEventIndex + 1);
   });
 
+  postViewer?.addEventListener("click", (event) => {
+    const action = event.target?.dataset?.action;
+    if (action === "close-post-viewer") {
+      closePostViewer();
+    }
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (postViewer && !postViewer.hidden) {
+        closePostViewer();
+        return;
+      }
       closeEventsModal();
-    } else if (eventModal?.classList.contains("events-modal--open")) {
+    } else if (
+      eventModal?.classList.contains("events-modal--open") &&
+      (postViewer?.hidden ?? true)
+    ) {
       if (event.key === "ArrowRight") {
         showEventAt(activeEventIndex + 1);
       } else if (event.key === "ArrowLeft") {

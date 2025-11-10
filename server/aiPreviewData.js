@@ -288,6 +288,24 @@ const PROFILES = new Map([
           visibility: "public",
           updatedAt: minutesAgo(referenceDate, 60),
           mood: "announcement",
+          interactions: {
+            likes: ["skylar00401", "lookupai"],
+            reposts: ["lookupai"],
+            shares: [
+              { username: "skylar00401", createdAt: minutesAgo(referenceDate, 55) },
+              { username: "lookupai", createdAt: minutesAgo(referenceDate, 54) },
+            ],
+            comments: [
+              {
+                id: "comment-preview-1",
+                username: "skylar00401",
+                fullName: "Skylar Rivers",
+                text: "Love this tour—thanks for opening WantYou to guests!",
+                createdAt: minutesAgo(referenceDate, 58),
+                badges: ["Verified"],
+              },
+            ],
+          },
         },
         {
           id: "post-preview-2",
@@ -297,6 +315,12 @@ const PROFILES = new Map([
           visibility: "public",
           updatedAt: minutesAgo(referenceDate, 120),
           mood: "celebration",
+          interactions: {
+            likes: ["lookupai"],
+            reposts: [],
+            shares: [{ username: "lookupai", createdAt: minutesAgo(referenceDate, 118) }],
+            comments: [],
+          },
         },
       ],
       canEdit: false,
@@ -351,6 +375,21 @@ const PROFILES = new Map([
           visibility: "public",
           updatedAt: minutesAgo(referenceDate, 180),
           mood: "celebration",
+          interactions: {
+            likes: ["ai-preview"],
+            reposts: [],
+            shares: [],
+            comments: [
+              {
+                id: "comment-skylar-1",
+                username: "ai-preview",
+                fullName: "WantYou AI Tour",
+                text: "Congrats on the jam!",
+                createdAt: minutesAgo(referenceDate, 178),
+                badges: [],
+              },
+            ],
+          },
         },
       ],
       canEdit: false,

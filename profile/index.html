@@ -510,6 +510,71 @@
       </form>
     </dialog>
 
+    <div class="post-viewer" data-post-viewer hidden>
+      <div class="post-viewer__backdrop" data-action="close-post-viewer"></div>
+      <div
+        class="post-viewer__content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="post-viewer-title"
+      >
+        <header class="post-viewer__header">
+          <div>
+            <h2 id="post-viewer-title">Post details</h2>
+            <p class="post-viewer__timestamp" data-post-viewer-timestamp></p>
+          </div>
+          <button class="button button--ghost" type="button" data-action="close-post-viewer">
+            Close
+          </button>
+        </header>
+        <div class="post-viewer__body">
+          <p class="post-viewer__text" data-post-viewer-text></p>
+          <div class="post-viewer__badges" data-post-viewer-badges></div>
+          <div class="post-viewer__media" data-post-viewer-media hidden></div>
+          <div class="post-viewer__meta">
+            <span class="badge badge--muted" data-post-viewer-visibility></span>
+            <span class="badge badge--accent" data-post-viewer-mood hidden>
+              <span class="badge__dot" aria-hidden="true"></span>
+              <span data-post-viewer-mood-label></span>
+            </span>
+          </div>
+          <div class="post-viewer__interactions" data-post-viewer-actions></div>
+          <section
+            class="post-viewer__comments"
+            aria-labelledby="post-viewer-comments-heading"
+          >
+            <div class="post-viewer__comments-header">
+              <h3 id="post-viewer-comments-heading">Comments</h3>
+              <span data-post-viewer-comment-count></span>
+            </div>
+            <p class="post-viewer__comments-empty" data-post-viewer-comments-empty>
+              No comments yet.
+            </p>
+            <ul class="post-viewer__comments-list" data-post-viewer-comments></ul>
+            <form
+              class="post-viewer__comment-form"
+              data-post-viewer-comment-form
+              method="dialog"
+            >
+              <label class="post-viewer__comment-field">
+                <span class="sr-only">Add a comment</span>
+                <textarea
+                  name="text"
+                  rows="3"
+                  maxlength="350"
+                  placeholder="Share your thoughts…"
+                  data-post-viewer-comment-input
+                ></textarea>
+              </label>
+              <div class="post-viewer__comment-actions">
+                <button class="button" type="submit">Post comment</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </div>
+    </div>
+
     <footer class="app-footer">
       <div class="container app-footer__inner">
         <p>© <span data-current-year></span> WantYou</p>
