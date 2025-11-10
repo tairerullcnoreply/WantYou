@@ -2939,8 +2939,8 @@ body[data-page="press"] {
 .data-canvas {
   position: absolute;
   inset: 0;
-  width: 3200px;
-  height: 2200px;
+  width: 4800px;
+  height: 3200px;
   background-image: linear-gradient(0deg, rgba(31, 31, 31, 0.05) 1px, transparent 1px),
     linear-gradient(90deg, rgba(31, 31, 31, 0.05) 1px, transparent 1px);
   background-size: 80px 80px;
@@ -2971,8 +2971,8 @@ body[data-page="press"] {
 .data-edges {
   position: absolute;
   inset: 0;
-  width: 3200px;
-  height: 2200px;
+  width: 4800px;
+  height: 3200px;
   pointer-events: none;
 }
 
@@ -3002,6 +3002,41 @@ body[data-page="press"] {
   overflow: hidden;
   animation: dataNodeGlow var(--node-animate-duration, 12s) ease-in-out infinite;
   animation-delay: var(--node-animate-delay, 0s);
+}
+
+.data-zoom {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  background: rgba(17, 17, 17, 0.6);
+  color: #fff;
+  box-shadow: 0 18px 32px rgba(31, 31, 31, 0.28);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  pointer-events: auto;
+  z-index: 4;
+}
+
+.data-zoom[hidden] {
+  display: none;
+}
+
+.data-zoom__button {
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.data-zoom__value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .data-node::before {

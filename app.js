@@ -4757,6 +4757,11 @@ async function initData() {
   const workspaceViewportElement = document.querySelector("[data-workspace-viewport]");
   const canvasElement = document.querySelector("[data-data-canvas]");
   const edgesElement = canvasElement?.querySelector("[data-data-edges]");
+  const zoomControlsElement = workspaceViewportElement?.querySelector("[data-zoom-controls]");
+  const zoomInButton = zoomControlsElement?.querySelector("[data-zoom-in]");
+  const zoomOutButton = zoomControlsElement?.querySelector("[data-zoom-out]");
+  const zoomResetButton = zoomControlsElement?.querySelector("[data-zoom-reset]");
+  const zoomValueElement = zoomControlsElement?.querySelector("[data-zoom-value]");
   const refreshButton = document.querySelector('[data-action="refresh-data"]');
 
   if (
@@ -4773,9 +4778,18 @@ async function initData() {
     return;
   }
 
-  const CANVAS_WIDTH = 3200;
-  const CANVAS_HEIGHT = 2200;
+  const CANVAS_WIDTH = 4800;
+  const CANVAS_HEIGHT = 3200;
   const PAN_SLOP = 320;
+  const MIN_ZOOM = 0.05;
+  const MAX_ZOOM = 20;
+  const ZOOM_BUTTON_FACTOR = 1.3;
+  const ZOOM_WHEEL_SENSITIVITY = 0.0015;
+  const TREE_HORIZONTAL_GAP = 140;
+  const TREE_VERTICAL_SPACING = 240;
+  const TREE_VERTICAL_MARGIN = 80;
+  const TREE_HORIZONTAL_STEP = 360;
+  const OCCUPANCY_MARGIN = 36;
   const LAYOUT_STORAGE_KEY = "wantyou:data:layout:v1";
   const DEFAULT_NODE_POSITIONS = {
     account: { x: 1400, y: 900 },
@@ -4911,6 +4925,9 @@ async function initData() {
   let currentNodes = new Map();
   let currentEdges = [];
   let currentPan = { x: 0, y: 0 };
+  let currentScale = 1;
+  let occupancyMap = new Map();
+  let zoomPersistHandle = null;
   let cleanupWorkspace = null;
   let resizeListenerAttached = false;
   const edgeAnimationSeeds = new Map();
@@ -4920,7 +4937,7 @@ async function initData() {
   const getUserLayout = (username) => {
     const normalized = String(username || "");
     if (!layouts[normalized]) {
-      layouts[normalized] = { nodes: {}, pan: null };
+      layouts[normalized] = { nodes: {}, pan: null, zoom: 1 };
     }
     const entry = layouts[normalized];
     if (typeof entry.nodes !== "object" || entry.nodes === null) {
@@ -4928,6 +4945,9 @@ async function initData() {
     }
     if (!entry.pan || typeof entry.pan.x !== "number" || typeof entry.pan.y !== "number") {
       entry.pan = null;
+    }
+    if (typeof entry.zoom !== "number" || !Number.isFinite(entry.zoom)) {
+      entry.zoom = 1;
     }
     return entry;
   };
@@ -4950,6 +4970,12 @@ async function initData() {
     saveLayouts(layouts);
   };
 
+  const persistZoom = (username, zoom) => {
+    const layout = getUserLayout(username);
+    layout.zoom = zoom;
+    saveLayouts(layouts);
+  };
+
   const ensureWithinBounds = (node, position) => {
     const width = node.offsetWidth || 0;
     const height = node.offsetHeight || 0;
@@ -4966,6 +4992,65 @@ async function initData() {
     node.dataset.y = String(safe.y);
     node.style.transform = `translate3d(${safe.x}px, ${safe.y}px, 0)`;
     return safe;
+  };
+
+  const getNodeMetrics = (node) => {
+    if (!node) {
+      return { x: 0, y: 0, width: 0, height: 0 };
+    }
+    return {
+      x: Number.parseFloat(node.dataset?.x || "0"),
+      y: Number.parseFloat(node.dataset?.y || "0"),
+      width: node.offsetWidth || 0,
+      height: node.offsetHeight || 0,
+    };
+  };
+
+  const getRectForPosition = (node, position) => {
+    const metrics = getNodeMetrics(node);
+    const x = position?.x ?? metrics.x;
+    const y = position?.y ?? metrics.y;
+    return {
+      x: x - OCCUPANCY_MARGIN,
+      y: y - OCCUPANCY_MARGIN,
+      width: metrics.width + OCCUPANCY_MARGIN * 2,
+      height: metrics.height + OCCUPANCY_MARGIN * 2,
+    };
+  };
+
+  const rectanglesOverlap = (a, b) =>
+    !(
+      a.x + a.width <= b.x ||
+      b.x + b.width <= a.x ||
+      a.y + a.height <= b.y ||
+      b.y + b.height <= a.y
+    );
+
+  const collidesWithOccupancy = (rect, ignoreId = null) => {
+    for (const [key, entry] of occupancyMap.entries()) {
+      if (ignoreId && key === ignoreId) {
+        continue;
+      }
+      if (rectanglesOverlap(rect, entry)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const registerOccupancy = (node, position) => {
+    if (!node || !node.dataset?.nodeId) {
+      return;
+    }
+    occupancyMap.set(node.dataset.nodeId, getRectForPosition(node, position));
+  };
+
+  const clearOccupancy = () => {
+    occupancyMap = new Map();
+  };
+
+  const updateCanvasTransform = () => {
+    canvasElement.style.transform = `translate3d(${currentPan.x}px, ${currentPan.y}px, 0) scale(${currentScale})`;
   };
 
   const randomBetween = (min, max) => Math.random() * (max - min) + min;
@@ -5083,15 +5168,175 @@ async function initData() {
   const applyPan = (pan) => {
     const viewportWidth = workspaceViewportElement.clientWidth || 0;
     const viewportHeight = workspaceViewportElement.clientHeight || 0;
-    const minX = viewportWidth - CANVAS_WIDTH - PAN_SLOP;
+    const scaledWidth = CANVAS_WIDTH * currentScale;
+    const scaledHeight = CANVAS_HEIGHT * currentScale;
+    const minX = viewportWidth - scaledWidth - PAN_SLOP;
     const maxX = PAN_SLOP;
-    const minY = viewportHeight - CANVAS_HEIGHT - PAN_SLOP;
+    const minY = viewportHeight - scaledHeight - PAN_SLOP;
     const maxY = PAN_SLOP;
     const clampedX = Math.min(Math.max(pan.x, minX), maxX);
     const clampedY = Math.min(Math.max(pan.y, minY), maxY);
     currentPan = { x: clampedX, y: clampedY };
-    canvasElement.style.transform = `translate3d(${clampedX}px, ${clampedY}px, 0)`;
+    updateCanvasTransform();
   };
+
+  const clampScale = (value) => {
+    if (!Number.isFinite(value)) {
+      return currentScale;
+    }
+    return Math.min(Math.max(value, MIN_ZOOM), MAX_ZOOM);
+  };
+
+  const updateZoomDisplay = () => {
+    if (!zoomValueElement) {
+      return;
+    }
+    const percent = Math.round(currentScale * 100);
+    zoomValueElement.textContent = `${percent}%`;
+  };
+
+  const scheduleZoomPersist = (username) => {
+    if (!username) {
+      return;
+    }
+    if (zoomPersistHandle) {
+      window.clearTimeout(zoomPersistHandle);
+    }
+    zoomPersistHandle = window.setTimeout(() => {
+      persistZoom(username, currentScale);
+      zoomPersistHandle = null;
+    }, 300);
+  };
+
+  const setScale = (nextScale, { focus, username, persist = true } = {}) => {
+    const normalized = clampScale(nextScale);
+    const viewportWidth = workspaceViewportElement.clientWidth || 0;
+    const viewportHeight = workspaceViewportElement.clientHeight || 0;
+    const focusPoint = focus || { x: viewportWidth / 2, y: viewportHeight / 2 };
+    const worldX = (focusPoint.x - currentPan.x) / currentScale;
+    const worldY = (focusPoint.y - currentPan.y) / currentScale;
+    currentScale = normalized;
+    const nextPan = {
+      x: focusPoint.x - worldX * currentScale,
+      y: focusPoint.y - worldY * currentScale,
+    };
+    applyPan(nextPan);
+    updateZoomDisplay();
+    if (persist) {
+      scheduleZoomPersist(username);
+    }
+  };
+
+  const zoomByFactor = (factor, options = {}) => {
+    setScale(currentScale * factor, options);
+  };
+
+  const getViewportCenter = () => ({
+    x: (workspaceViewportElement.clientWidth || 0) / 2,
+    y: (workspaceViewportElement.clientHeight || 0) / 2,
+  });
+
+  const pinchState = {
+    pointers: new Map(),
+    initialDistance: 0,
+    initialScale: 1,
+  };
+
+  const resetPinchState = () => {
+    pinchState.initialDistance = 0;
+    pinchState.initialScale = currentScale;
+  };
+
+  const handleZoomButton = (factor) => {
+    const focus = getViewportCenter();
+    zoomByFactor(factor, { focus, username: activeUsername });
+  };
+
+  zoomInButton?.addEventListener("click", () => {
+    handleZoomButton(ZOOM_BUTTON_FACTOR);
+  });
+
+  zoomOutButton?.addEventListener("click", () => {
+    handleZoomButton(1 / ZOOM_BUTTON_FACTOR);
+  });
+
+  zoomResetButton?.addEventListener("click", () => {
+    setScale(1, { focus: getViewportCenter(), username: activeUsername });
+  });
+
+  if (workspaceViewportElement) {
+    workspaceViewportElement.addEventListener(
+      "wheel",
+      (event) => {
+        if (!event.ctrlKey && !event.metaKey) {
+          return;
+        }
+        event.preventDefault();
+        const rect = workspaceViewportElement.getBoundingClientRect();
+        const focus = {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        };
+        const factor = Math.exp(-event.deltaY * ZOOM_WHEEL_SENSITIVITY);
+        setScale(currentScale * factor, { focus, username: activeUsername });
+      },
+      { passive: false },
+    );
+
+    workspaceViewportElement.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (event.pointerType !== "touch") {
+          return;
+        }
+        pinchState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (pinchState.pointers.size === 2) {
+          const [first, second] = Array.from(pinchState.pointers.values());
+          pinchState.initialDistance = Math.hypot(first.x - second.x, first.y - second.y) || 1;
+          pinchState.initialScale = currentScale;
+        }
+      },
+      { passive: true },
+    );
+
+    workspaceViewportElement.addEventListener(
+      "pointermove",
+      (event) => {
+        if (event.pointerType !== "touch" || !pinchState.pointers.has(event.pointerId)) {
+          return;
+        }
+        pinchState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (pinchState.pointers.size >= 2 && pinchState.initialDistance) {
+          const [first, second] = Array.from(pinchState.pointers.values());
+          const distance = Math.hypot(first.x - second.x, first.y - second.y) || 1;
+          const rect = workspaceViewportElement.getBoundingClientRect();
+          const focus = {
+            x: (first.x + second.x) / 2 - rect.left,
+            y: (first.y + second.y) / 2 - rect.top,
+          };
+          const factor = distance / pinchState.initialDistance;
+          setScale(pinchState.initialScale * factor, { focus, username: activeUsername, persist: false });
+          event.preventDefault();
+        }
+      },
+      { passive: false },
+    );
+
+    const handleTouchEnd = (event) => {
+      if (event.pointerType !== "touch") {
+        return;
+      }
+      pinchState.pointers.delete(event.pointerId);
+      if (pinchState.pointers.size < 2 && pinchState.initialDistance) {
+        scheduleZoomPersist(activeUsername);
+        resetPinchState();
+      }
+    };
+
+    workspaceViewportElement.addEventListener("pointerup", handleTouchEnd);
+    workspaceViewportElement.addEventListener("pointercancel", handleTouchEnd);
+    workspaceViewportElement.addEventListener("pointerleave", handleTouchEnd);
+  }
 
   const updateEdges = () => {
     edgesElement.innerHTML = "";
@@ -5186,6 +5431,15 @@ async function initData() {
       if (event.target.closest("[data-node]") || event.target.closest(".data-node")) {
         return;
       }
+      if (event.target.closest(".data-zoom")) {
+        return;
+      }
+      if (pointerId !== null) {
+        return;
+      }
+      if (event.pointerType === "touch" && (pinchState.pointers.size >= 2 || pinchState.initialDistance)) {
+        return;
+      }
       pointerId = event.pointerId;
       start = { x: event.clientX, y: event.clientY };
       origin = { ...currentPan };
@@ -5196,6 +5450,9 @@ async function initData() {
 
     const onPointerMove = (event) => {
       if (pointerId !== event.pointerId) {
+        return;
+      }
+      if (event.pointerType === "touch" && pinchState.initialDistance) {
         return;
       }
       const dx = event.clientX - start.x;
@@ -5626,6 +5883,7 @@ async function initData() {
 
     const blockNodes = new Map();
     const blockPrefix = `block:${id}`;
+    let pendingBlockLayouts = [];
 
     const pathToKey = (path) =>
       (path.length
@@ -5636,16 +5894,69 @@ async function initData() {
 
     const pathToNodeId = (path) => `${blockPrefix}:${pathToKey(path)}`;
 
-    const getDefaultBlockPosition = (path, siblingIndex = 0, siblingCount = 1) => {
-      const parentId = path.length ? pathToNodeId(path.slice(0, -1)) : id;
+    const getParentIdForPath = (path) => (path.length ? pathToNodeId(path.slice(0, -1)) : id);
+
+    const computeBranchCandidate = ({ node, parentId, path, siblingIndex, siblingCount }) => {
       const parentNode = currentNodes.get(parentId);
-      const baseX = Number.parseFloat(parentNode?.dataset?.x || "0");
-      const baseY = Number.parseFloat(parentNode?.dataset?.y || "0");
-      const offsetX = 260;
-      const offsetY = 200;
-      const spread = Math.max(0, siblingCount - 1) * offsetY;
-      const y = baseY - spread / 2 + siblingIndex * offsetY;
-      return { x: baseX + offsetX, y };
+      const parentMetrics = getNodeMetrics(parentNode);
+      const nodeHeight = node.offsetHeight || 0;
+      const verticalStep = Math.max(TREE_VERTICAL_SPACING, nodeHeight + TREE_VERTICAL_MARGIN);
+      const branchSpan = verticalStep * Math.max(0, siblingCount - 1);
+      const parentCenterY = parentMetrics.y + parentMetrics.height / 2;
+      const targetCenterY = parentCenterY - branchSpan / 2 + verticalStep * siblingIndex;
+      const targetY = Number.isFinite(targetCenterY) ? targetCenterY - nodeHeight / 2 : parentMetrics.y;
+      const depth = path.length;
+      const parentRight = parentMetrics.x + parentMetrics.width + TREE_HORIZONTAL_GAP;
+      const candidateX = parentRight + TREE_HORIZONTAL_STEP * Math.max(0, depth);
+      return { x: candidateX, y: targetY };
+    };
+
+    const findClearBlockPosition = (node, candidate, nodeId) => {
+      const nodeHeight = node.offsetHeight || 0;
+      const verticalStep = Math.max(TREE_VERTICAL_SPACING, nodeHeight + TREE_VERTICAL_MARGIN);
+      const verticalOffsets = [0];
+      for (let step = 1; step <= 14; step += 1) {
+        verticalOffsets.push(step);
+        verticalOffsets.push(-step);
+      }
+      const horizontalOffsets = [0];
+      for (let step = 1; step <= 10; step += 1) {
+        horizontalOffsets.push(step * TREE_HORIZONTAL_STEP);
+        horizontalOffsets.push(-step * TREE_HORIZONTAL_STEP);
+      }
+      for (const horizontal of horizontalOffsets) {
+        for (const vertical of verticalOffsets) {
+          const proposed = ensureWithinBounds(node, {
+            x: candidate.x + horizontal,
+            y: candidate.y + vertical * verticalStep,
+          });
+          const rect = getRectForPosition(node, proposed);
+          if (!collidesWithOccupancy(rect, nodeId)) {
+            return proposed;
+          }
+        }
+      }
+      return ensureWithinBounds(node, candidate);
+    };
+
+    const layoutPendingBlocks = () => {
+      if (!pendingBlockLayouts.length) {
+        return;
+      }
+      pendingBlockLayouts
+        .sort((a, b) => {
+          if (a.path.length !== b.path.length) {
+            return a.path.length - b.path.length;
+          }
+          return a.siblingIndex - b.siblingIndex;
+        })
+        .forEach((entry) => {
+          const candidate = computeBranchCandidate(entry);
+          const finalPosition = findClearBlockPosition(entry.node, candidate, entry.nodeId);
+          const applied = applyNodePosition(entry.node, finalPosition);
+          registerOccupancy(entry.node, applied);
+        });
+      pendingBlockLayouts = [];
     };
 
     const renderEmptyMessage = (message) => {
@@ -5671,13 +5982,11 @@ async function initData() {
         blockNode.className = "data-node data-node--block";
         blockNode.dataset.nodeId = nodeId;
         blockNode.setAttribute("data-node", nodeId);
-        blockNode.dataset.parentNode = path.length ? pathToNodeId(path.slice(0, -1)) : id;
+        blockNode.dataset.parentNode = getParentIdForPath(path);
         applyNodeAnimation(blockNode);
 
         const handle = document.createElement("header");
-        handle.className = "data-node__handle data-node__handle--block";
-        blockNode.appendChild(handle);
-
+        handle.className = "data-node__handle";
         const heading = document.createElement("h4");
         heading.className = "data-block__title";
         handle.appendChild(heading);
@@ -5708,12 +6017,15 @@ async function initData() {
           nodeId,
         });
         entry = blockNodes.get(keyPath);
+        canvasElement.appendChild(entry.node);
+        attachNodeDrag(entry.node, nodeId, username);
       }
 
       entry.heading.textContent = blockTitle;
       entry.typeBadge.textContent = typeLabels[type] || type;
       entry.node.dataset.nodePath = JSON.stringify(path);
       entry.node.dataset.blockType = type;
+      entry.node.dataset.parentNode = getParentIdForPath(path);
 
       if (isRoot) {
         entry.removeButton.hidden = true;
@@ -5726,12 +6038,19 @@ async function initData() {
         };
       }
 
-      if (!entry.node.isConnected) {
-        canvasElement.appendChild(entry.node);
-        const savedPosition = layout?.nodes?.[nodeId];
-        const defaultPosition = savedPosition || getDefaultBlockPosition(path, siblingIndex, siblingCount);
-        applyNodePosition(entry.node, defaultPosition);
-        attachNodeDrag(entry.node, nodeId, username);
+      const savedPosition = layout?.nodes?.[nodeId];
+      if (savedPosition && typeof savedPosition.x === "number" && typeof savedPosition.y === "number") {
+        const applied = applyNodePosition(entry.node, savedPosition);
+        registerOccupancy(entry.node, applied);
+      } else {
+        pendingBlockLayouts.push({
+          node: entry.node,
+          nodeId,
+          parentId: getParentIdForPath(path),
+          path,
+          siblingIndex,
+          siblingCount,
+        });
       }
 
       currentNodes.set(nodeId, entry.node);
@@ -5740,6 +6059,12 @@ async function initData() {
     };
 
     const renderBlocks = () => {
+      blockNodes.forEach((entry) => {
+        if (entry?.nodeId) {
+          occupancyMap.delete(entry.nodeId);
+        }
+      });
+      pendingBlockLayouts = [];
       const activeKeys = new Set();
       const nextEdges = [];
 
@@ -5825,6 +6150,7 @@ async function initData() {
       };
 
       buildBlock({ value: draftValue, path: [], title: label, siblingIndex: 0, siblingCount: 1 });
+      layoutPendingBlocks();
 
       let layoutChanged = false;
       blockNodes.forEach((entry, key) => {
@@ -6216,15 +6542,24 @@ async function initData() {
     const viewportHeight = workspaceViewportElement.clientHeight || 0;
     const center = getNodeCenter(node);
     return {
-      x: viewportWidth / 2 - center.x,
-      y: viewportHeight / 2 - center.y,
+      x: viewportWidth / 2 - center.x * currentScale,
+      y: viewportHeight / 2 - center.y * currentScale,
     };
   };
 
   const updateWorkspace = (user) => {
+    if (zoomPersistHandle) {
+      window.clearTimeout(zoomPersistHandle);
+      zoomPersistHandle = null;
+    }
+    pinchState.pointers.clear();
+    resetPinchState();
     if (!user) {
       workspaceEmptyElement.hidden = false;
       workspaceViewportElement.hidden = true;
+      if (zoomControlsElement) {
+        zoomControlsElement.hidden = true;
+      }
       currentNodes = new Map();
       currentEdges = [];
       edgesElement.innerHTML = "";
@@ -6233,6 +6568,9 @@ async function initData() {
 
     workspaceEmptyElement.hidden = true;
     workspaceViewportElement.hidden = false;
+    if (zoomControlsElement) {
+      zoomControlsElement.hidden = false;
+    }
 
     if (cleanupWorkspace) {
       cleanupWorkspace();
@@ -6243,14 +6581,18 @@ async function initData() {
     canvasElement.querySelectorAll(".data-node").forEach((node) => node.remove());
     currentNodes = new Map();
     currentEdges = [];
+    clearOccupancy();
 
     const username = user.profile.username;
     const layout = getUserLayout(username);
+    currentScale = clampScale(layout.zoom || 1);
+    updateZoomDisplay();
 
     const accountNode = createAccountNode(user);
     canvasElement.appendChild(accountNode);
     const accountPosition = layout.nodes.account || DEFAULT_NODE_POSITIONS.account;
-    applyNodePosition(accountNode, accountPosition);
+    const appliedAccountPosition = applyNodePosition(accountNode, accountPosition);
+    registerOccupancy(accountNode, appliedAccountPosition);
     currentNodes.set("account", accountNode);
 
     const editableDefinitions = [
@@ -6299,7 +6641,8 @@ async function initData() {
         x: 0,
         y: 0,
       };
-      applyNodePosition(node, savedPosition);
+      const appliedPosition = applyNodePosition(node, savedPosition);
+      registerOccupancy(node, appliedPosition);
       attachNodeDrag(node, definition.id, username);
       currentNodes.set(definition.id, node);
       currentEdges.push(["account", definition.id]);
@@ -6316,6 +6659,7 @@ async function initData() {
       persistPan(username, startingPan);
     }
     applyPan(startingPan);
+    updateZoomDisplay();
 
     cleanupWorkspace = setupCanvasPan(username);
     updateEdges();
