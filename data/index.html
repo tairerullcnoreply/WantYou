@@ -36,7 +36,10 @@
         <header class="data-panel__header">
           <div class="data-panel__titles">
             <h1>Account data workspace</h1>
-            <p>Review, edit, and synchronize live account records across WantYou.</p>
+            <p>
+              Review, connect, and fine-tune every piece of account data in a visual
+              canvas. Drag to explore and reshape the layout to match your mental model.
+            </p>
           </div>
           <button class="button button--ghost" type="button" data-action="refresh-data">
             Refresh data
@@ -45,7 +48,22 @@
         <p class="data-status" data-data-status role="status">
           Sign in as the WantYou owner to continue.
         </p>
-        <div class="data-grid" data-data-grid hidden></div>
+        <div class="data-panel__body" data-data-body hidden>
+          <aside class="data-sidebar">
+            <h2>Accounts</h2>
+            <ul class="data-account-list" data-account-list></ul>
+          </aside>
+          <div class="data-workspace" data-workspace>
+            <div class="data-workspace__empty" data-workspace-empty>
+              Select an account to load its data graph.
+            </div>
+            <div class="data-workspace__viewport" data-workspace-viewport hidden>
+              <div class="data-canvas" data-data-canvas>
+                <svg class="data-edges" data-data-edges></svg>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
 
