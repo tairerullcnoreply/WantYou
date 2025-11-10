@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WantYou | Account data</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="/assets/wantyou-icon.svg" type="image/svg+xml" />
+  </head>
+  <body data-page="data">
+    <header class="app-header">
+      <div class="app-header__inner container">
+        <a href="/lookup/" class="brand">WantYou</a>
+        <nav class="app-nav" aria-label="App navigation">
+          <a href="/lookup/">Lookup</a>
+          <a href="/messages/">Messages</a>
+          <a href="/profile/" data-nav-profile>Profile</a>
+          <a href="/data/" data-nav-admin aria-current="page">Data</a>
+        </nav>
+        <div class="app-header__actions">
+          <button class="button button--ghost app-header__logout" data-action="logout" type="button">
+            Log out
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container data-layout">
+      <section class="data-panel">
+        <header class="data-panel__header">
+          <div class="data-panel__titles">
+            <h1>Account data workspace</h1>
+            <p>
+              Review, connect, and fine-tune every piece of account data in a visual
+              canvas. Drag to explore and reshape the layout to match your mental model.
+            </p>
+          </div>
+          <button class="button button--ghost" type="button" data-action="refresh-data">
+            Refresh data
+          </button>
+        </header>
+        <p class="data-status" data-data-status role="status">
+          Sign in as the WantYou owner to continue.
+        </p>
+        <div class="data-panel__body" data-data-body hidden>
+          <aside class="data-sidebar">
+            <div class="data-sidebar__search">
+              <label class="sr-only" for="data-account-search">Search accounts</label>
+              <input
+                id="data-account-search"
+                class="data-sidebar__search-input"
+                type="search"
+                name="account-search"
+                placeholder="Search accounts…"
+                autocomplete="off"
+                spellcheck="false"
+                data-account-search
+              />
+            </div>
+            <h2>Accounts</h2>
+            <ul class="data-account-list" data-account-list></ul>
+          </aside>
+          <div class="data-workspace" data-workspace>
+            <div class="data-workspace__empty" data-workspace-empty>
+              Select an account to load its data graph.
+            </div>
+            <div class="data-workspace__viewport" data-workspace-viewport hidden>
+              <div class="data-canvas" data-data-canvas>
+                <svg class="data-edges" data-data-edges></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

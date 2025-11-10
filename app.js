@@ -295,12 +295,39 @@ function setSessionToken(token) {
 
 function clearSessionToken() {
   setSessionToken(null);
+  updateAdminNav(null);
 }
 
 function updateProfileLinks(username) {
   const target = buildProfileUrl(username);
   document.querySelectorAll("[data-nav-profile]").forEach((anchor) => {
     anchor.setAttribute("href", target);
+  });
+}
+
+function updateAdminNav(user) {
+  const isOwner = Boolean(user && user.username === OWNER_USERNAME);
+  document.querySelectorAll(".app-nav").forEach((nav) => {
+    let link = nav.querySelector("[data-nav-admin]");
+    if (isOwner) {
+      if (!link) {
+        link = document.createElement("a");
+        link.dataset.navAdmin = "";
+        link.textContent = "Data";
+        nav.appendChild(link);
+      }
+      link.href = withAiRef("/data/");
+      link.hidden = false;
+      link.removeAttribute("aria-hidden");
+    } else if (link) {
+      if (link.getAttribute("aria-current") === "page") {
+        link.hidden = true;
+        link.setAttribute("aria-hidden", "true");
+        link.href = "/data/";
+      } else {
+        link.remove();
+      }
+    }
   });
 }
 
@@ -599,11 +626,13 @@ async function loadSession() {
     const data = await apiRequest("/session");
     sessionUser = data?.user ?? null;
     updateProfileLinks(sessionUser?.username ?? null);
+    updateAdminNav(sessionUser);
     return sessionUser;
   } catch (error) {
     if (error.status === 401) {
       sessionUser = null;
       updateProfileLinks(null);
+      updateAdminNav(null);
     }
     throw error;
   }
@@ -4072,6 +4101,1058 @@ async function initProfile() {
   });
 }
 
+
+async function initData() {
+  const statusElement = document.querySelector("[data-data-status]");
+  const bodyElement = document.querySelector("[data-data-body]");
+  const accountListElement = document.querySelector("[data-account-list]");
+  const accountSearchInput = document.querySelector("[data-account-search]");
+  const workspaceElement = document.querySelector("[data-workspace]");
+  const workspaceEmptyElement = document.querySelector("[data-workspace-empty]");
+  const workspaceViewportElement = document.querySelector("[data-workspace-viewport]");
+  const canvasElement = document.querySelector("[data-data-canvas]");
+  const edgesElement = canvasElement?.querySelector("[data-data-edges]");
+  const refreshButton = document.querySelector('[data-action="refresh-data"]');
+
+  if (
+    !statusElement ||
+    !bodyElement ||
+    !accountListElement ||
+    !workspaceElement ||
+    !workspaceEmptyElement ||
+    !workspaceViewportElement ||
+    !canvasElement ||
+    !edgesElement ||
+    !accountSearchInput
+  ) {
+    return;
+  }
+
+  const CANVAS_WIDTH = 3200;
+  const CANVAS_HEIGHT = 2200;
+  const PAN_SLOP = 320;
+  const LAYOUT_STORAGE_KEY = "wantyou:data:layout:v1";
+  const DEFAULT_NODE_POSITIONS = {
+    account: { x: 1400, y: 900 },
+    profile: { x: 900, y: 640 },
+    connections: { x: 520, y: 1000 },
+    events: { x: 1400, y: 1280 },
+    posts: { x: 1850, y: 900 },
+  };
+
+  edgesElement.setAttribute("viewBox", `0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`);
+  edgesElement.setAttribute("preserveAspectRatio", "none");
+  edgesElement.setAttribute("width", String(CANVAS_WIDTH));
+  edgesElement.setAttribute("height", String(CANVAS_HEIGHT));
+
+  const setStatus = (message, variant = "info") => {
+    statusElement.textContent = message;
+    statusElement.setAttribute("data-status-variant", variant);
+  };
+
+  const disableRefresh = () => {
+    if (refreshButton) {
+      refreshButton.disabled = true;
+    }
+  };
+
+  const enableRefresh = () => {
+    if (refreshButton) {
+      refreshButton.disabled = false;
+    }
+  };
+
+  const formatJson = (value) => {
+    try {
+      return JSON.stringify(value ?? null, null, 2);
+    } catch (error) {
+      return JSON.stringify(null, null, 2);
+    }
+  };
+
+  const defaultValueForKey = (key) => {
+    if (key === "events" || key === "posts") {
+      return [];
+    }
+    if (key === "connections") {
+      return { incoming: {}, outgoing: {} };
+    }
+    return {};
+  };
+
+  const loadLayouts = () => {
+    try {
+      const raw = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+      if (!raw) {
+        return {};
+      }
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+    } catch (error) {
+      // Ignore storage errors
+    }
+    return {};
+  };
+
+  const saveLayouts = (layouts) => {
+    try {
+      window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layouts));
+    } catch (error) {
+      // Ignore storage errors
+    }
+  };
+
+  if (isAiGuestMode()) {
+    disableRefresh();
+    bodyElement.hidden = true;
+    workspaceElement.hidden = true;
+    setStatus("Data tools are disabled in AI preview mode.", "warning");
+    return;
+  }
+
+  let ownerUser;
+  try {
+    ownerUser = await requireSession();
+  } catch (error) {
+    disableRefresh();
+    bodyElement.hidden = true;
+    workspaceElement.hidden = true;
+    if (error.status === 401) {
+      setStatus("Sign in as the WantYou owner to access this workspace.", "error");
+    } else {
+      setStatus(error?.message || "Unable to verify session.", "error");
+    }
+    return;
+  }
+
+  if (!ownerUser || ownerUser.username !== OWNER_USERNAME) {
+    disableRefresh();
+    bodyElement.hidden = true;
+    workspaceElement.hidden = true;
+    setStatus("Owner access required to view or edit account data.", "error");
+    return;
+  }
+
+  enableRefresh();
+
+  bodyElement.hidden = true;
+  workspaceElement.hidden = false;
+  workspaceEmptyElement.hidden = false;
+  workspaceViewportElement.hidden = true;
+
+  let layouts = loadLayouts();
+  let usersState = [];
+  let activeUsername = null;
+  let currentNodes = new Map();
+  let currentEdges = [];
+  let currentPan = { x: 0, y: 0 };
+  let cleanupWorkspace = null;
+  let resizeListenerAttached = false;
+  const edgeAnimationSeeds = new Map();
+  let accountSearchTerm = "";
+  let accountSearchNormalized = "";
+
+  const getUserLayout = (username) => {
+    const normalized = String(username || "");
+    if (!layouts[normalized]) {
+      layouts[normalized] = { nodes: {}, pan: null };
+    }
+    const entry = layouts[normalized];
+    if (typeof entry.nodes !== "object" || entry.nodes === null) {
+      entry.nodes = {};
+    }
+    if (!entry.pan || typeof entry.pan.x !== "number" || typeof entry.pan.y !== "number") {
+      entry.pan = null;
+    }
+    return entry;
+  };
+
+  const persistNodePosition = (username, nodeId, position) => {
+    const layout = getUserLayout(username);
+    layout.nodes[nodeId] = {
+      x: Math.round(position.x),
+      y: Math.round(position.y),
+    };
+    saveLayouts(layouts);
+  };
+
+  const persistPan = (username, pan) => {
+    const layout = getUserLayout(username);
+    layout.pan = {
+      x: Math.round(pan.x),
+      y: Math.round(pan.y),
+    };
+    saveLayouts(layouts);
+  };
+
+  const ensureWithinBounds = (node, position) => {
+    const width = node.offsetWidth || 0;
+    const height = node.offsetHeight || 0;
+    const maxX = Math.max(0, CANVAS_WIDTH - width);
+    const maxY = Math.max(0, CANVAS_HEIGHT - height);
+    const clampedX = Math.min(Math.max(position.x, 0), maxX);
+    const clampedY = Math.min(Math.max(position.y, 0), maxY);
+    return { x: clampedX, y: clampedY };
+  };
+
+  const applyNodePosition = (node, position) => {
+    const safe = ensureWithinBounds(node, position);
+    node.dataset.x = String(safe.x);
+    node.dataset.y = String(safe.y);
+    node.style.transform = `translate3d(${safe.x}px, ${safe.y}px, 0)`;
+    return safe;
+  };
+
+  const randomBetween = (min, max) => Math.random() * (max - min) + min;
+
+  const applyNodeAnimation = (node) => {
+    if (!node) {
+      return;
+    }
+    node.style.setProperty("--node-animate-delay", `${randomBetween(0, 4).toFixed(2)}s`);
+    node.style.setProperty("--node-animate-duration", `${randomBetween(9, 15).toFixed(2)}s`);
+  };
+
+  const getEdgeKey = (sourceId, targetId) => `${sourceId}__${targetId}`;
+
+  const getEdgeSeed = (sourceId, targetId) => {
+    const key = getEdgeKey(sourceId, targetId);
+    if (!edgeAnimationSeeds.has(key)) {
+      edgeAnimationSeeds.set(key, {
+        delay: randomBetween(0, 3.5),
+        duration: randomBetween(7, 12),
+        offset: Math.floor(randomBetween(0, 120)),
+        hue: randomBetween(18, 36),
+      });
+    }
+    return edgeAnimationSeeds.get(key);
+  };
+
+  const setAccountSearchTerm = (value) => {
+    accountSearchTerm = value ?? "";
+    accountSearchNormalized = accountSearchTerm.trim().toLowerCase();
+    if (accountSearchInput) {
+      accountSearchInput.value = accountSearchTerm;
+      accountSearchInput.dataset.hasValue = accountSearchNormalized ? "true" : "false";
+    }
+  };
+
+  const highlightMatch = (element, text) => {
+    if (!element) {
+      return;
+    }
+    const content = typeof text === "string" ? text : String(text ?? "");
+    if (!accountSearchNormalized) {
+      element.textContent = content;
+      return;
+    }
+    const lower = content.toLowerCase();
+    const index = lower.indexOf(accountSearchNormalized);
+    if (index === -1) {
+      element.textContent = content;
+      return;
+    }
+    const prefix = content.slice(0, index);
+    const match = content.slice(index, index + accountSearchNormalized.length);
+    const suffix = content.slice(index + accountSearchNormalized.length);
+    element.textContent = "";
+    if (prefix) {
+      element.append(prefix);
+    }
+    const mark = document.createElement("mark");
+    mark.textContent = match;
+    element.appendChild(mark);
+    if (suffix) {
+      element.append(suffix);
+    }
+  };
+
+  const getFilteredUsers = () => {
+    if (!accountSearchNormalized) {
+      return usersState;
+    }
+    return usersState.filter((user) => {
+      const username = user?.profile?.username?.toLowerCase?.() ?? "";
+      const fullName = user?.profile?.fullName?.toLowerCase?.() ?? "";
+      return username.includes(accountSearchNormalized) || fullName.includes(accountSearchNormalized);
+    });
+  };
+
+  const getNodeCenter = (node) => {
+    const x = Number.parseFloat(node.dataset.x || "0");
+    const y = Number.parseFloat(node.dataset.y || "0");
+    const width = node.offsetWidth || 0;
+    const height = node.offsetHeight || 0;
+    return { x: x + width / 2, y: y + height / 2 };
+  };
+
+  const buildSquigglePath = (x1, y1, x2, y2) => {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 1) {
+      return `M ${x1} ${y1}`;
+    }
+    const segments = Math.max(3, Math.round(distance / 120));
+    const amplitude = Math.min(60, Math.max(18, distance / 12));
+    const pathParts = [`M ${x1} ${y1}`];
+    for (let index = 1; index <= segments; index += 1) {
+      const t = index / segments;
+      const midT = (index - 0.5) / segments;
+      const cx = x1 + dx * midT;
+      const cy = y1 + dy * midT;
+      const perpX = -dy;
+      const perpY = dx;
+      const length = Math.hypot(perpX, perpY) || 1;
+      const direction = index % 2 === 0 ? -1 : 1;
+      const offset = (amplitude * direction) / 2;
+      const controlX = cx + (perpX / length) * offset;
+      const controlY = cy + (perpY / length) * offset;
+      const px = x1 + dx * t;
+      const py = y1 + dy * t;
+      pathParts.push(`Q ${controlX} ${controlY} ${px} ${py}`);
+    }
+    return pathParts.join(" ");
+  };
+
+  const applyPan = (pan) => {
+    const viewportWidth = workspaceViewportElement.clientWidth || 0;
+    const viewportHeight = workspaceViewportElement.clientHeight || 0;
+    const minX = viewportWidth - CANVAS_WIDTH - PAN_SLOP;
+    const maxX = PAN_SLOP;
+    const minY = viewportHeight - CANVAS_HEIGHT - PAN_SLOP;
+    const maxY = PAN_SLOP;
+    const clampedX = Math.min(Math.max(pan.x, minX), maxX);
+    const clampedY = Math.min(Math.max(pan.y, minY), maxY);
+    currentPan = { x: clampedX, y: clampedY };
+    canvasElement.style.transform = `translate3d(${clampedX}px, ${clampedY}px, 0)`;
+  };
+
+  const updateEdges = () => {
+    edgesElement.innerHTML = "";
+    const fragment = document.createDocumentFragment();
+    currentEdges.forEach(([sourceId, targetId]) => {
+      const sourceNode = currentNodes.get(sourceId);
+      const targetNode = currentNodes.get(targetId);
+      if (!sourceNode || !targetNode) {
+        return;
+      }
+      const start = getNodeCenter(sourceNode);
+      const end = getNodeCenter(targetNode);
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", buildSquigglePath(start.x, start.y, end.x, end.y));
+      const seed = getEdgeSeed(sourceId, targetId);
+      path.dataset.edgeKey = getEdgeKey(sourceId, targetId);
+      if (seed) {
+        path.style.setProperty("--edge-animation-delay", `${seed.delay.toFixed(2)}s`);
+        path.style.setProperty("--edge-animation-duration", `${seed.duration.toFixed(2)}s`);
+        path.style.setProperty("--edge-dash-offset", `${seed.offset}`);
+        path.style.setProperty("--edge-color", `hsla(${Math.round(seed.hue)}, 92%, 60%, 0.75)`);
+      }
+      fragment.appendChild(path);
+    });
+    edgesElement.appendChild(fragment);
+  };
+
+  const attachNodeDrag = (node, nodeId, username) => {
+    const handle = node.querySelector(".data-node__handle");
+    if (!handle) {
+      return;
+    }
+    let pointerId = null;
+    let origin = { x: 0, y: 0 };
+    let start = { x: 0, y: 0 };
+
+    const onPointerDown = (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+      pointerId = event.pointerId;
+      origin = {
+        x: Number.parseFloat(node.dataset.x || "0"),
+        y: Number.parseFloat(node.dataset.y || "0"),
+      };
+      start = { x: event.clientX, y: event.clientY };
+      node.dataset.dragging = "true";
+      handle.setPointerCapture(pointerId);
+      event.preventDefault();
+    };
+
+    const onPointerMove = (event) => {
+      if (pointerId !== event.pointerId) {
+        return;
+      }
+      const dx = event.clientX - start.x;
+      const dy = event.clientY - start.y;
+      const next = ensureWithinBounds(node, { x: origin.x + dx, y: origin.y + dy });
+      applyNodePosition(node, next);
+      updateEdges();
+    };
+
+    const finishDrag = (event) => {
+      if (pointerId !== event.pointerId) {
+        return;
+      }
+      handle.releasePointerCapture(pointerId);
+      pointerId = null;
+      node.dataset.dragging = "false";
+      const finalPosition = {
+        x: Number.parseFloat(node.dataset.x || "0"),
+        y: Number.parseFloat(node.dataset.y || "0"),
+      };
+      persistNodePosition(username, nodeId, finalPosition);
+    };
+
+    handle.addEventListener("pointerdown", onPointerDown);
+    handle.addEventListener("pointermove", onPointerMove);
+    handle.addEventListener("pointerup", finishDrag);
+    handle.addEventListener("pointercancel", finishDrag);
+  };
+
+  const setupCanvasPan = (username) => {
+    let pointerId = null;
+    let start = { x: 0, y: 0 };
+    let origin = { x: 0, y: 0 };
+
+    const onPointerDown = (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+      if (event.target.closest("[data-node]") || event.target.closest(".data-node")) {
+        return;
+      }
+      pointerId = event.pointerId;
+      start = { x: event.clientX, y: event.clientY };
+      origin = { ...currentPan };
+      canvasElement.dataset.panning = "true";
+      canvasElement.setPointerCapture(pointerId);
+      event.preventDefault();
+    };
+
+    const onPointerMove = (event) => {
+      if (pointerId !== event.pointerId) {
+        return;
+      }
+      const dx = event.clientX - start.x;
+      const dy = event.clientY - start.y;
+      applyPan({ x: origin.x + dx, y: origin.y + dy });
+    };
+
+    const finishPan = (event) => {
+      if (pointerId !== event.pointerId) {
+        return;
+      }
+      canvasElement.releasePointerCapture(pointerId);
+      pointerId = null;
+      canvasElement.dataset.panning = "false";
+      persistPan(username, currentPan);
+    };
+
+    canvasElement.addEventListener("pointerdown", onPointerDown);
+    canvasElement.addEventListener("pointermove", onPointerMove);
+    canvasElement.addEventListener("pointerup", finishPan);
+    canvasElement.addEventListener("pointercancel", finishPan);
+
+    return () => {
+      canvasElement.removeEventListener("pointerdown", onPointerDown);
+      canvasElement.removeEventListener("pointermove", onPointerMove);
+      canvasElement.removeEventListener("pointerup", finishPan);
+      canvasElement.removeEventListener("pointercancel", finishPan);
+    };
+  };
+
+  const createAccountNode = (user) => {
+    const node = document.createElement("article");
+    node.className = "data-node data-node--account";
+    node.dataset.nodeId = "account";
+    node.setAttribute("data-node", "account");
+    node.dataset.state = "idle";
+    applyNodeAnimation(node);
+
+    const handle = document.createElement("header");
+    handle.className = "data-node__handle";
+    const title = document.createElement("h3");
+    title.textContent = "Account";
+    handle.appendChild(title);
+    const subtitle = document.createElement("span");
+    subtitle.textContent = `@${user.profile.username}`;
+    handle.appendChild(subtitle);
+    node.appendChild(handle);
+
+    const content = document.createElement("div");
+    content.className = "data-node__content";
+
+    const summary = document.createElement("div");
+    summary.className = "data-node__summary";
+    const displayName = user.profile.fullName?.trim() || `@${user.profile.username}`;
+    let usernameLineElement = null;
+    const name = document.createElement("strong");
+    name.textContent = displayName;
+    summary.appendChild(name);
+    highlightMatch(name, displayName);
+    if (user.profile.fullName?.trim()) {
+      usernameLineElement = document.createElement("span");
+      usernameLineElement.textContent = `@${user.profile.username}`;
+      summary.appendChild(usernameLineElement);
+      highlightMatch(usernameLineElement, `@${user.profile.username}`);
+    }
+    const tagline = user.profile.tagline?.trim();
+    if (tagline) {
+      const taglineEl = document.createElement("span");
+      taglineEl.textContent = tagline;
+      summary.appendChild(taglineEl);
+    }
+    content.appendChild(summary);
+
+    if (Array.isArray(user.profile.badges) && user.profile.badges.length) {
+      const badgeRow = document.createElement("div");
+      badgeRow.className = "data-node__badge-row";
+      user.profile.badges.forEach((badge) => {
+        const badgeEl = document.createElement("span");
+        badgeEl.className = "badge badge--muted";
+        badgeEl.textContent = badge;
+        badgeRow.appendChild(badgeEl);
+      });
+      content.appendChild(badgeRow);
+    }
+
+    const incomingCount = Object.keys(user.connections?.incoming ?? {}).length;
+    const outgoingCount = Object.keys(user.connections?.outgoing ?? {}).length;
+    const eventsCount = Array.isArray(user.events) ? user.events.length : 0;
+    const postsCount = Array.isArray(user.posts) ? user.posts.length : 0;
+
+    const stats = [
+      { label: "Incoming links", value: incomingCount },
+      { label: "Outgoing links", value: outgoingCount },
+      { label: "Events", value: eventsCount },
+      { label: "Posts", value: postsCount },
+    ];
+
+    stats.forEach((entry) => {
+      const row = document.createElement("div");
+      row.className = "data-node__stat";
+      const label = document.createElement("span");
+      label.textContent = entry.label;
+      const value = document.createElement("strong");
+      value.textContent = String(entry.value);
+      row.appendChild(label);
+      row.appendChild(value);
+      content.appendChild(row);
+    });
+
+    const note = document.createElement("p");
+    note.className = "data-node__description";
+    note.textContent = "Drag surrounding nodes to reshape how each dataset connects.";
+    content.appendChild(note);
+
+    const renameForm = document.createElement("form");
+    renameForm.className = "data-node__inline-form";
+    renameForm.setAttribute("autocomplete", "off");
+
+    const renameLabel = document.createElement("label");
+    const renameInputId = `rename-${user.profile.username}`;
+    renameLabel.setAttribute("for", renameInputId);
+    renameLabel.textContent = "Username handle";
+    renameForm.appendChild(renameLabel);
+
+    const renameInput = document.createElement("input");
+    renameInput.className = "data-node__input";
+    renameInput.type = "text";
+    renameInput.autocomplete = "off";
+    renameInput.spellcheck = false;
+    renameInput.id = renameInputId;
+    renameInput.value = user.profile.username;
+    renameForm.appendChild(renameInput);
+
+    const renameActions = document.createElement("div");
+    renameActions.className = "data-node__inline-actions";
+
+    const renameSubmit = document.createElement("button");
+    renameSubmit.type = "submit";
+    renameSubmit.className = "button button--small";
+    renameSubmit.textContent = "Update username";
+    renameActions.appendChild(renameSubmit);
+
+    const renameReset = document.createElement("button");
+    renameReset.type = "button";
+    renameReset.className = "button button--ghost button--small";
+    renameReset.textContent = "Reset";
+    renameActions.appendChild(renameReset);
+
+    renameForm.appendChild(renameActions);
+
+    const renameNote = document.createElement("p");
+    renameNote.className = "data-node__inline-note";
+    renameNote.textContent = "Changes won't touch their previous usernames log.";
+    renameForm.appendChild(renameNote);
+
+    content.appendChild(renameForm);
+
+    const setRenamingState = (renaming) => {
+      node.dataset.state = renaming ? "renaming" : "idle";
+      renameInput.disabled = renaming;
+      renameSubmit.disabled = renaming;
+      renameReset.disabled = renaming;
+    };
+
+    renameReset.addEventListener("click", (event) => {
+      event.preventDefault();
+      renameInput.value = user.profile.username;
+      renameInput.focus();
+    });
+
+    renameForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const currentUsername = user.profile.username;
+      const nextRaw = renameInput.value.trim();
+      if (!nextRaw) {
+        setStatus("Provide a username to continue.", "error");
+        renameInput.focus();
+        return;
+      }
+      const normalizedCurrent = (currentUsername || "").toLowerCase();
+      const normalizedNext = nextRaw.toLowerCase();
+      if (normalizedNext === normalizedCurrent) {
+        setStatus(`@${currentUsername} is already using that handle.`, "info");
+        return;
+      }
+      setRenamingState(true);
+      try {
+        const response = await apiRequest(`/admin/users/${encodeURIComponent(currentUsername)}`, {
+          method: "PUT",
+          body: JSON.stringify({ username: nextRaw }),
+        });
+        const appliedUsername =
+          typeof response?.user?.profile?.username === "string"
+            ? response.user.profile.username
+            : normalizedNext;
+        subtitle.textContent = `@${appliedUsername}`;
+        if (!user.profile.fullName?.trim()) {
+          name.textContent = `@${appliedUsername}`;
+          highlightMatch(name, `@${appliedUsername}`);
+        }
+        if (usernameLineElement) {
+          usernameLineElement.textContent = `@${appliedUsername}`;
+          highlightMatch(usernameLineElement, `@${appliedUsername}`);
+        }
+        setStatus(`Renamed @${currentUsername} to @${appliedUsername}.`, "success");
+        activeUsername = appliedUsername;
+        setAccountSearchTerm("");
+        await loadData({ silent: true });
+      } catch (error) {
+        setStatus(error?.message || `Unable to rename @${user.profile.username}.`, "error");
+        if (renameInput.isConnected) {
+          renameInput.focus();
+        }
+      } finally {
+        if (node.isConnected) {
+          setRenamingState(false);
+        }
+      }
+    });
+
+    node.appendChild(content);
+    return node;
+  };
+
+  const createEditableNode = ({
+    id,
+    username,
+    label,
+    description,
+    key,
+    value,
+    defaultValue,
+  }) => {
+    const node = document.createElement("article");
+    node.className = "data-node";
+    node.dataset.nodeId = id;
+    node.setAttribute("data-node", id);
+    node.dataset.state = "ready";
+    applyNodeAnimation(node);
+
+    const handle = document.createElement("header");
+    handle.className = "data-node__handle";
+    const title = document.createElement("h3");
+    title.textContent = label;
+    handle.appendChild(title);
+    const subtitle = document.createElement("span");
+    subtitle.textContent = `@${username}`;
+    handle.appendChild(subtitle);
+    node.appendChild(handle);
+
+    const content = document.createElement("div");
+    content.className = "data-node__content";
+
+    if (description) {
+      const descriptionEl = document.createElement("p");
+      descriptionEl.className = "data-node__description";
+      descriptionEl.textContent = description;
+      content.appendChild(descriptionEl);
+    }
+
+    const preview = document.createElement("pre");
+    preview.className = "data-node__preview";
+    preview.textContent = formatJson(value);
+    content.appendChild(preview);
+
+    const form = document.createElement("form");
+    form.className = "data-node__form";
+    const textarea = document.createElement("textarea");
+    textarea.className = "data-node__textarea";
+    textarea.value = formatJson(value);
+    form.appendChild(textarea);
+
+    const hint = document.createElement("p");
+    hint.className = "data-node__hint";
+    hint.textContent = "Edit JSON to sync changes directly to WantYou.";
+    form.appendChild(hint);
+
+    const actions = document.createElement("div");
+    actions.className = "data-node__actions";
+    const saveButton = document.createElement("button");
+    saveButton.type = "submit";
+    saveButton.className = "button";
+    saveButton.textContent = "Save changes";
+    actions.appendChild(saveButton);
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "button button--ghost";
+    cancelButton.textContent = "Cancel";
+    actions.appendChild(cancelButton);
+    form.appendChild(actions);
+
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "button button--ghost";
+    editButton.textContent = "Edit JSON";
+    content.appendChild(editButton);
+    content.appendChild(form);
+
+    node.appendChild(content);
+
+    const toggleEditing = (editing) => {
+      if (editing) {
+        node.dataset.state = "editing";
+        requestAnimationFrame(() => {
+          textarea.focus();
+          const length = textarea.value.length;
+          textarea.setSelectionRange(length, length);
+        });
+      } else {
+        node.dataset.state = "ready";
+        textarea.value = preview.textContent;
+      }
+    };
+
+    editButton.addEventListener("click", () => {
+      toggleEditing(true);
+    });
+
+    cancelButton.addEventListener("click", () => {
+      toggleEditing(false);
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      let parsed;
+      try {
+        const trimmed = textarea.value.trim();
+        parsed = trimmed ? JSON.parse(trimmed) : defaultValue;
+      } catch (error) {
+        setStatus(`Unable to parse ${label.toLowerCase()} JSON.`, "error");
+        textarea.focus();
+        return;
+      }
+      node.dataset.state = "saving";
+      try {
+        const body = {};
+        body[key] = parsed;
+        await apiRequest(`/admin/users/${encodeURIComponent(username)}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        setStatus(`Saved ${label.toLowerCase()} for @${username}.`, "success");
+        await loadData({ silent: true });
+      } catch (error) {
+        setStatus(error?.message || `Unable to save ${label.toLowerCase()}.`, "error");
+        if (node.isConnected) {
+          node.dataset.state = "editing";
+        }
+        return;
+      }
+      if (node.isConnected) {
+        preview.textContent = formatJson(parsed);
+        textarea.value = preview.textContent;
+        node.dataset.state = "ready";
+        toggleEditing(false);
+        updateEdges();
+      }
+    });
+
+    return node;
+  };
+
+  const renderAccountList = () => {
+    const users = getFilteredUsers();
+    accountListElement.innerHTML = "";
+    accountListElement.dataset.empty = users.length ? "false" : "true";
+    accountListElement.dataset.searching = accountSearchNormalized ? "true" : "false";
+    if (!users.length) {
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    users.forEach((user, index) => {
+      const listItem = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.username = user.profile.username;
+      button.style.setProperty("--account-animate-delay", `${(index * 0.05).toFixed(2)}s`);
+      const meta = document.createElement("div");
+      meta.className = "data-account-meta";
+      const name = document.createElement("strong");
+      highlightMatch(name, user.profile.fullName?.trim() || `@${user.profile.username}`);
+      meta.appendChild(name);
+      const handle = document.createElement("span");
+      handle.className = "data-account-meta__handle";
+      highlightMatch(handle, `@${user.profile.username}`);
+      meta.appendChild(handle);
+      const detail = document.createElement("span");
+      const incomingCount = Object.keys(user.connections?.incoming ?? {}).length;
+      const outgoingCount = Object.keys(user.connections?.outgoing ?? {}).length;
+      const eventsCount = Array.isArray(user.events) ? user.events.length : 0;
+      const postsCount = Array.isArray(user.posts) ? user.posts.length : 0;
+      detail.textContent = `${incomingCount + outgoingCount} links · ${eventsCount} events · ${postsCount} posts`;
+      meta.appendChild(detail);
+      button.appendChild(meta);
+      listItem.appendChild(button);
+      fragment.appendChild(listItem);
+    });
+    accountListElement.appendChild(fragment);
+    updateAccountSelection(activeUsername);
+  };
+
+  const updateAccountSelection = (username) => {
+    accountListElement.querySelectorAll("button[data-username]").forEach((button) => {
+      button.dataset.active = button.dataset.username === username ? "true" : "false";
+    });
+  };
+
+  const centerOnNode = (node) => {
+    const viewportWidth = workspaceViewportElement.clientWidth || 0;
+    const viewportHeight = workspaceViewportElement.clientHeight || 0;
+    const center = getNodeCenter(node);
+    return {
+      x: viewportWidth / 2 - center.x,
+      y: viewportHeight / 2 - center.y,
+    };
+  };
+
+  const updateWorkspace = (user) => {
+    if (!user) {
+      workspaceEmptyElement.hidden = false;
+      workspaceViewportElement.hidden = true;
+      currentNodes = new Map();
+      currentEdges = [];
+      edgesElement.innerHTML = "";
+      return;
+    }
+
+    workspaceEmptyElement.hidden = true;
+    workspaceViewportElement.hidden = false;
+
+    if (cleanupWorkspace) {
+      cleanupWorkspace();
+      cleanupWorkspace = null;
+    }
+
+    edgeAnimationSeeds.clear();
+    canvasElement.querySelectorAll(".data-node").forEach((node) => node.remove());
+    currentNodes = new Map();
+    currentEdges = [];
+
+    const username = user.profile.username;
+    const layout = getUserLayout(username);
+
+    const accountNode = createAccountNode(user);
+    canvasElement.appendChild(accountNode);
+    const accountPosition = layout.nodes.account || DEFAULT_NODE_POSITIONS.account;
+    applyNodePosition(accountNode, accountPosition);
+    currentNodes.set("account", accountNode);
+
+    const editableDefinitions = [
+      {
+        id: "profile",
+        label: "Profile",
+        description: "Edit core identity details, visibility, and metadata.",
+        key: "profile",
+        value: user.profile ?? {},
+        defaultValue: defaultValueForKey("profile"),
+      },
+      {
+        id: "connections",
+        label: "Connections",
+        description: "Update incoming and outgoing connection graphs.",
+        key: "connections",
+        value: user.connections ?? {},
+        defaultValue: defaultValueForKey("connections"),
+      },
+      {
+        id: "events",
+        label: "Events",
+        description: "Manage spotlight events shown on profiles.",
+        key: "events",
+        value: user.events ?? [],
+        defaultValue: defaultValueForKey("events"),
+      },
+      {
+        id: "posts",
+        label: "Posts",
+        description: "Review and edit posts, moods, and attachments.",
+        key: "posts",
+        value: user.posts ?? [],
+        defaultValue: defaultValueForKey("posts"),
+      },
+    ];
+
+    editableDefinitions.forEach((definition) => {
+      const node = createEditableNode({
+        ...definition,
+        username,
+      });
+      canvasElement.appendChild(node);
+      const savedPosition = layout.nodes[definition.id] || DEFAULT_NODE_POSITIONS[definition.id] || {
+        x: 0,
+        y: 0,
+      };
+      applyNodePosition(node, savedPosition);
+      attachNodeDrag(node, definition.id, username);
+      currentNodes.set(definition.id, node);
+      currentEdges.push(["account", definition.id]);
+    });
+
+    attachNodeDrag(accountNode, "account", username);
+
+    let startingPan = layout.pan;
+    if (!startingPan) {
+      startingPan = centerOnNode(accountNode);
+      persistPan(username, startingPan);
+    }
+    applyPan(startingPan);
+
+    cleanupWorkspace = setupCanvasPan(username);
+    updateEdges();
+    if (!resizeListenerAttached) {
+      window.addEventListener("resize", updateEdges);
+      resizeListenerAttached = true;
+    }
+  };
+
+  const selectAccount = (username, { announce = false } = {}) => {
+    if (!username) {
+      workspaceEmptyElement.hidden = false;
+      workspaceViewportElement.hidden = true;
+      activeUsername = null;
+      updateAccountSelection("");
+      return;
+    }
+    const user = usersState.find((entry) => entry?.profile?.username === username);
+    if (!user) {
+      setStatus(`Account @${username} is no longer available.`, "error");
+      return;
+    }
+    activeUsername = username;
+    updateAccountSelection(username);
+    updateWorkspace(user);
+    if (announce) {
+      const display = user.profile.fullName?.trim() || `@${username}`;
+      setStatus(`Viewing data graph for ${display}.`, "info");
+    }
+  };
+
+  let loading = false;
+
+  const loadData = async ({ silent = false } = {}) => {
+    if (loading) {
+      return;
+    }
+    loading = true;
+    if (!silent) {
+      setStatus("Loading account data…", "info");
+      bodyElement.hidden = true;
+      workspaceEmptyElement.hidden = false;
+      workspaceViewportElement.hidden = true;
+    }
+    disableRefresh();
+    try {
+      const payload = await apiRequest("/admin/data");
+      usersState = Array.isArray(payload?.users) ? payload.users : [];
+      renderAccountList();
+      bodyElement.hidden = false;
+      if (!usersState.length) {
+        workspaceEmptyElement.hidden = false;
+        workspaceEmptyElement.textContent = "No accounts found.";
+        workspaceViewportElement.hidden = true;
+      } else {
+        const preserved = activeUsername && usersState.some((user) => user.profile.username === activeUsername);
+        const targetUsername = preserved ? activeUsername : usersState[0].profile.username;
+        selectAccount(targetUsername, { announce: !silent && !preserved });
+      }
+      if (!silent) {
+        const count = usersState.length;
+        setStatus(`Loaded ${count} ${count === 1 ? "account" : "accounts"}.`, "success");
+      }
+    } catch (error) {
+      setStatus(error?.message || "Unable to load account data.", "error");
+      usersState = [];
+      renderAccountList();
+      bodyElement.hidden = true;
+      workspaceViewportElement.hidden = true;
+      workspaceEmptyElement.hidden = false;
+    } finally {
+      loading = false;
+      enableRefresh();
+    }
+  };
+
+  setAccountSearchTerm(accountSearchInput.value ?? "");
+
+  accountSearchInput.addEventListener("input", (event) => {
+    setAccountSearchTerm(event.target.value ?? "");
+    renderAccountList();
+  });
+
+  accountSearchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && accountSearchNormalized) {
+      event.preventDefault();
+      setAccountSearchTerm("");
+      renderAccountList();
+    }
+  });
+
+  accountListElement.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-username]");
+    if (!button) {
+      return;
+    }
+    selectAccount(button.dataset.username, { announce: true });
+  });
+
+  refreshButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    loadData().catch(() => {});
+  });
+
+  try {
+    await loadData();
+  } catch (error) {
+    // Status already handled in loadData
+  }
+}
+
+
 function initApp() {
   const page = document.body.dataset.page;
   switch (page) {
@@ -4089,6 +5170,9 @@ function initApp() {
       break;
     case "profile":
       initProfile();
+      break;
+    case "data":
+      initData();
       break;
     default:
       break;
