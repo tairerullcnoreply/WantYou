@@ -451,6 +451,10 @@ const DEFAULT_CONNECTION = {
   updatedAt: null,
 };
 
+function normalizeUsername(value = "") {
+  return String(value ?? "").trim().toLowerCase();
+}
+
 function normalizeConnectionState(state) {
   if (!state) {
     return { ...DEFAULT_CONNECTION };
@@ -463,15 +467,85 @@ function normalizeConnectionState(state) {
   };
 }
 
+function normalizeReadReceipts(readAt) {
+  if (!readAt || typeof readAt !== "object") {
+    return {};
+  }
+  const normalized = {};
+  Object.entries(readAt).forEach(([username, iso]) => {
+    const normalizedUsername = normalizeUsername(username);
+    if (!normalizedUsername) {
+      return;
+    }
+    if (typeof iso === "string" && iso.trim()) {
+      normalized[normalizedUsername] = iso;
+    }
+  });
+  return normalized;
+}
+
+function applyReadReceiptsToMessages(messages, receipts, threadUsername) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+  const normalizedThread = normalizeUsername(threadUsername);
+  const threadReadIso = normalizedThread ? receipts[normalizedThread] ?? null : null;
+  const threadReadScore = timestampScore(threadReadIso);
+  return messages.map((message) => {
+    const createdAt =
+      typeof message?.createdAt === "string" && message.createdAt ? message.createdAt : null;
+    const messageReadIso =
+      typeof message?.readAt === "string" && message.readAt
+        ? message.readAt
+        : threadReadIso && createdAt && threadReadScore >= timestampScore(createdAt)
+        ? threadReadIso
+        : null;
+    const readFlag =
+      typeof message?.read === "boolean" ? message.read : Boolean(messageReadIso);
+    return {
+      ...message,
+      id: message?.id ?? "",
+      sender: message?.sender ?? "",
+      text: typeof message?.text === "string" ? message.text : "",
+      createdAt,
+      read: readFlag,
+      readAt: readFlag ? messageReadIso : null,
+    };
+  });
+}
+
 function normalizeThread(thread) {
   if (!thread) return null;
-  const unreadCount = Number.isFinite(thread.unreadCount) && thread.unreadCount > 0 ? Math.floor(thread.unreadCount) : 0;
+  const unreadCount =
+    Number.isFinite(thread.unreadCount) && thread.unreadCount > 0
+      ? Math.floor(thread.unreadCount)
+      : 0;
   const totalMessages = Number.isFinite(thread.totalMessages) && thread.totalMessages >= 0
     ? Math.floor(thread.totalMessages)
     : Array.isArray(thread.messages)
     ? thread.messages.length
     : 0;
   const previousCursor = typeof thread.previousCursor === "string" ? thread.previousCursor : null;
+  const readAt = normalizeReadReceipts(thread.readAt);
+  const normalizedThreadUsername = normalizeUsername(thread.username);
+  const lastReadAt =
+    typeof thread.lastReadAt === "string" && thread.lastReadAt.trim()
+      ? thread.lastReadAt
+      : normalizedThreadUsername
+      ? readAt[normalizedThreadUsername] ?? null
+      : null;
+  const normalizedSelf = sessionUser?.username ? normalizeUsername(sessionUser.username) : null;
+  const viewerReadAt =
+    typeof thread.viewerReadAt === "string" && thread.viewerReadAt.trim()
+      ? thread.viewerReadAt
+      : normalizedSelf
+      ? readAt[normalizedSelf] ?? null
+      : null;
+  const messages = applyReadReceiptsToMessages(
+    Array.isArray(thread.messages) ? thread.messages : [],
+    readAt,
+    thread.username
+  );
   return {
     ...thread,
     inbound: normalizeConnectionState(thread.inbound),
@@ -480,6 +554,10 @@ function normalizeThread(thread) {
     totalMessages,
     hasMore: Boolean(thread.hasMore),
     previousCursor,
+    readAt,
+    lastReadAt,
+    viewerReadAt,
+    messages,
   };
 }
 
@@ -1979,6 +2057,13 @@ function renderThreadView(context, thread, options = {}) {
   const incomingAuthor = inboundAnonymous
     ? inbound.alias?.trim() || "Anonymous"
     : thread.displayName;
+  const normalizedThreadUsername = normalizeUsername(thread.username);
+  const partnerReadAt =
+    thread.lastReadAt ??
+    (normalizedThreadUsername && thread.readAt
+      ? thread.readAt[normalizedThreadUsername] ?? null
+      : null);
+  const partnerReadScore = timestampScore(partnerReadAt);
 
   messageLog.innerHTML = (thread.messages ?? [])
     .map((message) => {
@@ -1989,12 +2074,26 @@ function renderThreadView(context, thread, options = {}) {
       const meta = `${escapeHtml(author)}${
         timestamp ? ` · ${escapeHtml(timestamp)}` : ""
       }`;
+      const messageReadIso =
+        typeof message.readAt === "string" && message.readAt
+          ? message.readAt
+          : partnerReadScore && message.createdAt
+          ? partnerReadScore >= timestampScore(message.createdAt)
+            ? partnerReadAt
+            : null
+          : null;
+      const isRead = outgoing && (message.read === true || Boolean(messageReadIso));
+      const readTime = isRead && messageReadIso ? formatTimestamp(messageReadIso) : "";
+      const receipt = isRead
+        ? `<span class="message__receipt">Read${readTime ? ` · ${escapeHtml(readTime)}` : ""}</span>`
+        : "";
       return `
         <li class="message message--${direction}" data-message-id="${escapeHtml(
           message.id ?? ""
         )}">
           <span class="message__meta">${meta}</span>
           <p>${escapeHtml(message.text ?? "")}</p>
+          ${receipt}
         </li>
       `;
     })
@@ -2218,13 +2317,67 @@ async function initMessages() {
     }
     try {
       const hadUnread = thread.unreadCount > 0;
-      await apiRequest(`/messages/thread/${encodeURIComponent(thread.username)}/read`, {
-        method: "POST",
-      });
+      const result = await apiRequest(
+        `/messages/thread/${encodeURIComponent(thread.username)}/read`,
+        {
+          method: "POST",
+        }
+      );
       thread.unreadCount = 0;
+      const normalizedThreadUsername = normalizeUsername(thread.username);
+      const viewerUsername = sessionUser?.username ? normalizeUsername(sessionUser.username) : null;
+      const receipts = normalizeReadReceipts(result?.readAt);
+      const hasReceiptUpdates = Object.keys(receipts).length > 0;
+      if (hasReceiptUpdates) {
+        thread.readAt = { ...(thread.readAt ?? {}), ...receipts };
+        if (normalizedThreadUsername && thread.readAt[normalizedThreadUsername]) {
+          thread.lastReadAt = thread.readAt[normalizedThreadUsername];
+        }
+        if (viewerUsername && thread.readAt[viewerUsername]) {
+          thread.viewerReadAt = thread.readAt[viewerUsername];
+        }
+        if (Array.isArray(thread.messages)) {
+          thread.messages = applyReadReceiptsToMessages(
+            thread.messages,
+            thread.readAt,
+            thread.username
+          );
+        }
+      }
+      const viewerReadAt =
+        typeof result?.viewerReadAt === "string" && result.viewerReadAt.trim()
+          ? result.viewerReadAt
+          : null;
+      if (viewerReadAt) {
+        thread.viewerReadAt = viewerReadAt;
+        if (viewerUsername) {
+          thread.readAt = {
+            ...(thread.readAt ?? {}),
+            [viewerUsername]: viewerReadAt,
+          };
+        }
+      }
       const summary = threads.find((entry) => entry.username === thread.username);
       if (summary) {
         summary.unreadCount = 0;
+        if (hasReceiptUpdates) {
+          summary.readAt = { ...(summary.readAt ?? {}), ...receipts };
+          if (normalizedThreadUsername && summary.readAt[normalizedThreadUsername]) {
+            summary.lastReadAt = summary.readAt[normalizedThreadUsername];
+          }
+          if (viewerUsername && summary.readAt[viewerUsername]) {
+            summary.viewerReadAt = summary.readAt[viewerUsername];
+          }
+        }
+        if (viewerReadAt) {
+          summary.viewerReadAt = viewerReadAt;
+          if (viewerUsername) {
+            summary.readAt = {
+              ...(summary.readAt ?? {}),
+              [viewerUsername]: viewerReadAt,
+            };
+          }
+        }
       }
       threadMap.set(thread.username, thread);
       if (hadUnread) {
@@ -2260,6 +2413,11 @@ async function initMessages() {
         const existingIds = new Set((thread.messages ?? []).map((message) => message.id));
         const merged = newMessages.filter((message) => !existingIds.has(message.id));
         thread.messages = [...merged, ...(thread.messages ?? [])];
+        thread.messages = applyReadReceiptsToMessages(
+          thread.messages,
+          thread.readAt ?? {},
+          thread.username
+        );
       }
       thread.hasMore = Boolean(older?.hasMore);
       thread.previousCursor = older?.previousCursor ?? null;
@@ -2417,11 +2575,22 @@ async function initMessages() {
         );
         const message = response?.message;
         if (message) {
+          const normalizedSelf = sessionUser?.username ? normalizeUsername(sessionUser.username) : null;
           thread.messages = thread.messages ?? [];
           const currentCount = Number.isFinite(thread.totalMessages)
             ? thread.totalMessages
             : thread.messages.length;
+          thread.readAt = thread.readAt ?? {};
+          if (normalizedSelf) {
+            thread.readAt[normalizedSelf] = message.createdAt ?? new Date().toISOString();
+            thread.viewerReadAt = thread.readAt[normalizedSelf];
+          }
           thread.messages.push(message);
+          thread.messages = applyReadReceiptsToMessages(
+            thread.messages,
+            thread.readAt,
+            thread.username
+          );
           thread.lastMessage = message;
           thread.updatedAt = message.createdAt;
           thread.totalMessages = currentCount + 1;
@@ -2441,6 +2610,13 @@ async function initMessages() {
             summary.inbound = thread.inbound;
             summary.unreadCount = 0;
             summary.totalMessages = thread.totalMessages;
+            if (normalizedSelf && thread.readAt?.[normalizedSelf]) {
+              summary.readAt = {
+                ...(summary.readAt ?? {}),
+                [normalizedSelf]: thread.readAt[normalizedSelf],
+              };
+              summary.viewerReadAt = thread.readAt[normalizedSelf];
+            }
           }
           renderList();
         }

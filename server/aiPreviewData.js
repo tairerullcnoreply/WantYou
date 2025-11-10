@@ -140,6 +140,11 @@ const THREAD_SUMMARIES = [
     updatedAt: minutesAgo(referenceDate, 5),
     unreadCount: 0,
     totalMessages: 4,
+    readAt: {
+      skylar00401: minutesAgo(referenceDate, 2),
+      "ai-preview": minutesAgo(referenceDate, 1),
+    },
+    lastReadAt: minutesAgo(referenceDate, 2),
   },
   {
     username: "am1rpatty",
@@ -157,6 +162,10 @@ const THREAD_SUMMARIES = [
     updatedAt: minutesAgo(referenceDate, 42),
     unreadCount: 0,
     totalMessages: 3,
+    readAt: {
+      "ai-preview": minutesAgo(referenceDate, 12),
+    },
+    lastReadAt: null,
   },
   {
     username: "jordan733",
@@ -170,6 +179,8 @@ const THREAD_SUMMARIES = [
     updatedAt: minutesAgo(referenceDate, 205),
     unreadCount: 0,
     totalMessages: 0,
+    readAt: {},
+    lastReadAt: null,
   },
 ];
 
@@ -184,6 +195,12 @@ const THREAD_DETAILS = new Map([
       badges: ["Verified"],
       inbound: clone(PEOPLE[0].inbound),
       outbound: clone(PEOPLE[0].outbound),
+      readAt: {
+        skylar00401: minutesAgo(referenceDate, 2),
+        "ai-preview": minutesAgo(referenceDate, 1),
+      },
+      lastReadAt: minutesAgo(referenceDate, 2),
+      viewerReadAt: minutesAgo(referenceDate, 1),
       hasMore: false,
       previousCursor: null,
       messages: [
@@ -198,6 +215,8 @@ const THREAD_DETAILS = new Map([
           sender: "ai-preview",
           text: "Happy to have you walk people through the experience.",
           createdAt: minutesAgo(referenceDate, 50),
+          read: true,
+          readAt: minutesAgo(referenceDate, 2),
         },
         {
           id: "m-skylar-3",
@@ -221,6 +240,11 @@ const THREAD_DETAILS = new Map([
       badges: [],
       inbound: clone(PEOPLE[1].inbound),
       outbound: clone(PEOPLE[1].outbound),
+      readAt: {
+        "ai-preview": minutesAgo(referenceDate, 12),
+      },
+      lastReadAt: null,
+      viewerReadAt: minutesAgo(referenceDate, 12),
       hasMore: false,
       previousCursor: null,
       messages: [
@@ -229,6 +253,8 @@ const THREAD_DETAILS = new Map([
           sender: "ai-preview",
           text: "Your dosa night invite sounds incredible!",
           createdAt: minutesAgo(referenceDate, 42),
+          read: false,
+          readAt: null,
         },
         {
           id: "m-amir-2",
@@ -252,6 +278,9 @@ const THREAD_DETAILS = new Map([
       badges: ["Verified"],
       inbound: clone(PEOPLE[2].inbound),
       outbound: clone(PEOPLE[2].outbound),
+      readAt: {},
+      lastReadAt: null,
+      viewerReadAt: minutesAgo(referenceDate, 90),
       hasMore: false,
       previousCursor: null,
       messages: [],
