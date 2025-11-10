@@ -2860,6 +2860,9 @@ function createApp() {
           const lastMessage = meta?.lastMessage ?? null;
           const updatedAt =
             meta?.updatedAt ?? outbound.updatedAt ?? inbound.updatedAt ?? null;
+          const readAt = meta?.readAt ? { ...meta.readAt } : {};
+          const normalizedPerson = normalizeUsername(person.username);
+          const lastReadAt = normalizedPerson ? readAt[normalizedPerson] ?? null : null;
           return {
             username: person.username,
             fullName: person.fullName,
@@ -2878,6 +2881,8 @@ function createApp() {
             updatedAt,
             unreadCount: meta?.unread?.[req.user.username] ?? 0,
             totalMessages: meta?.totalMessages ?? 0,
+            readAt,
+            lastReadAt,
           };
         })
         .filter((thread) => Boolean(thread.lastMessage));
@@ -2926,6 +2931,10 @@ function createApp() {
         ]);
       const inbound = connectionStateFor(normalizedTarget, incoming);
       const outbound = connectionStateFor(normalizedTarget, outgoing);
+      const readAtMap = meta?.readAt ? { ...meta.readAt } : {};
+      const normalizedCurrent = normalizeUsername(req.user.username);
+      const otherReadAt = normalizedTarget ? readAtMap[normalizedTarget] ?? null : null;
+      const otherReadScore = timestampScore(otherReadAt);
       const thread = {
         username: targetUser.username,
         fullName: targetUser.fullName,
@@ -2940,11 +2949,28 @@ function createApp() {
           sender: message.sender,
           text: message.text,
           createdAt: message.createdAt,
+          read:
+            Boolean(
+              otherReadScore &&
+                message.createdAt &&
+                otherReadScore >= timestampScore(message.createdAt)
+            ) || Boolean(message.read),
+          readAt:
+            otherReadAt &&
+            message.createdAt &&
+            otherReadScore >= timestampScore(message.createdAt)
+              ? otherReadAt
+              : typeof message.readAt === "string"
+              ? message.readAt
+              : null,
         })),
         hasMore,
         previousCursor,
         totalMessages: Number.isFinite(total) ? total : messages.length,
         unreadCount: meta?.unread?.[req.user.username] ?? 0,
+        readAt: readAtMap,
+        lastReadAt: otherReadAt ?? null,
+        viewerReadAt: normalizedCurrent ? readAtMap[normalizedCurrent] ?? null : null,
       };
       res.json({ thread });
     } catch (error) {
@@ -2994,7 +3020,14 @@ function createApp() {
     }
     try {
       const meta = await markConversationRead(req.user.username, normalizedTarget);
-      res.json({ unreadCount: meta?.unread?.[req.user.username] ?? 0 });
+      const readAt = meta?.readAt ? { ...meta.readAt } : {};
+      const normalizedCurrent = normalizeUsername(req.user.username);
+      res.json({
+        unreadCount: meta?.unread?.[req.user.username] ?? 0,
+        readAt,
+        lastReadAt: readAt[normalizedTarget] ?? null,
+        viewerReadAt: normalizedCurrent ? readAt[normalizedCurrent] ?? null : null,
+      });
     } catch (error) {
       console.error("Failed to mark conversation read", error);
       res.status(500).json({ message: "Unable to update read state" });
