@@ -451,6 +451,23 @@ const DEFAULT_CONNECTION = {
   updatedAt: null,
 };
 
+const DEFAULT_STREAK = Object.freeze({
+  length: 0,
+  best: 0,
+  activeSince: null,
+  lastExchangeAt: null,
+  awaiting: null,
+  lastMessageAt: null,
+  windowHours: 36,
+});
+
+const DEFAULT_ACCOUNT_SETTINGS = Object.freeze({
+  disabled: false,
+  messagesEnabled: true,
+  readReceiptsEnabled: true,
+  discoverable: true,
+});
+
 function normalizeUsername(value = "") {
   return String(value ?? "").trim().toLowerCase();
 }
@@ -465,6 +482,50 @@ function normalizeConnectionState(state) {
     alias: typeof state.alias === "string" ? state.alias : "",
     updatedAt: state.updatedAt ?? null,
   };
+}
+
+function normalizeStreak(streak) {
+  const normalized = { ...DEFAULT_STREAK };
+  if (!streak || typeof streak !== "object") {
+    return normalized;
+  }
+  const length = Number.parseInt(streak.length, 10);
+  if (Number.isFinite(length) && length > 0) {
+    normalized.length = length;
+  }
+  const best = Number.parseInt(streak.best, 10);
+  if (Number.isFinite(best) && best > 0) {
+    normalized.best = Math.max(best, normalized.length);
+  }
+  ["activeSince", "lastExchangeAt", "lastMessageAt"].forEach((field) => {
+    const value = streak[field];
+    if (typeof value === "string" && value.trim()) {
+      normalized[field] = value;
+    }
+  });
+  const awaiting = typeof streak.awaiting === "string" ? streak.awaiting.trim() : "";
+  normalized.awaiting = awaiting ? normalizeUsername(awaiting) : null;
+  const windowHours = Number.parseFloat(streak.windowHours);
+  if (Number.isFinite(windowHours) && windowHours > 0) {
+    normalized.windowHours = windowHours;
+  }
+  if (normalized.best < normalized.length) {
+    normalized.best = normalized.length;
+  }
+  return normalized;
+}
+
+function normalizeAccountSettings(settings) {
+  const normalized = { ...DEFAULT_ACCOUNT_SETTINGS };
+  if (!settings || typeof settings !== "object") {
+    return normalized;
+  }
+  ["disabled", "messagesEnabled", "readReceiptsEnabled", "discoverable"].forEach((key) => {
+    if (typeof settings[key] === "boolean") {
+      normalized[key] = settings[key];
+    }
+  });
+  return normalized;
 }
 
 function normalizeReadReceipts(readAt) {
@@ -546,6 +607,9 @@ function normalizeThread(thread) {
     readAt,
     thread.username
   );
+  const streak = normalizeStreak(thread.streak);
+  const messagingAllowed = thread.messagingAllowed !== false;
+  const targetDisabled = Boolean(thread.targetDisabled);
   return {
     ...thread,
     inbound: normalizeConnectionState(thread.inbound),
@@ -558,6 +622,9 @@ function normalizeThread(thread) {
     lastReadAt,
     viewerReadAt,
     messages,
+    streak,
+    messagingAllowed,
+    targetDisabled,
   };
 }
 
@@ -810,6 +877,52 @@ function formatRelativeTime(isoString) {
     return `${days} day${days === 1 ? "" : "s"} ago`;
   }
   return date.toLocaleDateString();
+}
+
+function formatWindowHours(hours) {
+  if (!Number.isFinite(hours) || hours <= 0) {
+    return "36";
+  }
+  if (Number.isInteger(hours)) {
+    return String(hours);
+  }
+  return Math.round(hours).toString();
+}
+
+function describeStreakStatus(streak) {
+  const normalized = normalizeStreak(streak);
+  const windowHoursText = formatWindowHours(normalized.windowHours);
+  if (!normalized.lastMessageAt) {
+    return { icon: "", label: "", note: "" };
+  }
+  if (normalized.length > 0) {
+    const label = `${normalized.length} shared ${normalized.length === 1 ? "check-in" : "check-ins"}`;
+    const bestNote = normalized.best > normalized.length ? `Your best streak is ${normalized.best}. ` : "";
+    return {
+      icon: "🔥",
+      label,
+      note: `${bestNote}Reply within ${windowHoursText} hours to keep it going.`,
+    };
+  }
+  return {
+    icon: "🌱",
+    label: "Streak building",
+    note: `Trade messages within ${windowHoursText} hours to start your streak together.`,
+  };
+}
+
+function buildStreakBadge(streak) {
+  const normalized = normalizeStreak(streak);
+  if (!normalized.lastMessageAt) {
+    return "";
+  }
+  if (normalized.length > 0) {
+    const label = `${normalized.length} shared ${normalized.length === 1 ? "check-in" : "check-ins"}`;
+    return `<span class="messages-list__streak" aria-label="${escapeHtml(label)}">🔥 ${escapeHtml(
+      String(normalized.length)
+    )}</span>`;
+  }
+  return `<span class="messages-list__streak messages-list__streak--building" aria-label="Streak building">🌱</span>`;
 }
 
 function formatTimeRemaining(isoString) {
@@ -1980,6 +2093,10 @@ function renderThreadView(context, thread, options = {}) {
     title,
     threadBadges,
     aliasNote,
+    streakContainer,
+    streakIcon,
+    streakLabel,
+    streakNote,
     revealToggle,
     switchAnon,
     requestReveal,
@@ -1987,6 +2104,7 @@ function renderThreadView(context, thread, options = {}) {
     composer,
     placeholder,
     loadMoreButton,
+    threadNotice,
   } = context;
 
   const inbound = normalizeConnectionState(thread.inbound);
@@ -2032,6 +2150,66 @@ function renderThreadView(context, thread, options = {}) {
     } else {
       aliasNote.hidden = true;
     }
+  }
+
+  const streakInfo = describeStreakStatus(thread.streak);
+  const hasMessages = Array.isArray(thread.messages) && thread.messages.length > 0;
+  if (streakContainer) {
+    if (!hasMessages || !streakInfo.label) {
+      streakContainer.hidden = true;
+    } else {
+      streakContainer.hidden = false;
+      if (streakIcon) {
+        if (streakInfo.icon) {
+          streakIcon.textContent = streakInfo.icon;
+          streakIcon.hidden = false;
+        } else {
+          streakIcon.textContent = "";
+          streakIcon.hidden = true;
+        }
+      }
+      if (streakLabel) {
+        streakLabel.textContent = streakInfo.label;
+      }
+      if (streakNote) {
+        streakNote.textContent = streakInfo.note;
+        streakNote.hidden = !streakInfo.note;
+      }
+    }
+  }
+
+  const canMessage = thread.messagingAllowed !== false;
+  if (threadNotice) {
+    if (canMessage) {
+      threadNotice.hidden = true;
+      threadNotice.textContent = "";
+    } else {
+      threadNotice.hidden = false;
+      threadNotice.textContent = thread.targetDisabled
+        ? "This account is disabled right now, so you can't send new messages."
+        : "This person has paused incoming messages.";
+    }
+  }
+
+  if (composer) {
+    composer.classList.toggle("composer--disabled", !canMessage);
+    composer.setAttribute("aria-disabled", String(!canMessage));
+    const textarea = composer.querySelector("textarea");
+    if (textarea) {
+      textarea.disabled = !canMessage;
+    }
+    const buttons = composer.querySelectorAll("button");
+    buttons.forEach((button) => {
+      if (!canMessage) {
+        if (!button.dataset.prevDisabled) {
+          button.dataset.prevDisabled = button.disabled ? "true" : "false";
+        }
+        button.disabled = true;
+      } else if (button.dataset.prevDisabled) {
+        button.disabled = button.dataset.prevDisabled === "true";
+        delete button.dataset.prevDisabled;
+      }
+    });
   }
 
   const canReveal = outbound.status === "want" || outbound.status === "both";
@@ -2109,9 +2287,9 @@ function renderThreadView(context, thread, options = {}) {
   if (preserveScroll && messageLog.scrollHeight) {
     const delta = messageLog.scrollHeight - previousScrollHeight;
     if (delta > 0) {
-      messageLog.scrollTop = delta;
-    }
+    messageLog.scrollTop = delta;
   }
+}
 }
 
 async function initMessages() {
@@ -2124,6 +2302,11 @@ async function initMessages() {
   const title = threadSection.querySelector(".messages-thread__title");
   const threadBadges = threadSection.querySelector("[data-thread-badges]");
   const aliasNote = threadSection.querySelector("[data-alias]");
+  const streakContainer = threadSection.querySelector("[data-thread-streak]");
+  const streakIcon = threadSection.querySelector("[data-thread-streak-icon]");
+  const streakLabel = threadSection.querySelector("[data-thread-streak-label]");
+  const streakNote = threadSection.querySelector("[data-thread-streak-note]");
+  const threadNotice = threadSection.querySelector("[data-thread-notice]");
   const revealToggle = document.getElementById("reveal-toggle");
   const switchAnon = threadSection.querySelector('[data-action="switch-anon"]');
   const requestReveal = threadSection.querySelector('[data-action="request-reveal"]');
@@ -2168,6 +2351,10 @@ async function initMessages() {
     title,
     threadBadges,
     aliasNote,
+    streakContainer,
+    streakIcon,
+    streakLabel,
+    streakNote,
     revealToggle,
     switchAnon,
     requestReveal,
@@ -2175,6 +2362,7 @@ async function initMessages() {
     composer,
     placeholder,
     loadMoreButton,
+    threadNotice,
   };
 
   const fetchThreads = async () => {
@@ -2273,6 +2461,7 @@ async function initMessages() {
       const timeMarkup = timeText
         ? `<span class="messages-list__time">${escapeHtml(timeText)}</span>`
         : "";
+      const streakMarkup = buildStreakBadge(thread.streak);
 
       button.innerHTML = `
         <span class="messages-list__row">
@@ -2285,6 +2474,7 @@ async function initMessages() {
         </span>
         <span class="messages-list__row messages-list__row--bottom">
           <span class="messages-list__preview">${previewText}</span>
+          ${streakMarkup}
           ${unreadMarkup}
         </span>
       `;
@@ -2424,9 +2614,29 @@ async function initMessages() {
       thread.totalMessages = Number.isFinite(older?.totalMessages)
         ? older.totalMessages
         : thread.totalMessages;
+      if (older?.streak) {
+        thread.streak = normalizeStreak(older.streak);
+      }
+      if (typeof older?.messagingAllowed !== "undefined") {
+        thread.messagingAllowed = older.messagingAllowed !== false;
+      }
+      if (typeof older?.targetDisabled !== "undefined") {
+        thread.targetDisabled = Boolean(older.targetDisabled);
+      }
       const summary = threads.find((entry) => entry.username === thread.username);
-      if (summary && Number.isFinite(thread.totalMessages)) {
-        summary.totalMessages = thread.totalMessages;
+      if (summary) {
+        if (Number.isFinite(thread.totalMessages)) {
+          summary.totalMessages = thread.totalMessages;
+        }
+        if (typeof older?.messagingAllowed !== "undefined") {
+          summary.messagingAllowed = thread.messagingAllowed;
+        }
+        if (typeof older?.targetDisabled !== "undefined") {
+          summary.targetDisabled = thread.targetDisabled;
+        }
+        if (older?.streak) {
+          summary.streak = normalizeStreak(older.streak);
+        }
       }
     } catch (error) {
       console.error("Unable to load earlier messages", error);
@@ -2565,6 +2775,10 @@ async function initMessages() {
       event.preventDefault();
       const text = input?.value.trim();
       if (!text) return;
+      if (!thread.messagingAllowed) {
+        window.alert("Messages are paused right now.");
+        return;
+      }
       try {
         const response = await apiRequest(
           `/messages/thread/${encodeURIComponent(thread.username)}`,
@@ -2595,6 +2809,9 @@ async function initMessages() {
           thread.updatedAt = message.createdAt;
           thread.totalMessages = currentCount + 1;
           thread.unreadCount = 0;
+          if (response?.streak) {
+            thread.streak = normalizeStreak(response.streak);
+          }
           threadMap.set(thread.username, thread);
           renderThreadView(context, thread);
           attachThreadControls(thread);
@@ -2608,6 +2825,8 @@ async function initMessages() {
             summary.updatedAt = message.createdAt;
             summary.outbound = thread.outbound;
             summary.inbound = thread.inbound;
+            summary.messagingAllowed = thread.messagingAllowed;
+            summary.targetDisabled = thread.targetDisabled;
             summary.unreadCount = 0;
             summary.totalMessages = thread.totalMessages;
             if (normalizedSelf && thread.readAt?.[normalizedSelf]) {
@@ -2616,6 +2835,9 @@ async function initMessages() {
                 [normalizedSelf]: thread.readAt[normalizedSelf],
               };
               summary.viewerReadAt = thread.readAt[normalizedSelf];
+            }
+            if (response?.streak) {
+              summary.streak = normalizeStreak(response.streak);
             }
           }
           renderList();
@@ -2652,6 +2874,8 @@ async function initMessages() {
           summary.outbound = thread.outbound;
           summary.displayName = thread.displayName;
           summary.badges = thread.badges;
+          summary.messagingAllowed = thread.messagingAllowed;
+          summary.targetDisabled = thread.targetDisabled;
           summary.lastMessage = thread.messages[thread.messages.length - 1] ?? summary.lastMessage ?? null;
           summary.updatedAt =
             thread.messages[thread.messages.length - 1]?.createdAt ??
@@ -2663,6 +2887,7 @@ async function initMessages() {
             Number.isFinite(thread.totalMessages) && thread.totalMessages >= 0
               ? thread.totalMessages
               : thread.messages.length;
+          summary.streak = thread.streak;
         } else {
           threads.push({
             username: thread.username,
@@ -2671,6 +2896,9 @@ async function initMessages() {
             badges: thread.badges,
             inbound: thread.inbound,
             outbound: thread.outbound,
+            messagingAllowed: thread.messagingAllowed,
+            targetDisabled: thread.targetDisabled,
+            streak: thread.streak,
             lastMessage: thread.messages[thread.messages.length - 1] ?? null,
             updatedAt:
               thread.messages[thread.messages.length - 1]?.createdAt ??
@@ -2907,6 +3135,13 @@ async function initProfile() {
   bioEl.textContent = "Add more about yourself so people can get to know you.";
 
   let profileData = null;
+  let accountSettings = { ...DEFAULT_ACCOUNT_SETTINGS };
+  let accountSettingsLoaded = false;
+  let accountSettingsRequest = null;
+  let accountSettingsSaving = false;
+  const accountSettingsSection = document.querySelector("[data-account-settings]");
+  const accountStatus = document.querySelector("[data-account-status]");
+  const deleteAccountButton = document.querySelector('[data-action="delete-account"]');
   let activeEventIndex = 0;
   let eventAutoAdvanceTimer = null;
   let activePostId = null;
@@ -2924,6 +3159,168 @@ async function initProfile() {
     const posts = Array.isArray(profileData?.posts) ? profileData.posts : [];
     return posts.find((entry) => entry.id === postId) ?? null;
   };
+
+  const applyAccountSettings = (settings) => {
+    accountSettings = normalizeAccountSettings(settings);
+    accountSettingsLoaded = true;
+    if (profileData) {
+      profileData.settings = { ...accountSettings };
+    }
+    if (accountSettingsSection) {
+      accountSettingsSection.classList.toggle(
+        "account-settings--disabled",
+        accountSettings.disabled
+      );
+      const inputs = accountSettingsSection.querySelectorAll("input[data-account-setting]");
+      inputs.forEach((input) => {
+        const key = input.dataset.accountSetting;
+        if (!key) return;
+        switch (key) {
+          case "messagesEnabled":
+            input.checked = accountSettings.messagesEnabled && !accountSettings.disabled;
+            input.disabled = accountSettings.disabled;
+            break;
+          case "readReceiptsEnabled":
+            input.checked = accountSettings.readReceiptsEnabled;
+            input.disabled = false;
+            break;
+          case "discoverable":
+            input.checked = accountSettings.discoverable;
+            input.disabled = false;
+            break;
+          case "disabled":
+            input.checked = accountSettings.disabled;
+            input.disabled = false;
+            break;
+          default:
+            break;
+        }
+      });
+    }
+    if (accountStatus) {
+      if (accountSettings.disabled) {
+        accountStatus.hidden = false;
+        accountStatus.textContent =
+          "Your account is disabled. People won't see you in lookup and messages are paused.";
+      } else if (!accountSettings.messagesEnabled) {
+        accountStatus.hidden = false;
+        accountStatus.textContent =
+          "Messaging is paused. Turn it back on when you're ready for new conversations.";
+      } else {
+        accountStatus.hidden = true;
+        accountStatus.textContent = "";
+      }
+    }
+  };
+
+  const loadAccountSettings = async () => {
+    if (accountSettingsLoaded || accountSettingsRequest || !profileData?.canEdit) {
+      return;
+    }
+    accountSettingsRequest = (async () => {
+      try {
+        const response = await apiRequest("/api/account/settings");
+        const settings = response?.settings ?? DEFAULT_ACCOUNT_SETTINGS;
+        applyAccountSettings(settings);
+      } catch (error) {
+        console.warn("Unable to load account settings", error);
+      } finally {
+        accountSettingsRequest = null;
+      }
+    })();
+    return accountSettingsRequest;
+  };
+
+  const saveAccountSettings = async (updates) => {
+    if (!profileData?.canEdit || !updates || typeof updates !== "object") {
+      return;
+    }
+    if (accountSettingsSaving) {
+      applyAccountSettings(accountSettings);
+      return;
+    }
+    const previous = { ...accountSettings };
+    accountSettingsSaving = true;
+    try {
+      const response = await apiRequest("/api/account/settings", {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      });
+      const next = response?.settings ?? { ...previous, ...updates };
+      applyAccountSettings(next);
+    } catch (error) {
+      applyAccountSettings(previous);
+      const message =
+        error?.status === 400
+          ? error?.message || "No changes detected."
+          : error?.message || "We couldn't update those settings right now.";
+      window.alert(message);
+    } finally {
+      accountSettingsSaving = false;
+    }
+  };
+
+  accountSettingsSection?.addEventListener("change", async (event) => {
+    const target = event.target;
+    if (!profileData?.canEdit) {
+      applyAccountSettings(accountSettings);
+      return;
+    }
+    if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+      return;
+    }
+    const key = target.dataset.accountSetting;
+    if (!key) {
+      return;
+    }
+    if (accountSettingsSaving) {
+      applyAccountSettings(accountSettings);
+      return;
+    }
+    if (key === "disabled" && target.checked) {
+      const confirmed = window.confirm(
+        "Disable your account? People won't see you in lookup and messaging will pause."
+      );
+      if (!confirmed) {
+        target.checked = false;
+        return;
+      }
+    }
+    target.disabled = true;
+    await saveAccountSettings({ [key]: Boolean(target.checked) });
+    if (accountSettingsSection?.contains(target)) {
+      const shouldStayDisabled = accountSettings.disabled && key === "messagesEnabled";
+      if (!shouldStayDisabled) {
+        target.disabled = false;
+      }
+    }
+  });
+
+  deleteAccountButton?.addEventListener("click", async () => {
+    if (!profileData?.canEdit) {
+      return;
+    }
+    const confirmed = window.confirm(
+      "Delete your account? This removes your profile, posts, and conversations permanently."
+    );
+    if (!confirmed) {
+      return;
+    }
+    deleteAccountButton.disabled = true;
+    try {
+      await apiRequest("/api/account", { method: "DELETE" });
+      clearSessionToken();
+      window.location.href = "/signup/";
+    } catch (error) {
+      const message =
+        error?.status === 403
+          ? error?.message || "Account deletion isn't available in preview mode."
+          : error?.message || "We couldn't delete your account right now.";
+      window.alert(message);
+    } finally {
+      deleteAccountButton.disabled = false;
+    }
+  });
 
   const getPostInteractionState = (post) => {
     const interactions = post?.interactions ?? {};
@@ -3959,6 +4356,14 @@ async function initProfile() {
       if (window.location.pathname !== canonicalPath) {
         window.history.replaceState({}, "", canonicalPath);
       }
+    }
+
+    if (typeof data.settings !== "undefined") {
+      applyAccountSettings(data.settings);
+    } else if (profileData.canEdit) {
+      loadAccountSettings();
+    } else if (!accountSettingsLoaded) {
+      applyAccountSettings(DEFAULT_ACCOUNT_SETTINGS);
     }
 
     nameEl.textContent = user.fullName ?? "Profile";
