@@ -42,3 +42,4 @@ WantYou is a social platform that enables users to discover and connect with oth
 * [11/22/2025; 1:30 PM UTC] Revamped posts with full-screen media viewer and added like, comment, repost, and share interactions
 * [11/24/2025; 11:10 AM UTC] Added conversation read receipts with backend metadata, UI indicators, and AI preview data updates
 * [11/25/2025; 4:55 PM UTC] Introduced Social Streaks visuals, account controls, and preview data parity for messaging settings
+* [11/26/2025; 2:30 PM UTC] Enabled realtime streaming updates with SSE broadcasts and client refresh hooks across the app

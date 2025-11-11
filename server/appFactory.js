@@ -3,6 +3,7 @@ const os = require("os");
 const fs = require("fs");
 const fsp = require("fs/promises");
 const crypto = require("crypto");
+const { EventEmitter } = require("events");
 const express = require("express");
 const multer = require("multer");
 const aiPreview = require("./aiPreviewData");
@@ -50,6 +51,89 @@ const DEFAULT_STREAK_STATE = Object.freeze({
 
 const MAX_MEDIA_FILE_SIZE = 100 * 1024 * 1024; // 100 MB per GitHub upload limit
 const PROJECT_ROOT = path.resolve(__dirname, "..");
+
+const dataChangeEmitter = new EventEmitter();
+dataChangeEmitter.setMaxListeners(0);
+
+let dataChangeVersion = 0;
+let lastDataChangeSnapshot = {
+  type: "data-changed",
+  version: 0,
+  timestamp: new Date().toISOString(),
+  mutations: [],
+};
+
+const MUTATING_COMMANDS = new Set([
+  "SET",
+  "DEL",
+  "HSET",
+  "HDEL",
+  "LPUSH",
+  "RPUSH",
+  "LREM",
+  "LTRIM",
+  "ZADD",
+  "ZREM",
+]);
+
+function isMutatingCommandName(name) {
+  if (!name) return false;
+  return MUTATING_COMMANDS.has(String(name).toUpperCase());
+}
+
+function describeMutation(command) {
+  if (!Array.isArray(command) || command.length === 0) {
+    return null;
+  }
+  const [name, keyCandidate] = command;
+  if (!isMutatingCommandName(name)) {
+    return null;
+  }
+  const mutation = {
+    command: String(name).toUpperCase(),
+  };
+  if (typeof keyCandidate === "string" && keyCandidate.trim()) {
+    mutation.key = keyCandidate;
+  }
+  return mutation;
+}
+
+function publishDataChange(commands) {
+  if (!Array.isArray(commands) || commands.length === 0) {
+    return;
+  }
+  const seen = new Set();
+  const mutations = commands
+    .map((command) => describeMutation(command))
+    .filter(Boolean)
+    .filter((mutation) => {
+      const identifier = `${mutation.command}:${mutation.key ?? ""}`;
+      if (seen.has(identifier)) {
+        return false;
+      }
+      seen.add(identifier);
+      return true;
+    });
+  if (!mutations.length) {
+    return;
+  }
+  dataChangeVersion += 1;
+  lastDataChangeSnapshot = {
+    type: "data-changed",
+    version: dataChangeVersion,
+    timestamp: new Date().toISOString(),
+    mutations,
+  };
+  try {
+    dataChangeEmitter.emit("data", JSON.stringify(lastDataChangeSnapshot));
+  } catch (error) {
+    console.warn("Unable to publish realtime update", error);
+  }
+}
+
+function latestDataChangeSnapshot() {
+  return lastDataChangeSnapshot;
+}
 
 const EVENT_DURATION_OPTIONS = new Set([6, 12, 24, 48]);
 const EVENT_ACCENTS = new Set(["sunrise", "ocean", "violet", "forest"]);
@@ -799,8 +883,15 @@ async function memoryCommand(command) {
 
 async function memoryPipeline(commands) {
   const results = [];
+  const mutated = [];
   for (const command of commands) {
     results.push(await memoryCommand(command));
+    if (Array.isArray(command) && isMutatingCommandName(command[0])) {
+      mutated.push(command);
+    }
+  }
+  if (mutated.length) {
+    publishDataChange(mutated);
   }
   return results;
 }
@@ -837,12 +928,14 @@ async function redisPipeline(commands) {
     }
 
     const payload = await response.json();
-    return payload.map((entry) => {
+    const results = payload.map((entry) => {
       if (entry.error) {
         throw new Error(entry.error);
       }
       return entry.result ?? null;
     });
+    publishDataChange(commands);
+    return results;
   } catch (error) {
     console.warn("Upstash unavailable, falling back to in-memory store", error);
     upstashUnavailable = true;
@@ -2709,6 +2802,83 @@ function createApp() {
     }
     return next();
   }
+
+  app.get("/api/stream", async (req, res) => {
+    try {
+      if (!isAiPreviewRequest(req)) {
+        const tokenParam = req.query?.token;
+        const token = typeof tokenParam === "string" ? tokenParam.trim() : "";
+        if (!token) {
+          return res.status(401).json({ message: "Authentication required" });
+        }
+        const username = await getSessionUsername(token);
+        if (!username) {
+          return res.status(401).json({ message: "Session expired" });
+        }
+      }
+    } catch (error) {
+      console.error("Unable to authorize realtime stream", error);
+      return res.status(500).json({ message: "Unable to establish realtime updates" });
+    }
+
+    res.set({
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    if (typeof res.flushHeaders === "function") {
+      res.flushHeaders();
+    }
+
+    res.write("retry: 5000\n\n");
+
+    let closed = false;
+    const heartbeat = setInterval(() => {
+      if (closed) return;
+      try {
+        res.write(":keepalive\n\n");
+      } catch (error) {
+        cleanup();
+      }
+    }, 25000);
+
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(heartbeat);
+      dataChangeEmitter.off("data", listener);
+      try {
+        res.end();
+      } catch (error) {
+        // ignore
+      }
+    };
+
+    const listener = (payload) => {
+      if (closed) return;
+      try {
+        res.write(`event: data\ndata: ${payload}\n\n`);
+      } catch (error) {
+        cleanup();
+      }
+    };
+
+    dataChangeEmitter.on("data", listener);
+
+    const snapshot = latestDataChangeSnapshot();
+    if (snapshot?.version > 0) {
+      try {
+        res.write(`event: data\ndata: ${JSON.stringify(snapshot)}\n\n`);
+      } catch (error) {
+        cleanup();
+        return;
+      }
+    }
+
+    req.on("close", cleanup);
+    req.on("error", cleanup);
+  });
 
   app.get("/lookup", (req, res) => {
     res.redirect(301, "/lookup/");
