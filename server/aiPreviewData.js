@@ -8,6 +8,15 @@ function minutesAgo(base, minutes) {
 
 const referenceDate = new Date("2025-01-15T18:30:00.000Z");
 
+const STREAK_WINDOW_HOURS = 36;
+
+const PREVIEW_ACCOUNT_SETTINGS = {
+  disabled: false,
+  messagesEnabled: true,
+  readReceiptsEnabled: true,
+  discoverable: true,
+};
+
 const AI_PREVIEW_USER = {
   fullName: "WantYou Tour Guide",
   username: "ai-preview",
@@ -145,6 +154,17 @@ const THREAD_SUMMARIES = [
       "ai-preview": minutesAgo(referenceDate, 1),
     },
     lastReadAt: minutesAgo(referenceDate, 2),
+    streak: {
+      length: 3,
+      best: 4,
+      activeSince: minutesAgo(referenceDate, 240),
+      lastExchangeAt: minutesAgo(referenceDate, 5),
+      awaiting: null,
+      lastMessageAt: minutesAgo(referenceDate, 5),
+      windowHours: STREAK_WINDOW_HOURS,
+    },
+    messagingAllowed: true,
+    targetDisabled: false,
   },
   {
     username: "am1rpatty",
@@ -166,6 +186,17 @@ const THREAD_SUMMARIES = [
       "ai-preview": minutesAgo(referenceDate, 12),
     },
     lastReadAt: null,
+    streak: {
+      length: 1,
+      best: 2,
+      activeSince: minutesAgo(referenceDate, 120),
+      lastExchangeAt: minutesAgo(referenceDate, 37),
+      awaiting: null,
+      lastMessageAt: minutesAgo(referenceDate, 42),
+      windowHours: STREAK_WINDOW_HOURS,
+    },
+    messagingAllowed: true,
+    targetDisabled: false,
   },
   {
     username: "jordan733",
@@ -181,6 +212,17 @@ const THREAD_SUMMARIES = [
     totalMessages: 0,
     readAt: {},
     lastReadAt: null,
+    streak: {
+      length: 0,
+      best: 0,
+      activeSince: null,
+      lastExchangeAt: null,
+      awaiting: null,
+      lastMessageAt: null,
+      windowHours: STREAK_WINDOW_HOURS,
+    },
+    messagingAllowed: true,
+    targetDisabled: false,
   },
 ];
 
@@ -203,6 +245,17 @@ const THREAD_DETAILS = new Map([
       viewerReadAt: minutesAgo(referenceDate, 1),
       hasMore: false,
       previousCursor: null,
+      streak: {
+        length: 3,
+        best: 4,
+        activeSince: minutesAgo(referenceDate, 240),
+        lastExchangeAt: minutesAgo(referenceDate, 5),
+        awaiting: null,
+        lastMessageAt: minutesAgo(referenceDate, 5),
+        windowHours: STREAK_WINDOW_HOURS,
+      },
+      messagingAllowed: true,
+      targetDisabled: false,
       messages: [
         {
           id: "m-skylar-1",
@@ -247,6 +300,17 @@ const THREAD_DETAILS = new Map([
       viewerReadAt: minutesAgo(referenceDate, 12),
       hasMore: false,
       previousCursor: null,
+      streak: {
+        length: 1,
+        best: 2,
+        activeSince: minutesAgo(referenceDate, 120),
+        lastExchangeAt: minutesAgo(referenceDate, 37),
+        awaiting: null,
+        lastMessageAt: minutesAgo(referenceDate, 42),
+        windowHours: STREAK_WINDOW_HOURS,
+      },
+      messagingAllowed: true,
+      targetDisabled: false,
       messages: [
         {
           id: "m-amir-1",
@@ -283,6 +347,17 @@ const THREAD_DETAILS = new Map([
       viewerReadAt: minutesAgo(referenceDate, 90),
       hasMore: false,
       previousCursor: null,
+      streak: {
+        length: 0,
+        best: 0,
+        activeSince: null,
+        lastExchangeAt: null,
+        awaiting: null,
+        lastMessageAt: null,
+        windowHours: STREAK_WINDOW_HOURS,
+      },
+      messagingAllowed: true,
+      targetDisabled: false,
       messages: [],
       totalMessages: 0,
       unreadCount: 0,
@@ -354,6 +429,8 @@ const PROFILES = new Map([
       ],
       canEdit: false,
       maxUploadSize: 100 * 1024 * 1024,
+      settings: PREVIEW_ACCOUNT_SETTINGS,
+      streakWindowHours: STREAK_WINDOW_HOURS,
     },
   ],
   [
@@ -606,14 +683,19 @@ function getProfilePayload(username) {
   if (!record) {
     return null;
   }
-  const { user, events, posts, canEdit, maxUploadSize } = record;
-  return {
+  const { user, events, posts, canEdit, maxUploadSize, settings, streakWindowHours } = record;
+  const payload = {
     user: clone({ ...user }),
     events: clone(events),
     posts: clone(posts),
     canEdit,
     maxUploadSize,
   };
+  if (settings) {
+    payload.settings = clone(settings);
+  }
+  payload.streakWindowHours = streakWindowHours || STREAK_WINDOW_HOURS;
+  return payload;
 }
 
 module.exports = {

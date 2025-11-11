@@ -118,6 +118,68 @@
         </dl>
       </section>
 
+      <section
+        class="card profile-section profile-section--account"
+        data-account-settings
+        data-own-only
+      >
+        <header class="profile-section__header">
+          <div>
+            <h2>Account controls</h2>
+            <p>Choose how people can reach and see you.</p>
+          </div>
+        </header>
+        <div class="account-settings">
+          <p class="account-settings__status" data-account-status hidden></p>
+          <ul class="account-settings__list">
+            <li>
+              <label class="toggle">
+                <input type="checkbox" data-account-setting="messagesEnabled" />
+                <span>Allow new messages</span>
+              </label>
+              <p class="account-settings__description">
+                Pause to stop new conversations until you turn this back on.
+              </p>
+            </li>
+            <li>
+              <label class="toggle">
+                <input type="checkbox" data-account-setting="readReceiptsEnabled" />
+                <span>Share read receipts</span>
+              </label>
+              <p class="account-settings__description">
+                When off, others won't see if you've read their messages.
+              </p>
+            </li>
+            <li>
+              <label class="toggle">
+                <input type="checkbox" data-account-setting="discoverable" />
+                <span>Show me in lookup</span>
+              </label>
+              <p class="account-settings__description">
+                Hide from lookup when you need a quieter presence.
+              </p>
+            </li>
+            <li>
+              <label class="toggle account-settings__toggle--danger">
+                <input type="checkbox" data-account-setting="disabled" />
+                <span>Disable my account</span>
+              </label>
+              <p class="account-settings__description">
+                Disabled accounts disappear from lookup and pause all messaging.
+              </p>
+            </li>
+          </ul>
+          <div class="account-settings__actions">
+            <button class="button button--ghost" type="button" data-action="delete-account">
+              Delete account
+            </button>
+            <p class="account-settings__description account-settings__description--muted">
+              Deleting removes your profile, posts, and conversations permanently.
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section class="card profile-section profile-section--about">
         <header class="profile-section__header">
           <div>

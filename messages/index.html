@@ -64,6 +64,17 @@
               ></span>
             </div>
             <p class="messages-thread__note" data-alias hidden></p>
+            <div class="messages-thread__streak" data-thread-streak hidden>
+              <span
+                class="messages-thread__streak-icon"
+                data-thread-streak-icon
+                aria-hidden="true"
+              ></span>
+              <div class="messages-thread__streak-copy">
+                <p class="messages-thread__streak-label" data-thread-streak-label></p>
+                <p class="messages-thread__streak-note" data-thread-streak-note hidden></p>
+              </div>
+            </div>
           </div>
           <div class="messages-thread__actions">
             <label class="toggle">
@@ -86,6 +97,8 @@
         </button>
 
         <ul class="messages" id="message-log"></ul>
+
+        <p class="messages-thread__notice" data-thread-notice hidden></p>
 
         <form class="composer composer--messages" id="message-composer" hidden>
           <label class="form__field">

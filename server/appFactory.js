@@ -29,6 +29,25 @@ const DEFAULT_CONNECTION_STATE = Object.freeze({
 
 const USERNAME_CHANGE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+const DEFAULT_USER_SETTINGS = Object.freeze({
+  disabled: false,
+  messagesEnabled: true,
+  discoverable: true,
+  readReceiptsEnabled: true,
+  disabledAt: null,
+});
+
+const STREAK_WINDOW_HOURS = 36;
+const STREAK_WINDOW_MS = STREAK_WINDOW_HOURS * 60 * 60 * 1000;
+const DEFAULT_STREAK_STATE = Object.freeze({
+  length: 0,
+  best: 0,
+  activeSince: null,
+  lastExchangeAt: null,
+  awaiting: null,
+  lastMessageAt: null,
+});
+
 const MAX_MEDIA_FILE_SIZE = 100 * 1024 * 1024; // 100 MB per GitHub upload limit
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 
@@ -388,6 +407,36 @@ function sanitizeLinkEntries(value) {
   return links.slice(0, 5);
 }
 
+function normalizeUserSettings(settings) {
+  const normalized = { ...DEFAULT_USER_SETTINGS };
+  if (settings && typeof settings === "object") {
+    if (typeof settings.disabled === "boolean") {
+      normalized.disabled = settings.disabled;
+    }
+    if (typeof settings.messagesEnabled === "boolean") {
+      normalized.messagesEnabled = settings.messagesEnabled;
+    }
+    if (typeof settings.discoverable === "boolean") {
+      normalized.discoverable = settings.discoverable;
+    }
+    if (typeof settings.readReceiptsEnabled === "boolean") {
+      normalized.readReceiptsEnabled = settings.readReceiptsEnabled;
+    }
+    if (typeof settings.disabledAt === "string" && settings.disabledAt.trim()) {
+      const parsed = new Date(settings.disabledAt);
+      if (!Number.isNaN(parsed.getTime())) {
+        normalized.disabledAt = parsed.toISOString();
+      }
+    }
+  }
+  if (!normalized.disabled) {
+    normalized.disabledAt = null;
+  } else if (!normalized.disabledAt) {
+    normalized.disabledAt = new Date().toISOString();
+  }
+  return normalized;
+}
+
 function sanitizeUserRecord(record) {
   if (!record || !record.username) {
     throw new Error("User record must include a username");
@@ -436,6 +485,7 @@ function sanitizeUserRecord(record) {
     links: sanitizeLinkEntries(record.links ?? []),
     birthdate,
     ageRange: determineAgeRange(birthdate),
+    settings: normalizeUserSettings(record.settings),
   };
 }
 
@@ -455,6 +505,7 @@ function buildUserSummaryPayload(user) {
     sexuality: user.sexuality ?? "",
     birthdate: user.birthdate ?? null,
     ageRange: user.ageRange ?? null,
+    settings: normalizeUserSettings(user.settings),
   });
 }
 
@@ -839,6 +890,132 @@ function conversationMetaKey(id) {
   return `conversation:${id}:meta`;
 }
 
+function normalizeStreakState(streak, { lastMessage = null, now = Date.now() } = {}) {
+  const safe = { ...DEFAULT_STREAK_STATE };
+  if (streak && typeof streak === "object") {
+    const length = Number.parseInt(streak.length, 10);
+    if (Number.isFinite(length) && length > 0) {
+      safe.length = length;
+    }
+    const best = Number.parseInt(streak.best, 10);
+    if (Number.isFinite(best) && best > 0) {
+      safe.best = Math.max(best, safe.length);
+    }
+    ["activeSince", "lastExchangeAt", "lastMessageAt"].forEach((field) => {
+      const value = streak[field];
+      if (typeof value === "string" && value.trim()) {
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) {
+          safe[field] = parsed.toISOString();
+        }
+      }
+    });
+    if (typeof streak.awaiting === "string") {
+      const normalized = normalizeUsername(streak.awaiting);
+      safe.awaiting = normalized || null;
+    }
+  }
+  if (lastMessage?.createdAt && !safe.lastMessageAt) {
+    const parsed = new Date(lastMessage.createdAt);
+    if (!Number.isNaN(parsed.getTime())) {
+      safe.lastMessageAt = parsed.toISOString();
+    }
+  }
+  if (safe.lastMessageAt) {
+    const lastMessageTime = Date.parse(safe.lastMessageAt);
+    if (Number.isNaN(lastMessageTime)) {
+      safe.lastMessageAt = null;
+    } else if (now - lastMessageTime > STREAK_WINDOW_MS) {
+      safe.length = 0;
+      safe.activeSince = null;
+      safe.lastExchangeAt = null;
+      safe.awaiting = null;
+    }
+  }
+  if (safe.activeSince && Number.isNaN(Date.parse(safe.activeSince))) {
+    safe.activeSince = null;
+  }
+  if (safe.lastExchangeAt && Number.isNaN(Date.parse(safe.lastExchangeAt))) {
+    safe.lastExchangeAt = null;
+  }
+  if (safe.best < safe.length) {
+    safe.best = safe.length;
+  }
+  return safe;
+}
+
+function advanceConversationStreak(meta, message, sender, recipient) {
+  const nowIso = message.createdAt;
+  const nowMs = Date.parse(nowIso);
+  const previousLastMessage = meta?.lastMessage ?? null;
+  const streak = normalizeStreakState(meta?.streak, {
+    lastMessage: previousLastMessage,
+    now: Number.isFinite(nowMs) ? nowMs : Date.now(),
+  });
+
+  const previousSender = normalizeUsername(previousLastMessage?.sender);
+  const previousTimeIso = previousLastMessage?.createdAt ?? streak.lastMessageAt;
+  const previousTime = previousTimeIso ? Date.parse(previousTimeIso) : NaN;
+  const waitingFor = normalizeUsername(recipient);
+
+  streak.lastMessageAt = Number.isFinite(nowMs) ? new Date(nowMs).toISOString() : nowIso ?? null;
+
+  if (!previousSender || !previousTimeIso || Number.isNaN(previousTime)) {
+    streak.awaiting = waitingFor;
+    if (!streak.activeSince && streak.lastMessageAt) {
+      streak.activeSince = streak.lastMessageAt;
+    }
+    return streak;
+  }
+
+  if (previousSender === normalizeUsername(sender)) {
+    streak.awaiting = waitingFor;
+    if (!streak.activeSince && previousTimeIso) {
+      streak.activeSince = previousTimeIso;
+    }
+    return normalizeStreakState(streak, { lastMessage: { createdAt: streak.lastMessageAt }, now: Number.isFinite(nowMs) ? nowMs : Date.now() });
+  }
+
+  if (Number.isFinite(nowMs) && nowMs - previousTime <= STREAK_WINDOW_MS) {
+    const nextLength = Math.max(0, streak.length) + 1;
+    streak.length = nextLength;
+    streak.best = Math.max(streak.best, nextLength);
+    if (!streak.activeSince && previousTimeIso) {
+      streak.activeSince = previousTimeIso;
+    }
+    streak.lastExchangeAt = streak.lastMessageAt;
+    streak.awaiting = waitingFor;
+    return streak;
+  }
+
+  streak.length = 0;
+  streak.activeSince = streak.lastMessageAt;
+  streak.lastExchangeAt = null;
+  streak.awaiting = waitingFor;
+  return streak;
+}
+
+function filterReadReceiptsForViewer(readAt, viewerUsername, otherUsername, otherSettings) {
+  const result = {};
+  Object.entries(readAt || {}).forEach(([username, iso]) => {
+    const normalized = normalizeUsername(username);
+    if (!normalized) return;
+    if (typeof iso === "string" && iso.trim()) {
+      result[normalized] = iso;
+    }
+  });
+  const otherNormalized = normalizeUsername(otherUsername);
+  if (otherNormalized && otherSettings && otherSettings.readReceiptsEnabled === false) {
+    delete result[otherNormalized];
+  }
+  return result;
+}
+
+function exposeStreak(meta) {
+  const normalized = normalizeStreakState(meta?.streak, { lastMessage: meta?.lastMessage });
+  return { ...normalized, windowHours: STREAK_WINDOW_HOURS };
+}
+
 function upgradeConversationMeta(meta) {
   const safe = {
     lastMessage: null,
@@ -896,6 +1073,8 @@ function upgradeConversationMeta(meta) {
       .map((username) => normalizeUsername(username))
       .filter(Boolean);
   }
+
+  safe.streak = normalizeStreakState(meta.streak, { lastMessage: safe.lastMessage });
 
   return safe;
 }
@@ -1131,6 +1310,7 @@ async function saveUser({ fullName, username, password }) {
     links: [],
     birthdate: null,
     ageRange: null,
+    settings: { ...DEFAULT_USER_SETTINGS },
   };
   return writeUserRecord(record);
 }
@@ -1280,7 +1460,7 @@ async function migrateUserAssociations(oldUsername, newUsername) {
   }
   await redisCommand(["DEL", selectedThreadKey(oldUsername)]);
 
-  const users = await listUsers();
+  const users = await listUsers({ includeHidden: true });
   const usernames = users.map((entry) => entry.username);
   await Promise.all(
     users.map(async (entry) => {
@@ -1360,7 +1540,8 @@ async function renameUserAccount(user, newUsername, updates = {}, options = {}) 
   return { ...saved, passwordHash: user.passwordHash };
 }
 
-async function listUsers() {
+async function listUsers(options = {}) {
+  const { includeHidden = false } = options;
   const entries = await redisCommand(["HGETALL", "users"]);
   if (!Array.isArray(entries)) {
     return [];
@@ -1371,40 +1552,50 @@ async function listUsers() {
     const raw = entries[index + 1];
     if (!username) continue;
     const parsed = parseJsonSafe(raw, null);
-      if (parsed) {
-        let profilePicturePath =
-          typeof parsed.profilePicturePath === "string" ? parsed.profilePicturePath : "";
-        if (!profilePicturePath) {
-          const fullRecord = await getUser(username);
-          profilePicturePath = fullRecord?.profilePicturePath ?? "";
-        }
-        const ageRange = parsed.ageRange ?? determineAgeRange(parsed.birthdate);
-        users.push({
-          username,
-          fullName: parsed.fullName,
-          tagline: parsed.tagline ?? "",
-          badges: enforceBadgeRules(username, parsed.badges),
-          userId: parsed.userId ?? null,
-          profilePicturePath,
-          previousUsernames: Array.isArray(parsed.previousUsernames)
-            ? parsed.previousUsernames.filter(Boolean)
-            : [],
-          ageRange: ageRange ?? null,
-        });
-      } else {
-        users.push({
-          username,
-          fullName: raw,
-          tagline: "",
-          badges: [],
-          userId: null,
-          profilePicturePath: "",
-          previousUsernames: [],
-          ageRange: null,
-        });
+    if (parsed) {
+      const settings = normalizeUserSettings(parsed.settings);
+      if (!includeHidden && (settings.disabled || settings.discoverable === false)) {
+        continue;
       }
+      let profilePicturePath =
+        typeof parsed.profilePicturePath === "string" ? parsed.profilePicturePath : "";
+      if (!profilePicturePath) {
+        const fullRecord = await getUser(username);
+        profilePicturePath = fullRecord?.profilePicturePath ?? "";
+      }
+      const ageRange = parsed.ageRange ?? determineAgeRange(parsed.birthdate);
+      users.push({
+        username,
+        fullName: parsed.fullName,
+        tagline: parsed.tagline ?? "",
+        badges: enforceBadgeRules(username, parsed.badges),
+        userId: parsed.userId ?? null,
+        profilePicturePath,
+        previousUsernames: Array.isArray(parsed.previousUsernames)
+          ? parsed.previousUsernames.filter(Boolean)
+          : [],
+        ageRange: ageRange ?? null,
+        settings,
+      });
+    } else {
+      const fallbackSettings = { ...DEFAULT_USER_SETTINGS };
+      if (!includeHidden && (fallbackSettings.disabled || fallbackSettings.discoverable === false)) {
+        continue;
+      }
+      users.push({
+        username,
+        fullName: raw,
+        tagline: "",
+        badges: [],
+        userId: null,
+        profilePicturePath: "",
+        previousUsernames: [],
+        ageRange: null,
+        settings: fallbackSettings,
+      });
     }
-    return users;
+  }
+  return users;
 }
 
 async function createSession(username) {
@@ -1584,9 +1775,80 @@ function connectionStateFor(username, map = {}) {
   return buildConnectionState(map[username]);
 }
 
-async function getLookupPeople(currentUsername) {
+async function deleteUserAccount(username) {
+  const normalized = normalizeUsername(username);
+  if (!normalized) {
+    return null;
+  }
+  const user = await getUser(normalized);
+  if (!user) {
+    return null;
+  }
+  const [events, posts] = await Promise.all([
+    listUserEvents(normalized),
+    listUserPosts(normalized),
+  ]);
+  const eventAttachments = events.flatMap((event) => event.attachments ?? []);
+  const postAttachments = posts.flatMap((post) => post.attachments ?? []);
+  await Promise.all([
+    cleanupAttachments(eventAttachments),
+    cleanupAttachments(postAttachments),
+    user.profilePicturePath ? removeMediaLocation(user.profilePicturePath) : Promise.resolve(),
+  ]);
+
+  const otherUsers = await listUsers({ includeHidden: true });
+  await Promise.all(
+    otherUsers
+      .filter((entry) => entry.username !== normalized)
+      .map(async (entry) => {
+        const other = entry.username;
+        const [otherOutgoing, otherIncoming] = await Promise.all([
+          getOutgoingConnections(other),
+          getIncomingConnections(other),
+        ]);
+        let outgoingChanged = false;
+        if (otherOutgoing[normalized]) {
+          delete otherOutgoing[normalized];
+          outgoingChanged = true;
+        }
+        if (outgoingChanged) {
+          await writeConnectionMap(outgoingConnectionsKey(other), otherOutgoing);
+        }
+        let incomingChanged = false;
+        if (otherIncoming[normalized]) {
+          delete otherIncoming[normalized];
+          incomingChanged = true;
+        }
+        if (incomingChanged) {
+          await writeConnectionMap(incomingConnectionsKey(other), otherIncoming);
+        }
+        const convoId = conversationId(normalized, other);
+        if (convoId) {
+          await redisPipeline([
+            ["DEL", conversationMessagesKey(convoId)],
+            ["DEL", conversationMetaKey(convoId)],
+          ]);
+        }
+      })
+  );
+
+  await redisPipeline([
+    ["DEL", outgoingConnectionsKey(normalized)],
+    ["DEL", incomingConnectionsKey(normalized)],
+    ["DEL", selectedThreadKey(normalized)],
+    ["DEL", userEventsKey(normalized)],
+    ["DEL", userPostsKey(normalized)],
+    ["DEL", userKey(normalized)],
+    ["HDEL", "users", normalized],
+  ]);
+
+  return user;
+}
+
+async function getLookupPeople(currentUsername, options = {}) {
+  const { includeHidden = false } = options;
   const [users, incoming, outgoing] = await Promise.all([
-    listUsers(),
+    listUsers({ includeHidden }),
     getIncomingConnections(currentUsername),
     getOutgoingConnections(currentUsername),
   ]);
@@ -1607,6 +1869,7 @@ async function getLookupPeople(currentUsername) {
       ageRange: user.ageRange ?? null,
       inbound: connectionStateFor(user.username, incoming),
       outbound: connectionStateFor(user.username, outgoing),
+      settings: normalizeUserSettings(user.settings),
     }));
 }
 
@@ -1771,6 +2034,7 @@ async function appendConversationMessage(from, to, text) {
   if (sender) {
     readAt[sender] = message.createdAt;
   }
+  const streak = advanceConversationStreak(existingMeta, message, sender, recipient);
   const meta = {
     lastMessage: message,
     updatedAt: message.createdAt,
@@ -1783,6 +2047,7 @@ async function appendConversationMessage(from, to, text) {
   } else {
     meta.participants = [sender, recipient].filter(Boolean);
   }
+  meta.streak = normalizeStreakState(streak, { lastMessage: message });
   meta.messageCount = meta.totalMessages;
   await redisPipeline([
     ["RPUSH", conversationMessagesKey(id), JSON.stringify(message)],
@@ -2264,7 +2529,7 @@ async function buildAdminUserPayload(username) {
 }
 
 async function listAdminUsers() {
-  const summaries = await listUsers();
+  const summaries = await listUsers({ includeHidden: true });
   const usernames = summaries.map((entry) => entry.username).filter(Boolean);
   const users = [];
   for (const username of usernames) {
@@ -2339,6 +2604,13 @@ function publicUser(user) {
   };
 }
 
+function sessionUserPayload(user) {
+  return {
+    ...publicUser(user),
+    settings: normalizeUserSettings(user.settings),
+  };
+}
+
 function normalizeAttachments(attachments) {
   if (!Array.isArray(attachments)) return [];
   return attachments
@@ -2407,7 +2679,7 @@ async function authenticate(req, res, next) {
       await destroySession(token);
       return res.status(401).json({ message: "Account missing" });
     }
-    req.user = publicUser(user);
+    req.user = sessionUserPayload(user);
     req.sessionToken = token;
     req.aiGuest = false;
     next();
@@ -2565,7 +2837,7 @@ function createApp() {
       res.json({
         message: "Logged in",
         token,
-        user: publicUser(user),
+        user: sessionUserPayload(user),
       });
     } catch (error) {
       console.error("Failed to log in", error);
@@ -2579,6 +2851,112 @@ function createApp() {
       return;
     }
     res.json({ user: req.user });
+  });
+
+  app.get("/api/account/settings", authenticate, async (req, res) => {
+    if (req.aiGuest) {
+      return res
+        .status(403)
+        .json({ message: "Account settings are unavailable in preview mode" });
+    }
+    try {
+      const user = await getUser(req.user.username);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.json({
+        settings: normalizeUserSettings(user.settings),
+        streakWindowHours: STREAK_WINDOW_HOURS,
+      });
+    } catch (error) {
+      console.error("Failed to load account settings", error);
+      res.status(500).json({ message: "Unable to load account settings" });
+    }
+  });
+
+  app.patch("/api/account/settings", authenticate, async (req, res) => {
+    if (req.aiGuest) {
+      return res
+        .status(403)
+        .json({ message: "Account settings are unavailable in preview mode" });
+    }
+    try {
+      const user = await getUser(req.user.username);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const updates = req.body ?? {};
+      let settings = normalizeUserSettings(user.settings);
+      let changed = false;
+
+      if (Object.prototype.hasOwnProperty.call(updates, "disabled")) {
+        const nextDisabled = Boolean(updates.disabled);
+        if (nextDisabled !== settings.disabled) {
+          settings.disabled = nextDisabled;
+          settings.disabledAt = nextDisabled ? new Date().toISOString() : null;
+          if (nextDisabled) {
+            settings.messagesEnabled = false;
+          }
+          changed = true;
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(updates, "messagesEnabled")) {
+        const nextMessages = Boolean(updates.messagesEnabled);
+        if (settings.messagesEnabled !== nextMessages) {
+          settings.messagesEnabled = nextMessages;
+          changed = true;
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(updates, "readReceiptsEnabled")) {
+        const nextReceipts = Boolean(updates.readReceiptsEnabled);
+        if (settings.readReceiptsEnabled !== nextReceipts) {
+          settings.readReceiptsEnabled = nextReceipts;
+          changed = true;
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(updates, "discoverable")) {
+        const nextDiscoverable = Boolean(updates.discoverable);
+        if (settings.discoverable !== nextDiscoverable) {
+          settings.discoverable = nextDiscoverable;
+          changed = true;
+        }
+      }
+
+      if (!changed) {
+        return res.status(400).json({ message: "Provide settings to update" });
+      }
+
+      const saved = await writeUserRecord({ ...user, settings });
+      req.user = sessionUserPayload(saved);
+      res.json({ settings, streakWindowHours: STREAK_WINDOW_HOURS });
+    } catch (error) {
+      console.error("Failed to update account settings", error);
+      res.status(500).json({ message: "Unable to update account settings" });
+    }
+  });
+
+  app.delete("/api/account", authenticate, async (req, res) => {
+    if (req.aiGuest) {
+      return res
+        .status(403)
+        .json({ message: "Account deletion is unavailable in preview mode" });
+    }
+    try {
+      const deleted = await deleteUserAccount(req.user.username);
+      if (!deleted) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      if (req.sessionToken) {
+        await destroySession(req.sessionToken);
+      }
+      res.status(204).end();
+    } catch (error) {
+      console.error("Failed to delete account", error);
+      res.status(500).json({ message: "Unable to delete account" });
+    }
   });
 
   app.post("/api/logout", authenticate, async (req, res) => {
@@ -2850,8 +3228,9 @@ function createApp() {
       return;
     }
     try {
-      const people = await getLookupPeople(req.user.username);
+      const people = await getLookupPeople(req.user.username, { includeHidden: true });
       const metaMap = await getConversationMetaRecords(req.user.username, people);
+      const viewerUsername = normalizeUsername(req.user.username);
       const threads = people
         .map((person) => {
           const inbound = person.inbound;
@@ -2860,9 +3239,17 @@ function createApp() {
           const lastMessage = meta?.lastMessage ?? null;
           const updatedAt =
             meta?.updatedAt ?? outbound.updatedAt ?? inbound.updatedAt ?? null;
-          const readAt = meta?.readAt ? { ...meta.readAt } : {};
+          const otherSettings = person.settings ?? DEFAULT_USER_SETTINGS;
+          const readAt = filterReadReceiptsForViewer(
+            meta?.readAt ?? {},
+            req.user.username,
+            person.username,
+            otherSettings
+          );
           const normalizedPerson = normalizeUsername(person.username);
           const lastReadAt = normalizedPerson ? readAt[normalizedPerson] ?? null : null;
+          const viewerReadAt = viewerUsername ? readAt[viewerUsername] ?? null : null;
+          const streak = exposeStreak(meta);
           return {
             username: person.username,
             fullName: person.fullName,
@@ -2883,6 +3270,10 @@ function createApp() {
             totalMessages: meta?.totalMessages ?? 0,
             readAt,
             lastReadAt,
+            viewerReadAt,
+            messagingAllowed: otherSettings.messagesEnabled && !otherSettings.disabled,
+            targetDisabled: Boolean(otherSettings.disabled),
+            streak,
           };
         })
         .filter((thread) => Boolean(thread.lastMessage));
@@ -2918,6 +3309,7 @@ function createApp() {
       if (!targetUser) {
         return res.status(404).json({ message: "User not found" });
       }
+      const targetSettings = normalizeUserSettings(targetUser.settings);
       const limit = Number.parseInt(req.query.limit, 10);
       const [{ messages, hasMore, previousCursor, total }, incoming, outgoing, meta] =
         await Promise.all([
@@ -2931,10 +3323,18 @@ function createApp() {
         ]);
       const inbound = connectionStateFor(normalizedTarget, incoming);
       const outbound = connectionStateFor(normalizedTarget, outgoing);
-      const readAtMap = meta?.readAt ? { ...meta.readAt } : {};
+      const readAtMap = filterReadReceiptsForViewer(
+        meta?.readAt ?? {},
+        req.user.username,
+        normalizedTarget,
+        targetSettings
+      );
       const normalizedCurrent = normalizeUsername(req.user.username);
       const otherReadAt = normalizedTarget ? readAtMap[normalizedTarget] ?? null : null;
       const otherReadScore = timestampScore(otherReadAt);
+      const viewerReadAt = normalizedCurrent ? readAtMap[normalizedCurrent] ?? null : null;
+      const canShowReceipts = targetSettings.readReceiptsEnabled !== false;
+      const streak = exposeStreak(meta);
       const thread = {
         username: targetUser.username,
         fullName: targetUser.fullName,
@@ -2950,18 +3350,18 @@ function createApp() {
           text: message.text,
           createdAt: message.createdAt,
           read:
+            canShowReceipts &&
             Boolean(
               otherReadScore &&
                 message.createdAt &&
                 otherReadScore >= timestampScore(message.createdAt)
-            ) || Boolean(message.read),
+            ),
           readAt:
+            canShowReceipts &&
             otherReadAt &&
             message.createdAt &&
             otherReadScore >= timestampScore(message.createdAt)
               ? otherReadAt
-              : typeof message.readAt === "string"
-              ? message.readAt
               : null,
         })),
         hasMore,
@@ -2970,7 +3370,10 @@ function createApp() {
         unreadCount: meta?.unread?.[req.user.username] ?? 0,
         readAt: readAtMap,
         lastReadAt: otherReadAt ?? null,
-        viewerReadAt: normalizedCurrent ? readAtMap[normalizedCurrent] ?? null : null,
+        viewerReadAt,
+        messagingAllowed: targetSettings.messagesEnabled && !targetSettings.disabled,
+        targetDisabled: Boolean(targetSettings.disabled),
+        streak,
       };
       res.json({ thread });
     } catch (error) {
@@ -2994,11 +3397,21 @@ function createApp() {
       if (!targetUser) {
         return res.status(404).json({ message: "User not found" });
       }
+      const targetSettings = normalizeUserSettings(targetUser.settings);
+      if (targetSettings.disabled) {
+        return res.status(403).json({ message: "This account is currently disabled." });
+      }
+      if (targetSettings.messagesEnabled === false) {
+        return res
+          .status(403)
+          .json({ message: "This person has paused new messages right now." });
+      }
       const message = await appendConversationMessage(
         req.user.username,
         normalizedTarget,
         trimmed
       );
+      const meta = await getConversationMeta(req.user.username, normalizedTarget);
       res.status(201).json({
         message: {
           id: message.id,
@@ -3006,6 +3419,7 @@ function createApp() {
           text: message.text,
           createdAt: message.createdAt,
         },
+        streak: exposeStreak(meta),
       });
     } catch (error) {
       console.error("Failed to save message", error);
@@ -3019,8 +3433,15 @@ function createApp() {
       return res.status(400).json({ message: "A valid username is required" });
     }
     try {
+      const targetUser = await getUser(normalizedTarget);
+      const targetSettings = normalizeUserSettings(targetUser?.settings);
       const meta = await markConversationRead(req.user.username, normalizedTarget);
-      const readAt = meta?.readAt ? { ...meta.readAt } : {};
+      const readAt = filterReadReceiptsForViewer(
+        meta?.readAt ?? {},
+        req.user.username,
+        normalizedTarget,
+        targetSettings
+      );
       const normalizedCurrent = normalizeUsername(req.user.username);
       res.json({
         unreadCount: meta?.unread?.[req.user.username] ?? 0,
@@ -3175,13 +3596,15 @@ function createApp() {
         const [incoming, outgoing, users] = await Promise.all([
           getIncomingConnections(req.user.username),
           getOutgoingConnections(req.user.username),
-          listUsers(),
+          listUsers({ includeHidden: true }),
         ]);
         const userMap = new Map(users.map((user) => [user.username, user]));
         response.stats = countStatuses(incoming);
         response.anonymous = buildAnonymousList({ incoming, userMap });
         response.recent = buildRecentUpdates({ incoming, outgoing, userMap });
         response.activity.statusTotals = response.stats;
+        response.settings = normalizeUserSettings(targetUser.settings);
+        response.streakWindowHours = STREAK_WINDOW_HOURS;
       }
 
       res.json(response);
