@@ -307,11 +307,17 @@ function setSessionToken(token) {
   } catch (error) {
     console.warn("Unable to persist session token", error);
   }
+  if (token) {
+    connectToRealtime({ resetVersion: true });
+  } else {
+    disconnectRealtimeUpdates();
+  }
 }
 
 function clearSessionToken() {
   setSessionToken(null);
   updateAdminNav(null);
+  disconnectRealtimeUpdates();
 }
 
 function updateProfileLinks(username) {
@@ -319,6 +325,124 @@ function updateProfileLinks(username) {
   document.querySelectorAll("[data-nav-profile]").forEach((anchor) => {
     anchor.setAttribute("href", target);
   });
+}
+
+function closeRealtimeSource() {
+  if (realtimeSource) {
+    try {
+      realtimeSource.close();
+    } catch (error) {
+      console.warn("Unable to close realtime stream", error);
+    }
+  }
+  realtimeSource = null;
+}
+
+function clearRealtimeReconnectTimer() {
+  if (realtimeReconnectTimer) {
+    window.clearTimeout(realtimeReconnectTimer);
+    realtimeReconnectTimer = null;
+  }
+}
+
+function disconnectRealtimeUpdates() {
+  closeRealtimeSource();
+  clearRealtimeReconnectTimer();
+  realtimeBackoffMs = 2000;
+  lastRealtimeVersion = 0;
+}
+
+function scheduleRealtimeReconnect() {
+  if (realtimeReconnectTimer) {
+    return;
+  }
+  if (isAiGuestMode()) {
+    return;
+  }
+  const token = getSessionToken();
+  if (!token) {
+    disconnectRealtimeUpdates();
+    return;
+  }
+  const delay = Math.min(realtimeBackoffMs, REALTIME_MAX_BACKOFF_MS);
+  realtimeReconnectTimer = window.setTimeout(() => {
+    realtimeReconnectTimer = null;
+    realtimeBackoffMs = Math.min(realtimeBackoffMs * 1.5, REALTIME_MAX_BACKOFF_MS);
+    connectToRealtime();
+  }, delay);
+}
+
+function connectToRealtime({ resetVersion = false } = {}) {
+  if (typeof window === "undefined" || typeof window.EventSource === "undefined") {
+    return;
+  }
+  if (isAiGuestMode()) {
+    return;
+  }
+  const token = getSessionToken();
+  if (!token) {
+    return;
+  }
+  if (resetVersion) {
+    lastRealtimeVersion = 0;
+  }
+  closeRealtimeSource();
+  clearRealtimeReconnectTimer();
+  const params = new URLSearchParams();
+  params.set("token", token);
+  const url = withAiRef(`/api/stream?${params.toString()}`);
+  try {
+    const source = new EventSource(url);
+    realtimeSource = source;
+    source.addEventListener("open", () => {
+      realtimeBackoffMs = 2000;
+    });
+    source.addEventListener("error", () => {
+      closeRealtimeSource();
+      scheduleRealtimeReconnect();
+    });
+    source.addEventListener("data", (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        const version = Number(payload?.version);
+        if (!Number.isFinite(version) || version <= 0) {
+          return;
+        }
+        if (version <= lastRealtimeVersion) {
+          return;
+        }
+        lastRealtimeVersion = version;
+        if (pendingMutations > 0) {
+          return;
+        }
+        window.dispatchEvent(new CustomEvent("wantyou:data-changed", { detail: payload }));
+      } catch (error) {
+        console.warn("Unable to process realtime update", error);
+      }
+    });
+  } catch (error) {
+    console.warn("Unable to connect to realtime updates", error);
+    scheduleRealtimeReconnect();
+  }
+}
+
+function initializeRealtimeUpdates() {
+  if (typeof window === "undefined" || typeof window.EventSource === "undefined") {
+    return;
+  }
+  window.addEventListener("storage", (event) => {
+    if (event.key !== SESSION_TOKEN_KEY) {
+      return;
+    }
+    if (event.newValue) {
+      connectToRealtime({ resetVersion: true });
+    } else {
+      disconnectRealtimeUpdates();
+    }
+  });
+  if (getSessionToken()) {
+    connectToRealtime();
+  }
 }
 
 function updateAdminNav(user) {
@@ -400,6 +524,7 @@ async function apiRequest(path, options = {}) {
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
+  const mutatingRequest = !isReadOnlyMethod(method);
   if (isAiGuestMode()) {
     if (!isReadOnlyMethod(method)) {
       const error = new Error("Interactions are disabled in AI preview mode.");
@@ -414,33 +539,42 @@ async function apiRequest(path, options = {}) {
     headers.set("Content-Type", "application/json");
   }
   init.headers = headers;
+  try {
+    if (mutatingRequest) {
+      pendingMutations = Math.max(0, pendingMutations);
+      pendingMutations += 1;
+    }
+    const response = await fetch(url, init);
 
-  const response = await fetch(url, init);
+    if (response.status === 204) {
+      return null;
+    }
 
-  if (response.status === 204) {
-    return null;
-  }
+    const text = await response.text();
+    let data = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        data = { message: text };
+      }
+    }
 
-  const text = await response.text();
-  let data = null;
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch (error) {
-      data = { message: text };
+    if (!response.ok) {
+      if (response.status === 401 && token) {
+        clearSessionToken();
+      }
+      const error = new Error(data?.message || `Request failed with status ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    return data;
+  } finally {
+    if (mutatingRequest) {
+      pendingMutations = Math.max(0, pendingMutations - 1);
     }
   }
-
-  if (!response.ok) {
-    if (response.status === 401 && token) {
-      clearSessionToken();
-    }
-    const error = new Error(data?.message || `Request failed with status ${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
-
-  return data;
 }
 
 const MAX_ALIAS_LENGTH = 40;
@@ -750,6 +884,13 @@ function promptForBirthdate(initialValue = "") {
   }
 }
 let sessionUser = null;
+
+let pendingMutations = 0;
+let realtimeSource = null;
+let realtimeReconnectTimer = null;
+let lastRealtimeVersion = 0;
+let realtimeBackoffMs = 2000;
+const REALTIME_MAX_BACKOFF_MS = 60000;
 
 function escapeHtml(value = "") {
   return value
@@ -2083,6 +2224,37 @@ async function initLookup() {
     latestPeople = [];
     updateSurpriseAvailability();
   }
+
+  let realtimeRefreshPending = false;
+  let realtimeRefreshing = false;
+
+  const refreshLookupRealtime = async () => {
+    if (realtimeRefreshing) {
+      return;
+    }
+    realtimeRefreshing = true;
+    try {
+      const data = await apiRequest("/lookup");
+      renderPeople(data?.people ?? []);
+    } catch (error) {
+      console.warn("Unable to refresh lookup data", error);
+    } finally {
+      realtimeRefreshing = false;
+    }
+  };
+
+  const scheduleRealtimeRefresh = () => {
+    if (realtimeRefreshPending) {
+      return;
+    }
+    realtimeRefreshPending = true;
+    window.setTimeout(() => {
+      realtimeRefreshPending = false;
+      refreshLookupRealtime();
+    }, 250);
+  };
+
+  window.addEventListener("wantyou:data-changed", scheduleRealtimeRefresh);
 }
 
 function renderThreadView(context, thread, options = {}) {
@@ -2970,6 +3142,108 @@ async function initMessages() {
       error?.message || "We couldn't load conversations right now."
     )}</li>`;
   }
+
+  let realtimeMessagesPending = false;
+  let realtimeMessagesRefreshing = false;
+
+  const refreshThreadSummaries = async () => {
+    try {
+      const nextThreads = await fetchThreads();
+      const activeUsername = activeThread?.username ?? null;
+      const preservedMessages = activeThread?.messages ?? null;
+      threads = nextThreads;
+      threadMap.clear();
+      threads.forEach((thread) => {
+        const entry = { ...thread, messages: null };
+        if (activeUsername && thread.username === activeUsername && preservedMessages) {
+          entry.messages = preservedMessages;
+        }
+        threadMap.set(thread.username, entry);
+      });
+      renderList();
+    } catch (error) {
+      console.warn("Unable to refresh conversation list", error);
+    }
+  };
+
+  const refreshActiveThreadView = async () => {
+    if (!activeThread?.username) {
+      return;
+    }
+    const username = activeThread.username;
+    try {
+      const previousScrollHeight = messageLog.scrollHeight;
+      const detail = await fetchThreadDetail(username);
+      if (!detail) {
+        return;
+      }
+      detail.messages = detail.messages ?? [];
+      activeThread = detail;
+      threadMap.set(username, detail);
+      const summary = threads.find((entry) => entry.username === username);
+      if (summary) {
+        summary.inbound = detail.inbound;
+        summary.outbound = detail.outbound;
+        summary.displayName = detail.displayName;
+        summary.fullName = detail.fullName;
+        summary.badges = detail.badges;
+        summary.messagingAllowed = detail.messagingAllowed;
+        summary.targetDisabled = detail.targetDisabled;
+        summary.lastMessage = detail.messages[detail.messages.length - 1] ?? summary.lastMessage ?? null;
+        summary.updatedAt =
+          detail.messages[detail.messages.length - 1]?.createdAt ??
+          detail.updatedAt ??
+          summary.updatedAt ??
+          null;
+        summary.unreadCount = detail.unreadCount ?? summary.unreadCount ?? 0;
+        summary.totalMessages =
+          Number.isFinite(detail.totalMessages) && detail.totalMessages >= 0
+            ? detail.totalMessages
+            : detail.messages.length;
+        summary.streak = detail.streak;
+      }
+      renderList();
+      updateListSelection(username);
+      renderThreadView(context, detail, {
+        preserveScroll: true,
+        previousScrollHeight,
+      });
+      attachThreadControls(detail);
+      try {
+        await markThreadRead(detail);
+      } catch (error) {
+        console.warn("Unable to mark conversation read during realtime refresh", error);
+      }
+    } catch (error) {
+      console.warn("Unable to refresh active conversation", error);
+    }
+  };
+
+  const refreshMessagesRealtime = async () => {
+    if (realtimeMessagesRefreshing || loadingThread) {
+      return;
+    }
+    realtimeMessagesRefreshing = true;
+    try {
+      await refreshThreadSummaries();
+      await refreshActiveThreadView();
+    } finally {
+      realtimeMessagesRefreshing = false;
+    }
+  };
+
+  const scheduleRealtimeRefresh = () => {
+    if (realtimeMessagesPending) {
+      return;
+    }
+    realtimeMessagesPending = true;
+    window.setTimeout(() => {
+      realtimeMessagesPending = false;
+      refreshMessagesRealtime();
+    }, 250);
+  };
+
+  window.addEventListener("wantyou:data-changed", scheduleRealtimeRefresh);
 }
 
 async function initProfile() {
@@ -4734,6 +5008,37 @@ async function initProfile() {
     taglineEl.textContent = error?.message || "We couldn't load this profile right now.";
   }
 
+  let profileRealtimePending = false;
+  let profileRealtimeRefreshing = false;
+
+  const refreshProfileRealtime = async () => {
+    if (profileRealtimeRefreshing) {
+      return;
+    }
+    profileRealtimeRefreshing = true;
+    try {
+      const data = await apiRequest(buildProfileRequestPath());
+      renderProfile(data);
+    } catch (error) {
+      console.warn("Unable to refresh profile", error);
+    } finally {
+      profileRealtimeRefreshing = false;
+    }
+  };
+
+  const scheduleProfileRefresh = () => {
+    if (profileRealtimePending) {
+      return;
+    }
+    profileRealtimePending = true;
+    window.setTimeout(() => {
+      profileRealtimePending = false;
+      refreshProfileRealtime();
+    }, 300);
+  };
+
+  window.addEventListener("wantyou:data-changed", scheduleProfileRefresh);
+
   const openDialog = (dialog) => {
     if (!dialog) return false;
     if (typeof dialog.showModal === "function") {
@@ -6200,6 +6505,32 @@ async function initData() {
   } catch (error) {
     // Status already handled in loadData
   }
+
+  let realtimeDataPending = false;
+
+  const refreshDataRealtime = async () => {
+    if (loading) {
+      return;
+    }
+    try {
+      await loadData({ silent: true });
+    } catch (error) {
+      console.warn("Unable to refresh admin data", error);
+    }
+  };
+
+  const scheduleDataRefresh = () => {
+    if (realtimeDataPending) {
+      return;
+    }
+    realtimeDataPending = true;
+    window.setTimeout(() => {
+      realtimeDataPending = false;
+      refreshDataRealtime();
+    }, 400);
+  };
+
+  window.addEventListener("wantyou:data-changed", scheduleDataRefresh);
 }
 
 
@@ -6233,5 +6564,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initializeAiGuestMode();
   populateCurrentYears();
   setupGlobalControls();
+  initializeRealtimeUpdates();
   initApp();
 });
